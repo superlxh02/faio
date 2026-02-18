@@ -72,14 +72,14 @@ int main() {
 
 ### 1. 结构体与辅助类
 
-| 类型 / 接口                    | 功能说明                                                                                                                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `faio::Error`                  | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                         |
-| `faio::expected<T, Error>`     | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                            |
-| `faio::net::address`           | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。   |
-| `faio::net::v4addr`            | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
-| `faio::net::v6addr`            | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
-| `faio::runtime::ConfigBuilder` | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。 |
+| 类型 / 接口                | 功能说明                                                                                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `faio::Error`              | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                         |
+| `faio::expected<T, Error>` | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                            |
+| `faio::net::address`       | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。   |
+| `faio::net::v4addr`        | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
+| `faio::net::v6addr`        | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
+| `faio::ConfigBuilder`      | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。 |
 
 ---
 
@@ -97,7 +97,7 @@ int main() {
 faio::runtime_context ctx;
 
 // 或使用 ConfigBuilder 自定义
-auto config = faio::runtime::ConfigBuilder{}
+auto config = faio::ConfigBuilder{}
     .set_num_workers(5)
     .set_num_events(2058)
     .build();
