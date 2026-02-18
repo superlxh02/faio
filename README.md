@@ -190,7 +190,7 @@ auto [x, y, z] = faio::wait_all(ctx, a(), b(), c());
 可与 `co_await` 配合的互斥锁；支持 `lock()`、`unlock()`、`try_lock()`。
 
 ```cpp
-#include "faio/sync.hpp"
+#include "faio/faio.hpp"
 
 faio::sync::mutex mtx;
 int shared_value = 0;
@@ -258,7 +258,7 @@ receiver.close();
 挂起当前协程指定时长。
 
 ```cpp
-#include "faio/time.hpp"
+#include "faio/faio.hpp"
 
 co_await faio::time::sleep(std::chrono::milliseconds(100));
 co_await faio::time::sleep(std::chrono::seconds(1));
