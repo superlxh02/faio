@@ -1,12 +1,12 @@
 # Fast Async IO (faio)
 
-## 1. 项目简介
+## 项目简介
 
 **Fast Async IO**（faio）是一个基于 **C++20 协程** 与 **io_uring** 的高性能异步 IO 库，面向 Linux 平台。它提供基于协程的通用异步任务调度和并发，同时提供了基于协程语义的网络（TCP/UDP）、时间与同步原语操作。
 
 ---
 
-## 2. 项目特点
+## 项目特点
 
 - **基于 Proactor 模式（io_uring）**：采用 Proactor 异步模型，底层使用 Linux io_uring 。
 - **基于 C++20 协程**：基于C++20协程封装faio::task `<T>`。
@@ -17,18 +17,18 @@
 
 ---
 
-## 3. 项目环境
+## 项目环境
 
-| 项目     | 要求                                                                                                                     |
-| -------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 操作系统 | Linux（依赖 io_uring，内核 5.1+ 推荐 5.10+）                                                                             |
-| 编译器   | 支持 C++23 的 GCC 或 Clang                                                                                               |
-| 构建     | CMake 3.20+                                                                                                              |
+| 项目     | 要求                                                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 操作系统 | Linux（依赖 io_uring，内核 5.1+ 推荐 5.10+）                                                                                   |
+| 编译器   | 支持 C++23 的 GCC 或 Clang                                                                                                     |
+| 构建     | CMake 3.20+                                                                                                                    |
 | 依赖     | [liburing](https://github.com/axboe/liburing)（io_uring 用户态库） ;  [fastlog](https://github.com/superlxh02/FastLog)(日志库) |
 
 ---
 
-## 5.简单示例
+## 简单示例
 
 ```cpp
 #include "faio/faio.hpp"
@@ -68,26 +68,24 @@ int main() {
 
 ```
 
-## 5. 接口使用指南
+## 接口使用指南
 
-### 5.1 结构体与重要辅助类
+### 1. 结构体与辅助类
 
-以下类型与工具在编写协程与网络代码时常用，统一用表格列出，便于查阅。
-
-| 类型 / 接口                      | 功能说明                                                                                                                                                                                     |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `faio::Error`                  | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                               |
-| `faio::expected<T, Error>`     | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                                      |
-| `faio::net::address`           | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。 |
-| `faio::net::v4addr`            | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                                         |
-| `faio::net::v6addr`            | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                                         |
-| `faio::runtime::ConfigBuilder` | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。   |
+| 类型 / 接口                    | 功能说明                                                                                                                                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `faio::Error`                  | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                         |
+| `faio::expected<T, Error>`     | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                            |
+| `faio::net::address`           | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。   |
+| `faio::net::v4addr`            | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
+| `faio::net::v6addr`            | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
+| `faio::runtime::ConfigBuilder` | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。 |
 
 ---
 
-### 5.2 主要接口
+### 2. 主要接口
 
-#### 5.2.1 运行时
+#### 2.1 运行时
 
 **`faio::runtime_context`**
 异步运行时上下文，构造时根据配置启动多 Worker 线程池。提供 `config()`、`stop()`、`running()`。
@@ -113,7 +111,7 @@ if (ctx.running())
 
 ---
 
-#### 5.2.2 协程：协程类型与并发
+#### 2.2 协程：协程类型与并发
 
 **`faio::task<T>`**
 协程类型，支持 `co_await`、`co_return`；可被 `spawn`、`block_on`、`wait_all` 使用。
@@ -186,7 +184,7 @@ auto [x, y, z] = faio::wait_all(ctx, a(), b(), c());
 
 ---
 
-#### 5.2.3 协程：同步原语
+#### 2.3 协程：同步原语
 
 **`faio::sync::mutex`**
 可与 `co_await` 配合的互斥锁；支持 `lock()`、`unlock()`、`try_lock()`。
@@ -254,7 +252,7 @@ receiver.close();
 
 ---
 
-#### 5.2.4 协程：时间操作
+#### 2.4 协程：时间操作
 
 **`faio::time::sleep(duration)`**
 挂起当前协程指定时长。
@@ -318,7 +316,7 @@ co_await ticker.tick();
 
 ---
 
-#### 5.2.5 网络 IO：TCP
+#### 2.5 网络 IO：TCP
 
 **`faio::net::address::parse(host_name, port)`**
 解析主机名/IP 与端口，得到 `expected<address, Error>`。
@@ -390,7 +388,7 @@ auto peer = stream.peer_addr().value();
 
 ---
 
-#### 5.2.6 网络 IO：UDP
+#### 2.6 网络 IO：UDP
 
 **`faio::net::UdpDatagram::bind(addr)`**
 在给定地址上绑定 UDP 套接字。
@@ -447,7 +445,7 @@ auto peer = socket.peer_addr().value();
 
 ---
 
-#### 5.2.7 文件 IO（faio::io）
+#### 2.7 文件 IO（faio::io）
 
 `faio::io` 提供基于 io_uring 的底层异步 IO 接口，网络层的 TCP/UDP 读写内部也依赖这些接口。除套接字外，可直接用于**文件**的打开、读写、同步与关闭。所有接口均返回可 `co_await` 的 awaitable，resume 后得到 `expected<T, Error>`；支持与 `faio::time::timeout` / `timeout_at` 组合做超时控制。
 
@@ -467,21 +465,21 @@ faio::task<void> read_file() {
 
 其余文件 IO 接口如下表，用法均为 `co_await faio::io::xxx(...)`，返回值均为 `expected<T, Error>`。
 
-| 接口                                               | 功能说明                                   |
-| -------------------------------------------------- | ------------------------------------------ |
-| `open(path, flags, mode)`                        | 异步打开文件，返回 fd                      |
-| `openat(dfd, path, flags, mode)`                 | 相对于目录 fd 打开文件                     |
+| 接口                                           | 功能说明                                 |
+| ---------------------------------------------- | ---------------------------------------- |
+| `open(path, flags, mode)`                      | 异步打开文件，返回 fd                    |
+| `openat(dfd, path, flags, mode)`               | 相对于目录 fd 打开文件                   |
 | `open2(path, how)` / `openat2(dfd, path, how)` | 使用 `struct open_how` 的打开（openat2） |
-| `read(fd, buf, nbytes, offset)`                  | 从指定偏移读，返回读取字节数               |
-| `write(fd, buf, nbytes, offset)`                 | 向指定偏移写，返回写入字节数               |
-| `readv(fd, iovecs, nr_vecs, offset, flags)`      | 分散读                                     |
-| `writev(fd, iovecs, nr_vecs, offset, flags)`     | 集中写                                     |
-| `close(fd)`                                      | 异步关闭文件描述符                         |
-| `fsync(fd, fsync_flags)`                         | 将文件数据/元数据刷入磁盘                  |
+| `read(fd, buf, nbytes, offset)`                | 从指定偏移读，返回读取字节数             |
+| `write(fd, buf, nbytes, offset)`               | 向指定偏移写，返回写入字节数             |
+| `readv(fd, iovecs, nr_vecs, offset, flags)`    | 分散读                                   |
+| `writev(fd, iovecs, nr_vecs, offset, flags)`   | 集中写                                   |
+| `close(fd)`                                    | 异步关闭文件描述符                       |
+| `fsync(fd, fsync_flags)`                       | 将文件数据/元数据刷入磁盘                |
 
 ---
 
-## 6. 异步运行时整体架构
+## 异步运行时整体架构
 
 ```mermaid
 flowchart TB
