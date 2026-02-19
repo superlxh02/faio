@@ -23,13 +23,6 @@ public:
     PassedTime,
     InvalidSocketType,
     ReuniteFailed,
-
-    // HTTP (1100+)
-    InvalidUri = 1100,
-    InvalidHttpResponse,
-    Http2ProtocolError,
-    ConnectionClosed,
-    InvalidHttpMethod,
   };
 
 public:
@@ -63,16 +56,6 @@ public:
       return "Invalid socket type";
     case ReuniteFailed:
       return "Tried to reunite halves that are not from the same socket";
-    case InvalidUri:
-      return "Invalid URI";
-    case InvalidHttpResponse:
-      return "Invalid HTTP response";
-    case Http2ProtocolError:
-      return "HTTP/2 protocol error";
-    case ConnectionClosed:
-      return "Connection closed";
-    case InvalidHttpMethod:
-      return "Invalid HTTP method";
     default:
       return strerror(err_code_);
     }
