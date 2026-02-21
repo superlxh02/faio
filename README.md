@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-**Fast Async IO**（faio）是一个基于 **C++20 协程** 与 **io_uring** 的高性能异步 IO 库，面向 Linux 平台。它提供基于协程的通用异步任务调度和并发，同时提供了基于协程语义的网络（TCP/UDP）、时间与同步原语操作。
+**Fast Async IO**（faio）是一个基于 **C++20 协程** 与 **io_uring** 的高性能异步 IO 库，面向 Linux 平台。它提供基于协程的通用异步任务调度和并发，同时提供了基于协程语义的网络（TCP/UDP）、时间、同步原语与 HTTP（HTTP/1.1 + HTTP/2）能力。
 
 ---
 
@@ -14,17 +14,39 @@
 - **高性能定时器** ： 基于多级时间轮构建高性能定时器
 - **协程友好同步原语**：提供互斥锁、条件变量、csp模式的channel。
 - **协程化异步IO**：基于C++20协程的awaitable机制，封装IO操作awaitable,提供TCP/UDP通信接口
+- **HTTP 模块（HTTP/1.1 + HTTP/2）**：HTTP/1.1 基于 llhttp，HTTP/2 基于 nghttp2，支持路由、中间件、动态参数与错误处理。
 
 ---
 
 ## 项目环境
 
-| 项目     | 要求                                                                                                                           |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 操作系统 | Linux（依赖 io_uring，内核 5.1+ 推荐 5.10+）                                                                                   |
-| 编译器   | 支持 C++23 的 GCC 或 Clang                                                                                                     |
-| 构建     | CMake 3.20+                                                                                                                    |
-| 依赖     | [liburing](https://github.com/axboe/liburing)（io_uring 用户态库） ;  [fastlog](https://github.com/superlxh02/FastLog)(日志库) |
+| 项目     | 要求                                                                                                                                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 操作系统 | Linux（依赖 io_uring，内核 5.1+ 推荐 5.10+）                                                                                                                                                                                                     |
+| 编译器   | 支持 C++23 的 GCC 或 Clang                                                                                                                                                                                                                       |
+| 构建     | CMake 3.20+                                                                                                                                                                                                                                      |
+| 依赖     | [liburing](https://github.com/axboe/liburing)（io_uring 用户态库） ; [nghttp2](https://github.com/nghttp2/nghttp2)（HTTP/2 协议库）; [llhttp](https://github.com/nodejs/llhttp)（HTTP/1.1 协议库）; [fastlog](https://github.com/superlxh02/FastLog)(日志库) |
+
+---
+
+## HTTP 协议选择（v1/v2）
+
+`HttpStream` 现在支持协议选择：
+
+- `faio::http::HttpProtocol::Auto`：优先尝试 HTTP/2，失败后回退到 HTTP/1.1
+- `faio::http::HttpProtocol::Http1`：强制 HTTP/1.1
+- `faio::http::HttpProtocol::Http2`：强制 HTTP/2
+
+示例：
+
+```cpp
+auto h1 = co_await faio::http::HttpStream::connect("127.0.0.1", 9998,
+                                                   faio::http::HttpProtocol::Http1);
+auto h2 = co_await faio::http::HttpStream::connect("127.0.0.1", 9998,
+                                                   faio::http::HttpProtocol::Http2);
+auto auto_mode = co_await faio::http::HttpStream::connect("127.0.0.1", 9998,
+                                                          faio::http::HttpProtocol::Auto);
+```
 
 ---
 
@@ -72,14 +94,14 @@ int main() {
 
 ### 1. 结构体与辅助类
 
-| 类型 / 接口                | 功能说明                                                                                                                                                                     |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `faio::Error`              | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                         |
-| `faio::expected<T, Error>` | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                            |
-| `faio::net::address`       | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。   |
-| `faio::net::v4addr`        | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
-| `faio::net::v6addr`        | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                             |
-| `faio::ConfigBuilder`      | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。 |
+| 类型 / 接口                  | 功能说明                                                                                                                                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `faio::Error`              | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                               |
+| `faio::expected<T, Error>` | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                                      |
+| `faio::net::address`       | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。 |
+| `faio::net::v4addr`        | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                                         |
+| `faio::net::v6addr`        | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                                         |
+| `faio::ConfigBuilder`      | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。   |
 
 ---
 
@@ -465,17 +487,90 @@ faio::task<void> read_file() {
 
 其余文件 IO 接口如下表，用法均为 `co_await faio::io::xxx(...)`，返回值均为 `expected<T, Error>`。
 
-| 接口                                           | 功能说明                                 |
-| ---------------------------------------------- | ---------------------------------------- |
-| `open(path, flags, mode)`                      | 异步打开文件，返回 fd                    |
-| `openat(dfd, path, flags, mode)`               | 相对于目录 fd 打开文件                   |
+| 接口                                               | 功能说明                                   |
+| -------------------------------------------------- | ------------------------------------------ |
+| `open(path, flags, mode)`                        | 异步打开文件，返回 fd                      |
+| `openat(dfd, path, flags, mode)`                 | 相对于目录 fd 打开文件                     |
 | `open2(path, how)` / `openat2(dfd, path, how)` | 使用 `struct open_how` 的打开（openat2） |
-| `read(fd, buf, nbytes, offset)`                | 从指定偏移读，返回读取字节数             |
-| `write(fd, buf, nbytes, offset)`               | 向指定偏移写，返回写入字节数             |
-| `readv(fd, iovecs, nr_vecs, offset, flags)`    | 分散读                                   |
-| `writev(fd, iovecs, nr_vecs, offset, flags)`   | 集中写                                   |
-| `close(fd)`                                    | 异步关闭文件描述符                       |
-| `fsync(fd, fsync_flags)`                       | 将文件数据/元数据刷入磁盘                |
+| `read(fd, buf, nbytes, offset)`                  | 从指定偏移读，返回读取字节数               |
+| `write(fd, buf, nbytes, offset)`                 | 向指定偏移写，返回写入字节数               |
+| `readv(fd, iovecs, nr_vecs, offset, flags)`      | 分散读                                     |
+| `writev(fd, iovecs, nr_vecs, offset, flags)`     | 集中写                                     |
+| `close(fd)`                                      | 异步关闭文件描述符                         |
+| `fsync(fd, fsync_flags)`                         | 将文件数据/元数据刷入磁盘                  |
+
+---
+
+#### 2.8 HTTP
+
+**`faio::http::HttpServer::bind(host, port)`**
+在给定地址上绑定并开始监听，返回 `expected<HttpServer, Error>`。
+
+```cpp
+#include "faio/http.hpp"
+
+auto server_res = faio::http::HttpServer::bind("127.0.0.1", 9998);
+if (server_res) {
+    auto server = std::move(server_res).value();
+    // co_await server.run(router);
+}
+```
+
+**`faio::http::HttpRouter`**
+路由与中间件分发器，支持动态参数、中间件与错误处理。
+
+```cpp
+faio::http::HttpRouter router;
+
+// 注册中间件
+router.use([](const faio::http::HttpRequest &req) -> faio::task<faio::http::HttpMiddlewareResult> {
+    co_return faio::http::HttpMiddlewareResult::next();
+});
+
+// 注册路由
+router.get("/users/:id", [](const faio::http::HttpRequest &req) -> faio::task<faio::http::HttpResponse> {
+    auto id = req.path_param("id").value_or("unknown");
+    co_return faio::http::HttpResponseBuilder(200)
+        .header("content-type", "application/json")
+        .body("{\"id\":\"" + std::string(id) + "\"}\n")
+        .build();
+});
+
+// 兜底处理
+router.fallback([](const faio::http::HttpRequest &req) -> faio::task<faio::http::HttpResponse> {
+    co_return faio::http::HttpResponseBuilder(404).body("Not Found\n").build();
+});
+```
+
+**`faio::http::HttpStream::connect(host, port, protocol)`**
+连接到指定地址，支持协议选择（Auto/Http1/Http2），返回 `expected<HttpStream, Error>`。
+
+```cpp
+auto stream_res = co_await faio::http::HttpStream::connect("127.0.0.1", 9998, faio::http::HttpProtocol::Auto);
+if (stream_res) {
+    auto stream = std::move(stream_res).value();
+    // co_await stream.request(req);
+}
+```
+
+**`stream.request(req)`**
+发送 HTTP 请求并等待响应，返回 `expected<HttpResponse, Error>`。
+
+```cpp
+auto req = faio::http::HttpRequest::create(
+    faio::http::HttpMethod::GET,
+    "/users/42?verbose=true",
+    {{"user-agent", "faio-http-client"}}
+);
+
+auto resp_res = co_await stream.request(req);
+if (resp_res) {
+    auto &resp = resp_res.value();
+    // resp.status() / resp.headers() / resp.body()
+}
+co_await stream.close();
+```
+
 
 ---
 

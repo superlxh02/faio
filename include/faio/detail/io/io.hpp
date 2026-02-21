@@ -46,8 +46,8 @@ protected:
   }
 
   // Delete copy
-  FileDescriptor(const FileDescriptor &other) noexcept = default;
-  FileDescriptor &operator=(const FileDescriptor &other) noexcept = default;
+  FileDescriptor(const FileDescriptor &other) = delete;
+  FileDescriptor &operator=(const FileDescriptor &other) = delete;
 
 public:
   auto close() noexcept {

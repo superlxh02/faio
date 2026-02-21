@@ -23,6 +23,17 @@ public:
     PassedTime,
     InvalidSocketType,
     ReuniteFailed,
+    // HTTP/2 errors
+    Http2Protocol = 2000,
+    Http2ExpectedPreface,  // 客户端未发 HTTP/2 连接前言（例如浏览器发的是 HTTP/1.1）
+    Http2StreamClosed,
+    Http2StreamReset,
+    Http2Refused,
+    Http2Internal,
+    Http2FlowControl,
+    Http2SettingsTimeout,
+    Http2PushPromiseRefused,
+    Http2AuthenticationRequired,
   };
 
 public:
@@ -56,6 +67,26 @@ public:
       return "Invalid socket type";
     case ReuniteFailed:
       return "Tried to reunite halves that are not from the same socket";
+    case Http2Protocol:
+      return "HTTP/2 protocol error";
+    case Http2ExpectedPreface:
+      return "Expected HTTP/2 connection preface; client may be using HTTP/1.1 (e.g. browser)";
+    case Http2StreamClosed:
+      return "HTTP/2 stream closed";
+    case Http2StreamReset:
+      return "HTTP/2 stream reset";
+    case Http2Refused:
+      return "HTTP/2 stream refused";
+    case Http2Internal:
+      return "HTTP/2 internal error";
+    case Http2FlowControl:
+      return "HTTP/2 flow control error";
+    case Http2SettingsTimeout:
+      return "HTTP/2 settings timeout";
+    case Http2PushPromiseRefused:
+      return "HTTP/2 push promise refused";
+    case Http2AuthenticationRequired:
+      return "HTTP/2 authentication required";
     default:
       return strerror(err_code_);
     }

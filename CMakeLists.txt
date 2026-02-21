@@ -3,5 +3,8 @@ project(faio)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(LIBS uring nghttp2 llhttp::llhttp_static)
+ find_package(llhttp CONFIG REQUIRED)
 include_directories(thirdparty)
 add_subdirectory(examples)

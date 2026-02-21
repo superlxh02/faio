@@ -1,0 +1,8 @@
+
+{
+    "dependencies": [
+           "nghttp2",
+           "llhttp",
+            "liburing"
+    ]
+}
