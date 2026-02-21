@@ -29,27 +29,6 @@
 
 ---
 
-## HTTP 协议选择（v1/v2）
-
-`HttpStream` 现在支持协议选择：
-
-- `faio::http::HttpProtocol::Auto`：优先尝试 HTTP/2，失败后回退到 HTTP/1.1
-- `faio::http::HttpProtocol::Http1`：强制 HTTP/1.1
-- `faio::http::HttpProtocol::Http2`：强制 HTTP/2
-
-示例：
-
-```cpp
-auto h1 = co_await faio::http::HttpStream::connect("127.0.0.1", 9998,
-                                                   faio::http::HttpProtocol::Http1);
-auto h2 = co_await faio::http::HttpStream::connect("127.0.0.1", 9998,
-                                                   faio::http::HttpProtocol::Http2);
-auto auto_mode = co_await faio::http::HttpStream::connect("127.0.0.1", 9998,
-                                                          faio::http::HttpProtocol::Auto);
-```
-
----
-
 ## 简单示例
 
 ```cpp
@@ -570,7 +549,6 @@ if (resp_res) {
 }
 co_await stream.close();
 ```
-
 
 ---
 
