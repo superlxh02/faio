@@ -207,20 +207,31 @@ public:
   // 重载co_await操作符，右值
   auto operator co_await() && noexcept {
     struct awaiter : public base_awaiter {
-      decltype(auto) await_resume() const noexcept {
+      using base_awaiter::base_awaiter;
+
+      auto await_resume() {
         if (!this->_callee) {
           fastlog::console.error("handle is nullptr");
           std::terminate();
         }
-        // 如果T为void，则直接调用expected方法，否则返回右值
+
         if constexpr (std::is_same_v<T, void>) {
-          return this->_callee.promise().expected();
+          this->_callee.promise().expected();
+          this->_callee.destroy();
+          this->_callee = nullptr;
+          return;
         } else {
-          return std::move(this->_callee.promise().expected());
+          T value = std::move(this->_callee.promise().expected());
+          this->_callee.destroy();
+          this->_callee = nullptr;
+          return value;
         }
       }
     };
-    return awaiter{_handle};
+
+    auto handle = _handle;
+    _handle = nullptr;
+    return awaiter{handle};
   }
 
 public:

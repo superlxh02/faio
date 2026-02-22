@@ -1,0 +1,4 @@
+runtime,requests_per_sec,latency_avg_ms,latency_p50_ms,latency_p90_ms,latency_p99_ms,timeout_count,transfer_per_sec
+Go(Gin),447991.66,9.61,8.14,17.18,39.14,0,58.96MB
+C++(faio),638900.79,8.58,4.25,12.81,32.53,0,81.04MB
+C++(beast),257148.38,18.52,18.77,20.14,24.52,2940,25.26MB

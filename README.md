@@ -29,6 +29,54 @@
 
 ---
 
+## 性能测试
+
+### 测试命令
+
+- HTTP 对比（Gin / faio / Beast）
+
+```bash
+python3 scripts/compare_http_benchmarks.py
+```
+
+- TCP 对比（Asio / faio-tcp / Tokio）
+
+```bash
+python3 scripts/compare_tcp_benchmarks.py
+```
+
+默认压测参数：`wrk -t4 -c5000 -d60s`
+
+### 最近一次结果摘要
+
+#### HTTP（`benchmark/result/http/summary.csv`）
+
+图表：`benchmark/result/http/comparison.png`
+
+![HTTP Benchmark Comparison](benchmark/result/http/comparison.png)
+
+| Runtime | Requests/sec | Avg(ms) | P50(ms) | P90(ms) | P99(ms) | Timeout |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Go(Gin) | 447991.66 | 9.61 | 8.14 | 17.18 | 39.14 | 0 |
+| C++(faio) | 638900.79 | 8.58 | 4.25 | 12.81 | 32.53 | 0 |
+| C++(beast) | 257148.38 | 18.52 | 18.77 | 20.14 | 24.52 | 2940 |
+
+#### TCP（`benchmark/result/tcp/summary.csv`）
+
+图表：`benchmark/result/tcp/comparison.png`
+
+![TCP Benchmark Comparison](benchmark/result/tcp/comparison.png)
+
+| Runtime | Requests/sec | Avg(ms) | P50(ms) | P90(ms) | P99(ms) | Timeout |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| C++(asio) | 446577.63 | 14.20 | 10.63 | 12.50 | 59.42 | 2445 |
+| C++(faio-tcp) | 651550.61 | 4.53 | 3.51 | 7.16 | 14.18 | 0 |
+| Rust(tokio) | 859649.68 | 4.23 | 3.07 | 8.22 | 14.60 | 0 |
+
+> 注：该结果受机器配置、系统负载、内核参数与并发连接上限影响，建议在同机空载条件下多轮测试取中位数。
+
+---
+
 ## 简单示例
 
 ```cpp

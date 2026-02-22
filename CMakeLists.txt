@@ -1,10 +1,21 @@
 cmake_minimum_required(VERSION 3.20)
 project(faio)
+enable_testing()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
 
 set(LIBS uring nghttp2 llhttp::llhttp_static)
  find_package(llhttp CONFIG REQUIRED)
 include_directories(thirdparty)
 add_subdirectory(examples)
+add_subdirectory(benchmark)
+add_subdirectory(tests)

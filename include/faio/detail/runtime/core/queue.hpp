@@ -169,6 +169,7 @@ public:
         // 队列已满,且头指针与实际头指针不同,说明有其他线程在窃取任务
         // 尝试将任务推送到全局队列
         global_queue.push_back(std::move(task));
+        return;
       } else {
         // 正常调用处理溢出
         if (handle_overflow(task, local_head, tail, global_queue)) {
@@ -176,6 +177,7 @@ public:
         }
       }
     }
+
     // step 2 : 将任务存储在数组中,更新头指针
     _tasks[tail & _mask] = std::move(task);
     _tail.store(tail + 1, std::memory_order::release);
@@ -258,23 +260,27 @@ private:
     // 1.获取到队列容量的一半作为默认转移的数量
     auto take_len = static_cast<std::uint32_t>(CAPACITY / 2);
     assert(tail - local_head);
-    // 2.打包当前头指针
+    // 2.更新头指针：从(local_head, local_head)推进到(local_head+take_len, local_head+take_len)
     auto cur_head = pack(local_head, local_head);
-    // 3.打包下一个头指针
     auto next_head = pack(local_head + take_len, local_head + take_len);
-    // 4.更新头指针
-    if (!_head.compare_exchange_weak(cur_head, next_head,
-                                     std::memory_order::relaxed)) {
-      fastlog::console.error("handle_overflow: failed to update head pointer");
-      return false;
+    while (!_head.compare_exchange_weak(cur_head, next_head,
+                                        std::memory_order::acq_rel,
+                                        std::memory_order::acquire)) {
+      auto [cur_steal, cur_local_head] = unpack(cur_head);
+      if (cur_steal != local_head || cur_local_head != local_head) {
+        return false;
+      }
+      next_head = pack(local_head + take_len, local_head + take_len);
     }
 
     // step2 : 转移任务到一个临时vector
     // 1.将take_len数量的任务从本地队列转移到一个临时定义的vector内
     std::vector<std::coroutine_handle<>> tasks;
+    tasks.reserve(static_cast<std::size_t>(take_len) + 1);
     for (std::uint32_t i = 0; i < take_len; i++) {
       std::size_t idx = static_cast<std::size_t>(local_head + i) & _mask;
       tasks.push_back(std::move(_tasks[idx]));
+      _tasks[idx] = nullptr;
     }
     // 2.将触发溢出的任务添加到vector内
     tasks.push_back(task);

@@ -1,6 +1,9 @@
 
 {
     "dependencies": [
+            "boost-beast",
+            "asio",
+            "gtest",
            "nghttp2",
            "llhttp",
             "liburing"

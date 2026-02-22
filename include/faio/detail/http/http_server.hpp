@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -63,6 +64,32 @@ using HttpMiddleware =
 // 5) fallback
 class HttpRouter {
 public:
+  static constexpr size_t kHttpMethodCount = 9;
+
+  static auto method_index(HttpMethod method) -> size_t {
+    switch (method) {
+    case HttpMethod::GET:
+      return 0;
+    case HttpMethod::POST:
+      return 1;
+    case HttpMethod::PUT:
+      return 2;
+    case HttpMethod::DELETE:
+      return 3;
+    case HttpMethod::HEAD:
+      return 4;
+    case HttpMethod::OPTIONS:
+      return 5;
+    case HttpMethod::PATCH:
+      return 6;
+    case HttpMethod::CONNECT:
+      return 7;
+    case HttpMethod::TRACE:
+      return 8;
+    }
+    return 0;
+  }
+
   auto use(HttpMiddleware middleware) -> HttpRouter & {
     _middlewares.push_back(std::move(middleware));
     return *this;
@@ -115,6 +142,32 @@ public:
   }
 
   auto dispatch(const HttpRequest &req) const -> task<HttpResponse> {
+    // 快路径：无中间件、无动态路由、无错误处理器时，直接静态分发。
+    // 这条路径避免每请求进入 try/catch 包装，针对压测常见固定路由场景。
+    if (_middlewares.empty() && _dynamic_routes.empty() && !_error_handler) {
+      auto clean_path = strip_query(req.path());
+
+      auto &method_routes = _routes[method_index(req.method())];
+      auto route_it = method_routes.find(clean_path);
+      if (route_it != method_routes.end()) {
+        co_return co_await route_it->second(req);
+      }
+
+      auto any_it = _any_method_routes.find(clean_path);
+      if (any_it != _any_method_routes.end()) {
+        co_return co_await any_it->second(req);
+      }
+
+      if (_fallback_handler) {
+        co_return co_await _fallback_handler(req);
+      }
+
+      co_return HttpResponseBuilder(404)
+          .header("content-type", "text/plain")
+          .body("Not Found\n")
+          .build();
+    }
+
     // 1) 先执行中间件链。
     //    任何一个中间件返回 handled=true 都会直接短路并返回响应。
     for (const auto &middleware : _middlewares) {
@@ -130,14 +183,15 @@ public:
     auto clean_path = strip_query(req.path());
 
     // 2) 精确匹配（method + path）优先级最高。
-    auto route_it = _routes.find({req.method(), std::string(clean_path)});
-    if (route_it != _routes.end()) {
+    auto &method_routes = _routes[method_index(req.method())];
+    auto route_it = method_routes.find(clean_path);
+    if (route_it != method_routes.end()) {
       // 命中后调用业务 handler；内部同样走异常保护。
       co_return co_await invoke_handler_safe(route_it->second, req);
     }
 
     // 3) 再尝试“任意 method”的精确路径。
-    auto any_it = _any_method_routes.find(std::string(clean_path));
+    auto any_it = _any_method_routes.find(clean_path);
     if (any_it != _any_method_routes.end()) {
       co_return co_await invoke_handler_safe(any_it->second, req);
     }
@@ -222,7 +276,7 @@ private:
     // 静态路由走 map，查找复杂度 O(logN)。
     if (!is_dynamic_path(clean_path)) {
       if (method.has_value()) {
-        _routes[{*method, clean_path}] = std::move(handler);
+        _routes[method_index(*method)][clean_path] = std::move(handler);
       } else {
         _any_method_routes[clean_path] = std::move(handler);
       }
@@ -379,8 +433,13 @@ private:
             .build());
   }
 
-  std::map<std::pair<HttpMethod, std::string>, HttpHandler> _routes;
-  std::map<std::string, HttpHandler> _any_method_routes;
+    std::array<std::unordered_map<std::string, HttpHandler, TransparentStringHash,
+                  TransparentStringEqual>,
+         kHttpMethodCount>
+      _routes;
+    std::unordered_map<std::string, HttpHandler, TransparentStringHash,
+             TransparentStringEqual>
+      _any_method_routes;
   std::vector<DynamicRoute> _dynamic_routes;
   std::vector<HttpMiddleware> _middlewares;
   HttpHandler _fallback_handler;

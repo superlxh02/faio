@@ -107,6 +107,7 @@ void demo5(faio::runtime_context &ctx) {
   fastlog::console.info("  main_task result: {}", result);
 }
 
+
 int main() {
   fastlog::set_consolelog_level(fastlog::LogLevel::Info);
   faio::runtime_context ctx;
@@ -115,6 +116,7 @@ int main() {
   demo3(ctx);
   demo4(ctx);
   demo5(ctx);
+
   fastlog::console.info("===== all coroutine examples done =====");
   return 0;
 }

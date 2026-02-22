@@ -36,6 +36,13 @@ public:
 
     llhttp_init(&_parser, HTTP_REQUEST, &_settings);
     _parser.data = this;
+
+    _header_block_buf.reserve(512);
+    _current_url.reserve(256);
+    _current_header_field.reserve(64);
+    _current_header_value.reserve(256);
+    _current_body.reserve(1024);
+    _current_headers.reserve(16);
   }
 
   Http1ServerSession(const Http1ServerSession &) = delete;
@@ -70,8 +77,8 @@ public:
       }
     }
 
+    std::array<char, 4096> buf;
     while (true) {
-      std::vector<char> buf(4096);
       // 1) 读取网络数据。
       auto read_res = co_await _stream.read(std::span(buf.data(), buf.size()));
       if (!read_res) {
@@ -152,6 +159,29 @@ private:
     return std::string(first, last);
   }
 
+  static auto lower_ascii_inplace(std::string &value) -> void {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) {
+                     return static_cast<char>(std::tolower(ch));
+                   });
+  }
+
+  static auto trim_inplace(std::string &value) -> void {
+    auto not_space = [](unsigned char ch) {
+      return ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n';
+    };
+
+    auto first = std::find_if(value.begin(), value.end(), not_space);
+    auto last = std::find_if(value.rbegin(), value.rend(), not_space).base();
+    if (first >= last) {
+      value.clear();
+      return;
+    }
+    if (first != value.begin() || last != value.end()) {
+      value = std::string(first, last);
+    }
+  }
+
   static auto status_reason_phrase(int status) -> std::string_view {
     switch (status) {
     case 200:
@@ -171,6 +201,43 @@ private:
     default:
       return "";
     }
+  }
+
+  static auto append_status_line(std::string &out, int status) -> void {
+    switch (status) {
+    case 200:
+      out.append("HTTP/1.1 200 OK\r\n");
+      return;
+    case 201:
+      out.append("HTTP/1.1 201 Created\r\n");
+      return;
+    case 204:
+      out.append("HTTP/1.1 204 No Content\r\n");
+      return;
+    case 400:
+      out.append("HTTP/1.1 400 Bad Request\r\n");
+      return;
+    case 404:
+      out.append("HTTP/1.1 404 Not Found\r\n");
+      return;
+    case 405:
+      out.append("HTTP/1.1 405 Method Not Allowed\r\n");
+      return;
+    case 500:
+      out.append("HTTP/1.1 500 Internal Server Error\r\n");
+      return;
+    default:
+      break;
+    }
+
+    out.append("HTTP/1.1 ");
+    out.append(std::to_string(status));
+    auto reason = status_reason_phrase(status);
+    if (!reason.empty()) {
+      out.push_back(' ');
+      out.append(reason.data(), reason.size());
+    }
+    out.append("\r\n");
   }
 
   auto process_received_data(std::span<const uint8_t> data) -> expected<void> {
@@ -205,62 +272,106 @@ private:
   auto write_response(const HttpResponse &resp, bool keep_alive)
       -> task<expected<void>> {
     // 组装响应头并保证 content-length / connection 语义完整。
-    std::string header_block;
-    header_block.reserve(512);
-    header_block.append("HTTP/1.1 ");
-    header_block.append(std::to_string(resp.status()));
-    auto reason = status_reason_phrase(resp.status());
-    if (!reason.empty()) {
-      header_block.push_back(' ');
-      header_block.append(reason.data(), reason.size());
-    }
-    header_block.append("\r\n");
+    _header_block_buf.clear();
+    _header_block_buf.reserve(256 + resp.body().size());
+    append_status_line(_header_block_buf, resp.status());
 
     // 标记关键头是否已显式设置。
     auto has_content_length = false;
     auto has_connection = false;
+    auto iequals_ascii = [](std::string_view lhs, std::string_view rhs) {
+      if (lhs.size() != rhs.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < lhs.size(); ++i) {
+        auto a = static_cast<unsigned char>(lhs[i]);
+        auto b = static_cast<unsigned char>(rhs[i]);
+        if (std::tolower(a) != std::tolower(b)) {
+          return false;
+        }
+      }
+      return true;
+    };
+
     for (const auto &[name, value] : resp.headers()) {
-      auto lower = lower_ascii(name);
-      if (lower == "content-length") {
+      if (iequals_ascii(name, "content-length")) {
         has_content_length = true;
-      } else if (lower == "connection") {
+      } else if (iequals_ascii(name, "connection")) {
         has_connection = true;
       }
-      header_block.append(name);
-      header_block.append(": ");
-      header_block.append(value);
-      header_block.append("\r\n");
+      _header_block_buf.append(name);
+      _header_block_buf.append(": ");
+      _header_block_buf.append(value);
+      _header_block_buf.append("\r\n");
     }
 
     if (!has_content_length) {
       // 未设置时自动补 content-length。
-      header_block.append("content-length: ");
-      header_block.append(std::to_string(resp.body().size()));
-      header_block.append("\r\n");
+      _header_block_buf.append("content-length: ");
+      _header_block_buf.append(std::to_string(resp.body().size()));
+      _header_block_buf.append("\r\n");
     }
 
     if (!has_connection) {
       // 未设置时按 keep_alive 参数补 connection。
-      header_block.append("connection: ");
-      header_block.append(keep_alive ? "keep-alive" : "close");
-      header_block.append("\r\n");
+      _header_block_buf.append("connection: ");
+      _header_block_buf.append(keep_alive ? "keep-alive" : "close");
+      _header_block_buf.append("\r\n");
     }
 
-    header_block.append("\r\n");
+    _header_block_buf.append("\r\n");
 
-    // 先写响应头。
-    auto header_write = co_await _stream.write_all(
-        std::span<const char>(header_block.data(), header_block.size()));
-    if (!header_write) {
-      co_return std::unexpected(header_write.error());
+    if (resp.body().empty()) {
+      auto write_res = co_await _stream.write_all(
+          std::span<const char>(_header_block_buf.data(), _header_block_buf.size()));
+      if (!write_res) {
+        co_return std::unexpected(write_res.error());
+      }
+      co_return expected<void>();
     }
 
-    if (!resp.body().empty()) {
-      // 再写响应体。
-      auto body_write = co_await _stream.write_all(std::span(
-          reinterpret_cast<const char *>(resp.body().data()), resp.body().size()));
-      if (!body_write) {
-        co_return std::unexpected(body_write.error());
+    const char *header_ptr = _header_block_buf.data();
+    std::size_t header_left = _header_block_buf.size();
+
+    const char *body_ptr =
+        reinterpret_cast<const char *>(resp.body().data());
+    std::size_t body_left = resp.body().size();
+
+    while (header_left > 0 || body_left > 0) {
+      std::span<const char> header_span(
+          header_ptr, header_left > 0 ? header_left : 0);
+      std::span<const char> body_span(body_ptr, body_left > 0 ? body_left : 0);
+
+      auto write_res = co_await _stream.write_v(header_span, body_span);
+      if (!write_res) {
+        co_return std::unexpected(write_res.error());
+      }
+
+      auto written = write_res.value();
+      if (written == 0) {
+        co_return std::unexpected(make_error(Error::WriteZero));
+      }
+
+      if (header_left > 0) {
+        if (written >= header_left) {
+          written -= header_left;
+          header_ptr += header_left;
+          header_left = 0;
+        } else {
+          header_ptr += written;
+          header_left -= written;
+          written = 0;
+        }
+      }
+
+      if (written > 0 && body_left > 0) {
+        if (written >= body_left) {
+          body_ptr += body_left;
+          body_left = 0;
+        } else {
+          body_ptr += written;
+          body_left -= written;
+        }
       }
     }
 
@@ -272,8 +383,10 @@ private:
     if (_current_header_field.empty()) {
       return;
     }
-    _current_headers[lower_ascii(_current_header_field)] =
-        trim_copy(_current_header_value);
+    lower_ascii_inplace(_current_header_field);
+    trim_inplace(_current_header_value);
+    _current_headers[std::move(_current_header_field)] =
+        std::move(_current_header_value);
     _current_header_field.clear();
     _current_header_value.clear();
   }
@@ -391,6 +504,7 @@ private:
   std::vector<uint8_t> _current_body;
   std::string _current_header_field;
   std::string _current_header_value;
+  std::string _header_block_buf;
   bool _reading_header_value = false;
   bool _keep_alive = true;
 

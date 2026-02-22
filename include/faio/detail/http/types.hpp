@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace faio::detail::http {
@@ -76,8 +77,35 @@ inline auto string_to_http_method(std::string_view method) -> HttpMethod {
   return HttpMethod::GET;
 }
 
+struct TransparentStringHash {
+  using is_transparent = void;
+
+  auto operator()(std::string_view value) const noexcept -> std::size_t {
+    return std::hash<std::string_view>{}(value);
+  }
+
+  auto operator()(const std::string &value) const noexcept -> std::size_t {
+    return std::hash<std::string_view>{}(value);
+  }
+
+  auto operator()(const char *value) const noexcept -> std::size_t {
+    return std::hash<std::string_view>{}(value);
+  }
+};
+
+struct TransparentStringEqual {
+  using is_transparent = void;
+
+  auto operator()(std::string_view lhs, std::string_view rhs) const noexcept
+      -> bool {
+    return lhs == rhs;
+  }
+};
+
 // HTTP 头：name -> value
-using HttpHeaders = std::map<std::string, std::string>;
+using HttpHeaders =
+    std::unordered_map<std::string, std::string, TransparentStringHash,
+                       TransparentStringEqual>;
 
 // HTTP 请求值对象。
 //
@@ -119,7 +147,7 @@ public:
 
   [[nodiscard]] auto header(std::string_view name) const
       -> std::optional<std::string_view> {
-    auto it = _headers.find(std::string(name));
+    auto it = _headers.find(name);
     if (it == _headers.end()) {
       return std::nullopt;
     }

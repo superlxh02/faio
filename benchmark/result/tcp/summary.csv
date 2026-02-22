@@ -1,0 +1,4 @@
+runtime,requests_per_sec,latency_avg_ms,latency_p50_ms,latency_p90_ms,latency_p99_ms,timeout_count,transfer_per_sec
+C++(asio),446577.63,14.2,10.63,12.5,59.42,2445,52.81MB
+C++(faio-tcp),651550.61,4.53,3.51,7.16,14.18,0,77.05MB
+Rust(tokio),859649.68,4.23,3.07,8.22,14.6,0,102.48MB
