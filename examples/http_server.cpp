@@ -14,12 +14,12 @@ auto http_server() -> faio::task<void> {
 
   faio::http::HttpRouter router;
 
-router.get("/index", [](const faio::http::HttpRequest&)
-    -> faio::task<faio::http::HttpResponse> {
-    
-    co_return faio::http::HttpResponseBuilder(200)
-        .header("content-type", "text/html; charset=utf-8")
-        .body(R"(<!DOCTYPE html>
+  router.get("/index",
+             [](const faio::http::HttpRequest &)
+                 -> faio::task<faio::http::HttpResponse> {
+               co_return faio::http::HttpResponseBuilder(200)
+                   .header("content-type", "text/html; charset=utf-8")
+                   .body(R"(<!DOCTYPE html>
 <html>
 <head>
     <title>Hello World</title>
@@ -28,8 +28,8 @@ router.get("/index", [](const faio::http::HttpRequest&)
     <h1>Hello World!</h1>
 </body>
 </html>)")
-        .build();
-});
+                   .build();
+             });
 
   fastlog::console.info("http server listening on http://127.0.0.1:9998");
   co_await server.run(router);

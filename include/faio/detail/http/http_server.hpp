@@ -2,9 +2,9 @@
 #define FAIO_DETAIL_HTTP_HTTP_SERVER_HPP
 
 #include "faio/detail/common/error.hpp"
-#include "faio/detail/http/v2/server_session_v2.hpp"
-#include "faio/detail/http/v1/server_session_v1.hpp"
 #include "faio/detail/http/types.hpp"
+#include "faio/detail/http/v1/server_session_v1.hpp"
+#include "faio/detail/http/v2/server_session_v2.hpp"
 #include "faio/detail/runtime/context.hpp"
 #include "fastlog/fastlog.hpp"
 #include <array>
@@ -28,9 +28,7 @@ using HttpErrorHandler =
 class HttpMiddlewareResult {
 public:
   // 继续执行后续中间件/路由。
-  static auto next() -> HttpMiddlewareResult {
-    return HttpMiddlewareResult();
-  }
+  static auto next() -> HttpMiddlewareResult { return HttpMiddlewareResult(); }
 
   // 立即返回响应并短路后续流程。
   static auto respond(HttpResponse response) -> HttpMiddlewareResult {
@@ -143,7 +141,6 @@ public:
 
   auto dispatch(const HttpRequest &req) const -> task<HttpResponse> {
     // 快路径：无中间件、无动态路由、无错误处理器时，直接静态分发。
-    // 这条路径避免每请求进入 try/catch 包装，针对压测常见固定路由场景。
     if (_middlewares.empty() && _dynamic_routes.empty() && !_error_handler) {
       auto clean_path = strip_query(req.path());
 
@@ -216,19 +213,21 @@ public:
   }
 
 private:
+  // 动态路由分发结果结构体。
   struct DynamicDispatchResult {
-    bool matched = false;
-    HttpResponse response;
+    bool matched = false;  // 是否匹配
+    HttpResponse response; // 响应
   };
 
+  // 动态路由结构体。
   struct DynamicRoute {
-    std::optional<HttpMethod> method;
-    std::vector<std::string> segments;
-    bool has_wildcard = false;
-    std::string wildcard_name;
-    HttpHandler handler;
+    std::optional<HttpMethod> method;  // 方法
+    std::vector<std::string> segments; // 路径段
+    bool has_wildcard = false;         // 是否有通配符
+    std::string wildcard_name;         // 通配符名称
+    HttpHandler handler;               // 处理函数
   };
-
+  // 去除路径中的 query 部分。
   static auto strip_query(std::string_view path) -> std::string_view {
     auto query_pos = path.find('?');
     if (query_pos == std::string_view::npos) {
@@ -237,7 +236,9 @@ private:
     return path.substr(0, query_pos);
   }
 
-  static auto split_path(std::string_view path) -> std::vector<std::string_view> {
+  // 将路径分割为多个段，每个段是路径的一部分。
+  static auto split_path(std::string_view path)
+      -> std::vector<std::string_view> {
     std::vector<std::string_view> segments;
     // 先去掉 query 部分，避免影响路由分段。
     auto clean = strip_query(path);
@@ -265,10 +266,13 @@ private:
     return segments;
   }
 
+  // 判断路径是否是动态路径。
   static auto is_dynamic_path(std::string_view path) -> bool {
-    return path.find(':') != std::string::npos || path.find('*') != std::string::npos;
+    return path.find(':') != std::string::npos ||
+           path.find('*') != std::string::npos;
   }
 
+  // 注册路由。
   auto register_route(std::optional<HttpMethod> method, std::string path,
                       HttpHandler handler) -> void {
     // 对输入 path 做规范化（去 query），确保注册和匹配规则一致。
@@ -293,33 +297,45 @@ private:
     for (size_t i = 0; i < segments.size(); ++i) {
       auto segment = segments[i];
       // *path 表示“后面的所有段都吞掉”
+      // 如果路径段不为空且以 * 开头，则设置通配符标志为 true，并提取通配符名称
       if (!segment.empty() && segment[0] == '*') {
         route.has_wildcard = true;
+        // 如果路径段长度大于 1，则提取通配符名称
+        // 否则设置通配符名称为 "wildcard"
         route.wildcard_name =
             segment.size() > 1 ? std::string(segment.substr(1)) : "wildcard";
+        // 跳出循环
         break;
       }
+      // 将路径段添加到路径段列表中
       route.segments.emplace_back(segment);
     }
 
+    // 将动态路由添加到动态路由列表中
     _dynamic_routes.push_back(std::move(route));
   }
 
+  // 将路径段拼接为路径。
   static auto join_path_segments(const std::vector<std::string_view> &segments,
                                  size_t from) -> std::string {
     std::string out;
+    // 从 from 位置开始，将路径段拼接为路径
     for (size_t i = from; i < segments.size(); ++i) {
+      // 如果路径不为空，则添加 /
       if (!out.empty()) {
         out.push_back('/');
       }
+      // 将路径段拼接为路径
       out.append(segments[i].begin(), segments[i].end());
     }
     return out;
   }
 
-  static auto match_dynamic_route(
-      const DynamicRoute &route, const HttpRequest &req,
-      std::map<std::string, std::string> &params) -> bool {
+  // 匹配动态路由。
+  static auto match_dynamic_route(const DynamicRoute &route,
+                                  const HttpRequest &req,
+                                  std::map<std::string, std::string> &params)
+      -> bool {
     // method 不匹配时快速失败。
     if (route.method.has_value() && *route.method != req.method()) {
       return false;
@@ -332,19 +348,25 @@ private:
     if (!route.has_wildcard && req_segments.size() != route.segments.size()) {
       return false;
     }
+
     if (route.has_wildcard && req_segments.size() < route.segments.size()) {
       return false;
     }
 
+    // 遍历路径段
     for (size_t i = 0; i < route.segments.size(); ++i) {
+      // 获取路径段
       auto pattern = std::string_view(route.segments[i]);
+      // 获取请求路径段
       auto actual = req_segments[i];
 
       // :id 这种动态段，提取参数
       if (!pattern.empty() && pattern[0] == ':') {
+        // 如果路径段长度小于等于 1，则返回 false
         if (pattern.size() <= 1) {
           return false;
         }
+        // 将路径段提取为参数
         params.emplace(std::string(pattern.substr(1)), std::string(actual));
         continue;
       }
@@ -355,37 +377,44 @@ private:
       }
     }
 
+    // 如果有通配符，则把剩余路径拼回去放到通配符参数里
     if (route.has_wildcard) {
       // 把剩余路径拼回去放到通配符参数里
       params.emplace(route.wildcard_name,
                      join_path_segments(req_segments, route.segments.size()));
     }
 
+    // 返回 true，表示匹配成功
     return true;
   }
 
   // 线性扫描动态路由，命中后构造注入 path params 的请求副本。
   auto dispatch_dynamic(const HttpRequest &req) const
       -> task<DynamicDispatchResult> {
+    // 遍历动态路由
     for (const auto &route : _dynamic_routes) {
+      // 初始化参数
       std::map<std::string, std::string> params;
+      // 匹配动态路由,如果匹配失败，则继续遍历下一个动态路由
       if (!match_dynamic_route(route, req, params)) {
         continue;
       }
 
-      // 这里拷贝一份请求，再注入路由参数，避免污染原请求
+      // 拷贝一份请求，再注入路由参数，避免污染原请求
       auto matched_req = req;
       matched_req.set_route_params(std::move(params));
+      // 调用业务 handler
       co_return DynamicDispatchResult{
           true, co_await invoke_handler_safe(route.handler, matched_req)};
     }
 
+    // 返回 404 响应
     co_return DynamicDispatchResult{false, HttpResponseBuilder(404).build()};
   }
 
   // 捕获业务 handler 异常，统一走 error handler 或默认 500。
-  auto invoke_handler_safe(const HttpHandler &handler, const HttpRequest &req) const
-      -> task<HttpResponse> {
+  auto invoke_handler_safe(const HttpHandler &handler,
+                           const HttpRequest &req) const -> task<HttpResponse> {
     std::string err_message;
     try {
       co_return co_await handler(req);
@@ -433,17 +462,17 @@ private:
             .build());
   }
 
-    std::array<std::unordered_map<std::string, HttpHandler, TransparentStringHash,
-                  TransparentStringEqual>,
-         kHttpMethodCount>
-      _routes;
-    std::unordered_map<std::string, HttpHandler, TransparentStringHash,
-             TransparentStringEqual>
-      _any_method_routes;
-  std::vector<DynamicRoute> _dynamic_routes;
-  std::vector<HttpMiddleware> _middlewares;
-  HttpHandler _fallback_handler;
-  HttpErrorHandler _error_handler;
+  std::array<std::unordered_map<std::string, HttpHandler, TransparentStringHash,
+                                TransparentStringEqual>,
+             kHttpMethodCount>
+      _routes; // 静态路由，按 method 分组
+  std::unordered_map<std::string, HttpHandler, TransparentStringHash,
+                     TransparentStringEqual>
+      _any_method_routes;                    // 任意 method 的静态路由
+  std::vector<DynamicRoute> _dynamic_routes; // 动态路由
+  std::vector<HttpMiddleware> _middlewares;  // 中间件
+  HttpHandler _fallback_handler;             // 兜底路由
+  HttpErrorHandler _error_handler;           // 错误处理器
 };
 
 // 对外的 HTTP 服务端接口。
@@ -505,11 +534,10 @@ public:
     }
   }
 
-      // 使用 router 启动服务（内部转成 handler）。
+  // 使用 router 启动服务（内部转成 handler）。
   auto run(const HttpRouter &router) -> task<void> {
-    co_await run([&router](const HttpRequest &req) {
-      return router.dispatch(req);
-    });
+    co_await run(
+        [&router](const HttpRequest &req) { return router.dispatch(req); });
   }
 
 private:
@@ -520,15 +548,18 @@ private:
 
   // 判断当前缓存是否仍可能是 HTTP/2 preface 的前缀。
   static auto is_h2_preface_prefix(std::span<const uint8_t> data) -> bool {
-    static constexpr std::string_view kPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    static constexpr std::string_view kPreface =
+        "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
     auto n = std::min(data.size(), kPreface.size());
-    return std::equal(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(n),
+    return std::equal(data.begin(),
+                      data.begin() + static_cast<std::ptrdiff_t>(n),
                       kPreface.begin());
   }
 
   // 判断是否已完整收到 HTTP/2 preface。
   static auto is_h2_preface_complete(std::span<const uint8_t> data) -> bool {
-    static constexpr std::string_view kPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    static constexpr std::string_view kPreface =
+        "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
     if (data.size() < kPreface.size()) {
       return false;
     }
@@ -539,7 +570,8 @@ private:
   static auto detect_protocol(net::detail::TcpStream &stream)
       -> task<expected<std::pair<WireProtocol, std::vector<uint8_t>>>> {
     static constexpr size_t kReadChunk = 128;
-    static constexpr std::string_view kPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    static constexpr std::string_view kPreface =
+        "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
     std::vector<uint8_t> initial_data;
     initial_data.reserve(kReadChunk);
@@ -549,7 +581,7 @@ private:
     // 2) 已完整拿到 h2 preface；或
     // 3) 对端 EOF。
     while (initial_data.size() < kPreface.size()) {
-      std::array<char, kReadChunk> buf{};
+      std::array<char, kReadChunk> buf{}; // 读取缓冲区
       auto read_res = co_await stream.read(std::span(buf.data(), buf.size()));
       if (!read_res) {
         co_return std::unexpected(read_res.error());
@@ -560,6 +592,7 @@ private:
         break;
       }
 
+      // 获取缓冲区指针
       auto begin = reinterpret_cast<const uint8_t *>(buf.data());
       // 追加本次读取数据，参与协议探测。
       initial_data.insert(initial_data.end(), begin, begin + len);
@@ -574,9 +607,7 @@ private:
       }
     }
 
-    if (is_h2_preface_complete(initial_data)) {
-      co_return std::pair{WireProtocol::Http2, std::move(initial_data)};
-    }
+    // 只有 len==0 提前 break 才会到这里，此时 initial_data.size() < 24，必为 H1.1
     co_return std::pair{WireProtocol::Http1, std::move(initial_data)};
   }
 
@@ -601,7 +632,7 @@ private:
 
     // 第二步：按探测结果分发到对应会话实现。
     if (protocol == WireProtocol::Http2) {
-        auto session = std::make_shared<Http2ServerSession>(std::move(stream));
+      auto session = std::make_shared<Http2ServerSession>(std::move(stream));
 
       auto init_res = co_await session->initialize();
       if (!init_res) {
@@ -613,17 +644,18 @@ private:
       fastlog::console.debug("http/2 server session initialized");
 
       // initial_data 里已经包含 preface，直接作为首包喂给会话。
-      co_await session->run(handler, std::span<const uint8_t>(
-                                     initial_data.data(), initial_data.size()));
+      co_await session->run(
+          handler,
+          std::span<const uint8_t>(initial_data.data(), initial_data.size()));
       co_return;
     }
 
     auto session = std::make_shared<Http1ServerSession>(std::move(stream));
     fastlog::console.debug("http/1.1 server session initialized");
 
-    co_await session->run(handler,
-                          std::span<const uint8_t>(initial_data.data(),
-                                                   initial_data.size()));
+    co_await session->run(
+        handler,
+        std::span<const uint8_t>(initial_data.data(), initial_data.size()));
 
     co_return;
   }

@@ -1,13 +1,8 @@
 # HTTP 模块
 
-> 目标读者：已经掌握 faio 基本模块（runtime / task / net / io）的人。
-> 目标：看完本文后，能直接顺着代码看懂 HTTP 模块实现与调用链。
-
 ---
 
 ## 1. 总体设计
-
-HTTP 模块采用**三层结构**，与 faio 其他文档（如《网络 IO》《异步运行时》）一样，先讲设计思路再展开类与源码。
 
 ### 1.1 三层划分
 
@@ -150,106 +145,106 @@ classDiagram
 
 ### 3.1 语义层与类型（types.hpp）
 
-| 类/类型/函数 | 所在文件 | 职责 | 主要接口 |
-| ----------- | --------- | ---- | -------- |
-| **HttpMethod** | types.hpp | HTTP 方法枚举 | GET/POST/PUT/DELETE/HEAD/OPTIONS/PATCH/CONNECT/TRACE |
-| **http_method_to_string** | types.hpp | 方法 → 字符串 | 返回对应 "GET" 等 string_view |
-| **string_to_http_method** | types.hpp | 字符串 → HttpMethod | 解析请求行中的方法 |
-| **HttpHeaders** | types.hpp | 头表类型 | `std::map<std::string, std::string>` |
-| **HttpRequest** | types.hpp | 请求值对象 | 见下表 |
-| **HttpResponse** | types.hpp | 响应值对象 | 见下表 |
-| **HttpResponseBuilder** | types.hpp | 链式构建响应 | 见下表 |
-| **make_response()** | types.hpp | 便捷构造 Builder | 返回 `HttpResponseBuilder()` |
+| 类/类型/函数              | 所在文件  | 职责                | 主要接口                                                                                      |
+| ------------------------- | --------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| **HttpMethod**            | types.hpp | HTTP 方法枚举       | GET/POST/PUT/DELETE/HEAD/OPTIONS/PATCH/CONNECT/TRACE                                          |
+| **http_method_to_string** | types.hpp | 方法 → 字符串       | 返回对应 "GET" 等 string_view                                                                 |
+| **string_to_http_method** | types.hpp | 字符串 → HttpMethod | 解析请求行中的方法                                                                            |
+| **HttpHeaders**           | types.hpp | 头表类型            | `std::unordered_map<std::string, std::string, TransparentStringHash, TransparentStringEqual>` |
+| **HttpRequest**           | types.hpp | 请求值对象          | 见下表                                                                                        |
+| **HttpResponse**          | types.hpp | 响应值对象          | 见下表                                                                                        |
+| **HttpResponseBuilder**   | types.hpp | 链式构建响应        | 见下表                                                                                        |
+| **make_response()**       | types.hpp | 便捷构造 Builder    | 返回 `HttpResponseBuilder()`                                                                  |
 
 **HttpRequest 公开接口：**
 
-| 方法 | 说明 |
-| ---- | ---- |
-| 构造 / `create(method, path, headers?, body?)` | 构造请求，path 可含 query |
-| `method()` | 请求方法 |
-| `path()` | 完整 path（含 query 部分） |
-| `path_without_query()` | 去掉 `?` 及之后部分 |
-| `query_string()` | `?` 之后的原始 query 串 |
-| `headers()` / `header(name)` | 头表或单头（optional） |
-| `body()` / `body_as_string()` | body 只读 span 或 string |
-| `route_params()` / `path_param(name)` | 路由参数（Router 注入） |
-| `query_params()` / `query_param(name)` | query 参数（懒解析） |
+| 方法                                          | 说明                       |
+| --------------------------------------------- | -------------------------- |
+| 构造 /`create(method, path, headers?, body?)` | 构造请求，path 可含 query  |
+| `method()`                                    | 请求方法                   |
+| `path()`                                      | 完整 path（含 query 部分） |
+| `path_without_query()`                        | 去掉 `?` 及之后部分        |
+| `query_string()`                              | `?` 之后的原始 query 串    |
+| `headers()` / `header(name)`                  | 头表或单头（optional）     |
+| `body()` / `body_as_string()`                 | body 只读 span 或 string   |
+| `route_params()` / `path_param(name)`         | 路由参数（Router 注入）    |
+| `query_params()` / `query_param(name)`        | query 参数（懒解析）       |
 
 **HttpResponse 公开接口：**
 
-| 方法 | 说明 |
-| ---- | ---- |
-| 构造 `(status, headers?, body?)` | 直接构造 |
-| `status()` / `headers()` / `body()` | 只读访问 |
-| `ok(body?)` / `created(body?)` | 200 / 201 工厂 |
+| 方法                                                                | 说明                 |
+| ------------------------------------------------------------------- | -------------------- |
+| 构造 `(status, headers?, body?)`                                    | 直接构造             |
+| `status()` / `headers()` / `body()`                                 | 只读访问             |
+| `ok(body?)` / `created(body?)`                                      | 200 / 201 工厂       |
 | `bad_request(body?)` / `not_found(body?)` / `internal_error(body?)` | 400 / 404 / 500 工厂 |
 
 **HttpResponseBuilder 公开接口：**
 
-| 方法 | 说明 |
-| ---- | ---- |
-| 构造 `(status?)` | 默认 200 |
-| `status(s)` / `header(name, value)` / `headers(map)` | 链式设置 |
-| `body(vector\|string\|span)` | 三种重载 |
-| `build()` | 返回 `HttpResponse` |
+| 方法                                                 | 说明                |
+| ---------------------------------------------------- | ------------------- |
+| 构造 `(status?)`                                     | 默认 200            |
+| `status(s)` / `header(name, value)` / `headers(map)` | 链式设置            |
+| `body(vector\|string\|span)`                         | 三种重载            |
+| `build()`                                            | 返回 `HttpResponse` |
 
 ### 3.2 路由与中间件（http_server.hpp）
 
-| 类/类型 | 所在文件 | 职责 | 主要接口 |
-| ------- | --------- | ---- | -------- |
-| **HttpHandler** | http_server.hpp | 请求→响应 | `task<HttpResponse>(const HttpRequest&)` |
-| **HttpErrorHandler** | http_server.hpp | 错误处理 | `task<HttpResponse>(const HttpRequest&, string_view)` |
-| **HttpMiddlewareResult** | http_server.hpp | 中间件返回值 | `next()` / `respond(resp)` / `handled()` / `response()` |
-| **HttpMiddleware** | http_server.hpp | 中间件函数 | `task<HttpMiddlewareResult>(const HttpRequest&)` |
-| **HttpRouter** | http_server.hpp | 路由分发、中间件、异常收敛 | 见下表 |
+| 类/类型                  | 所在文件        | 职责                       | 主要接口                                                |
+| ------------------------ | --------------- | -------------------------- | ------------------------------------------------------- |
+| **HttpHandler**          | http_server.hpp | 请求→响应                  | `task<HttpResponse>(const HttpRequest&)`                |
+| **HttpErrorHandler**     | http_server.hpp | 错误处理                   | `task<HttpResponse>(const HttpRequest&, string_view)`   |
+| **HttpMiddlewareResult** | http_server.hpp | 中间件返回值               | `next()` / `respond(resp)` / `handled()` / `response()` |
+| **HttpMiddleware**       | http_server.hpp | 中间件函数                 | `task<HttpMiddlewareResult>(const HttpRequest&)`        |
+| **HttpRouter**           | http_server.hpp | 路由分发、中间件、异常收敛 | 见下表                                                  |
 
 **HttpRouter 公开接口：**
 
-| 方法 | 说明 |
-| ---- | ---- |
-| `use(middleware)` | 追加中间件，先注册先执行 |
-| `on_error(handler)` | 设置异常/错误时调用的 handler |
-| `handle(method, path, handler)` | 注册 (method, path) 精确路由 |
-| `handle(path, handler)` | 注册任意 method 的 path |
-| `all(path, handler)` | 同 handle(path, handler) |
-| `get/post/put/del/patch(path, handler)` | 便捷注册单方法路由 |
-| `fallback(handler)` | 无匹配时的兜底 handler |
-| `dispatch(req)` | 协程：中间件→静态→动态→fallback→404 |
+| 方法                                    | 说明                                |
+| --------------------------------------- | ----------------------------------- |
+| `use(middleware)`                       | 追加中间件，先注册先执行            |
+| `on_error(handler)`                     | 设置异常/错误时调用的 handler       |
+| `handle(method, path, handler)`         | 注册 (method, path) 精确路由        |
+| `handle(path, handler)`                 | 注册任意 method 的 path             |
+| `all(path, handler)`                    | 同 handle(path, handler)            |
+| `get/post/put/del/patch(path, handler)` | 便捷注册单方法路由                  |
+| `fallback(handler)`                     | 无匹配时的兜底 handler              |
+| `dispatch(req)`                         | 协程：中间件→静态→动态→fallback→404 |
 
 ### 3.3 门面层
 
-| 类 | 所在文件 | 职责 | 主要接口 |
-| --- | --------- | ---- | -------- |
-| **HttpServer** | http_server.hpp | 服务端门面：监听、协议探测、会话分发 | `bind(host,port)` / `bind(addr)`；`run(handler)` / `run(router)`；`close()` |
-| **HttpStream** | http_stream.hpp | 客户端门面：统一请求 API | `connect(host,port)` / `connect(addr)` / `connect(..., protocol)`；`request(req)`；`close()` |
-| **HttpProtocol** | http_stream.hpp | 客户端协议选择 | Auto / Http1 / Http2 |
+| 类               | 所在文件        | 职责                                 | 主要接口                                                                                     |
+| ---------------- | --------------- | ------------------------------------ | -------------------------------------------------------------------------------------------- |
+| **HttpServer**   | http_server.hpp | 服务端门面：监听、协议探测、会话分发 | `bind(host,port)` / `bind(addr)`；`run(handler)` / `run(router)`；`close()`                  |
+| **HttpStream**   | http_stream.hpp | 客户端门面：统一请求 API             | `connect(host,port)` / `connect(addr)` / `connect(..., protocol)`；`request(req)`；`close()` |
+| **HttpProtocol** | http_stream.hpp | 客户端协议选择                       | Auto / Http1 / Http2                                                                         |
 
 ### 3.4 协议层 H1（llhttp）
 
-| 类 | 所在文件 | 职责 | 主要接口 |
-| --- | --------- | ---- | -------- |
-| **Http1ServerSession** | v1/server_session_v1.hpp | H1 服务端会话 | 构造 `(TcpStream)`；`run(handler, initial_data?)` |
+| 类                     | 所在文件                 | 职责          | 主要接口                                                      |
+| ---------------------- | ------------------------ | ------------- | ------------------------------------------------------------- |
+| **Http1ServerSession** | v1/server_session_v1.hpp | H1 服务端会话 | 构造 `(TcpStream)`；`run(handler, initial_data?)`             |
 | **Http1ClientSession** | v1/client_session_v1.hpp | H1 客户端会话 | 构造 `(TcpStream)`；`initialize()`；`request(req)`；`close()` |
 
 ### 3.5 协议层 H2（nghttp2）
 
-| 类/结构/函数 | 所在文件 | 职责 | 主要接口 |
-| ------------- | --------- | ---- | -------- |
-| **ClientSessionState** | v2/session_callbacks.hpp | 客户端回调状态聚合 | `responses`(stream_id→StreamResponse)；`StreamResponse`: headers/body/headers_complete/body_complete/status |
-| **ServerSessionState** | v2/session_callbacks.hpp | 服务端回调状态聚合 | `requests`(stream_id→StreamRequest)；`pending_requests` 队列；(StreamRequest: method/path/headers/body/headers_complete/body_complete) |
-| **get_client_callbacks** / **free_client_callbacks** | session_callbacks.hpp | 客户端 nghttp2 回调表 | 分配/释放并绑定 client_on_* |
-| **get_server_callbacks** / **free_server_callbacks** | session_callbacks.hpp | 服务端 nghttp2 回调表 | 分配/释放并绑定 server_on_* |
-| **Http2ServerSession** | v2/server_session_v2.hpp | H2 服务端会话 | 构造 `(TcpStream)`；`initialize()`；`run(handler, initial_data?)`；`close()` |
-| **Http2ClientSession** | v2/client_session_v2.hpp | H2 客户端会话 | 构造 `(TcpStream)`；`initialize()`；`request(req)`；`close()` |
+| 类/结构/函数                                         | 所在文件                 | 职责                  | 主要接口                                                                                                                               |
+| ---------------------------------------------------- | ------------------------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **ClientSessionState**                               | v2/session_callbacks.hpp | 客户端回调状态聚合    | `responses`(stream_id→StreamResponse)；`StreamResponse`: headers/body/headers_complete/body_complete/status                            |
+| **ServerSessionState**                               | v2/session_callbacks.hpp | 服务端回调状态聚合    | `requests`(stream_id→StreamRequest)；`pending_requests` 队列；(StreamRequest: method/path/headers/body/headers_complete/body_complete) |
+| **get_client_callbacks** / **free_client_callbacks** | session_callbacks.hpp    | 客户端 nghttp2 回调表 | 分配/释放并绑定 client_on_*                                                                                                            |
+| **get_server_callbacks** / **free_server_callbacks** | session_callbacks.hpp    | 服务端 nghttp2 回调表 | 分配/释放并绑定 server_on_*                                                                                                            |
+| **Http2ServerSession**                               | v2/server_session_v2.hpp | H2 服务端会话         | 构造 `(TcpStream)`；`initialize()`；`run(handler, initial_data?)`；`close()`                                                           |
+| **Http2ClientSession**                               | v2/client_session_v2.hpp | H2 客户端会话         | 构造 `(TcpStream)`；`initialize()`；`request(req)`；`close()`                                                                          |
 
 ### 3.6 辅助（nghttp2_util.hpp）
 
-| 类/函数 | 职责 | 主要接口 |
-| ------- | ---- | -------- |
-| **Headers2Nv** | HttpHeaders → nghttp2_nv 数组（持有字符串副本） | 构造 `(HttpHeaders)`；`data()` / `size()` |
-| **method_to_nghttp2** | HttpMethod → string | 供 H2 伪头使用 |
-| **nghttp2_error_to_faio** | nghttp2 错误码 → faio::Error | 协议层错误统一收敛 |
-| **nv_to_headers** | nghttp2_nv 数组 → HttpHeaders | 反解头表 |
+| 类/函数                   | 职责                                            | 主要接口                                  |
+| ------------------------- | ----------------------------------------------- | ----------------------------------------- |
+| **Headers2Nv**            | HttpHeaders → nghttp2_nv 数组（持有字符串副本） | 构造 `(HttpHeaders)`；`data()` / `size()` |
+| **method_to_nghttp2**     | HttpMethod → string                             | 供 H2 伪头使用                            |
+| **nghttp2_error_to_faio** | nghttp2 错误码 → faio::Error                    | 协议层错误统一收敛                        |
+| **nv_to_headers**         | nghttp2_nv 数组 → HttpHeaders                   | 反解头表                                  |
 
 ---
 
@@ -384,6 +379,27 @@ static auto not_found(std::string body = {}) -> HttpResponse {
 ```cpp
 // http_server.hpp
 auto dispatch(const HttpRequest &req) const -> task<HttpResponse> {
+  // 快路径：无中间件、无动态路由、无错误处理器时，直接静态分发。
+  if (_middlewares.empty() && _dynamic_routes.empty() && !_error_handler) {
+    auto clean_path = strip_query(req.path());
+    auto &method_routes = _routes[method_index(req.method())];
+    auto route_it = method_routes.find(clean_path);
+    if (route_it != method_routes.end()) {
+      co_return co_await route_it->second(req);
+    }
+    auto any_it = _any_method_routes.find(clean_path);
+    if (any_it != _any_method_routes.end()) {
+      co_return co_await any_it->second(req);
+    }
+    if (_fallback_handler) {
+      co_return co_await _fallback_handler(req);
+    }
+    co_return HttpResponseBuilder(404)
+        .header("content-type", "text/plain")
+        .body("Not Found\n")
+        .build();
+  }
+
   for (const auto &middleware : _middlewares) {
     auto middleware_result = co_await invoke_middleware_safe(middleware, req);
     if (middleware_result.handled()) {
@@ -392,13 +408,13 @@ auto dispatch(const HttpRequest &req) const -> task<HttpResponse> {
   }
 
   auto clean_path = strip_query(req.path());
-
-  auto route_it = _routes.find({req.method(), std::string(clean_path)});
-  if (route_it != _routes.end()) {
+  auto &method_routes = _routes[method_index(req.method())];
+  auto route_it = method_routes.find(clean_path);
+  if (route_it != method_routes.end()) {
     co_return co_await invoke_handler_safe(route_it->second, req);
   }
 
-  auto any_it = _any_method_routes.find(std::string(clean_path));
+  auto any_it = _any_method_routes.find(clean_path);
   if (any_it != _any_method_routes.end()) {
     co_return co_await invoke_handler_safe(any_it->second, req);
   }
@@ -418,6 +434,8 @@ auto dispatch(const HttpRequest &req) const -> task<HttpResponse> {
       .build();
 }
 ```
+
+静态路由存储：`_routes` 为 `std::array<std::unordered_map<std::string, HttpHandler, TransparentStringHash, TransparentStringEqual>, kHttpMethodCount>`，即按 HTTP 方法分组的 path→handler 表；`_any_method_routes` 为不区分方法的 path→handler。使用 `TransparentStringHash` / `TransparentStringEqual` 后可用 `string_view` 做 `find(clean_path)` 查找，避免临时构造 `std::string`。
 
 ### 5.2 静态与动态路由注册
 
@@ -440,7 +458,7 @@ auto register_route(std::optional<HttpMethod> method, std::string path,
   auto clean_path = std::string(strip_query(path));
   if (!is_dynamic_path(clean_path)) {
     if (method.has_value()) {
-      _routes[{*method, clean_path}] = std::move(handler);
+      _routes[method_index(*method)][clean_path] = std::move(handler);
     } else {
       _any_method_routes[clean_path] = std::move(handler);
     }
@@ -636,9 +654,11 @@ static auto is_h2_preface_complete(std::span<const uint8_t> data) -> bool {
 
 static auto detect_protocol(net::detail::TcpStream &stream)
     -> task<expected<std::pair<WireProtocol, std::vector<uint8_t>>>> {
+  static constexpr size_t kReadChunk = 128;
   std::vector<uint8_t> initial_data;
+  initial_data.reserve(kReadChunk);
   while (initial_data.size() < kPreface.size()) {
-    std::array<char, 128> buf{};
+    std::array<char, kReadChunk> buf{};
     auto read_res = co_await stream.read(std::span(buf.data(), buf.size()));
     if (!read_res) co_return std::unexpected(read_res.error());
     auto len = read_res.value();
@@ -652,9 +672,7 @@ static auto detect_protocol(net::detail::TcpStream &stream)
       co_return std::pair{WireProtocol::Http2, std::move(initial_data)};
     }
   }
-  if (is_h2_preface_complete(initial_data)) {
-    co_return std::pair{WireProtocol::Http2, std::move(initial_data)};
-  }
+  // 只有 len==0 提前 break 才会到这里，此时 initial_data.size() < 24，必为 H1.1
   co_return std::pair{WireProtocol::Http1, std::move(initial_data)};
 }
 
@@ -789,7 +807,7 @@ static auto on_message_complete(llhttp_t *parser) -> int {
 }
 ```
 
-write_response 负责拼 status line + headers（缺则补 content-length / connection）+ body，再 `write_all` 写回。
+write_response 负责拼 status line + headers（缺则补 content-length / connection）+ body。body 为空时用 `write_all` 写头块；有 body 时用 `write_v(header_span, body_span)` 循环合并写头块与 body，按返回值 `written` 更新 `header_pos`/`header_to_write`、`body_pos`/`body_to_write`，直至写完。
 
 结论：llhttp 负责「字节流 → 解析事件」，session 负责「事件 → 业务对象」与「业务响应 → 字节流写回」。
 
@@ -1023,11 +1041,11 @@ class Headers2Nv {
 
 ## 9. 与 faio 其他模块的关系
 
-| 依赖模块 | 使用方式 |
-| -------- | -------- |
-| **net** | TcpListener::bind、accept；TcpStream::connect、read、write_all、close；SocketAddr::parse |
-| **runtime** | runtime_context::spawn 为每连接起协程 |
-| **task** | 所有异步入口均为 task\<T\>，co_await 在 faio 运行时上挂起/恢复 |
-| **error** | expected、make_error、Error 枚举（含 Http2* 等） |
+| 依赖模块    | 使用方式                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------- |
+| **net**     | TcpListener::bind、accept；TcpStream::connect、read、write_all、write_v、close；SocketAddr::parse |
+| **runtime** | runtime_context::spawn 为每连接起协程                                                             |
+| **task**    | 所有异步入口均为 task\<T\>，co_await 在 faio 运行时上挂起/恢复                                    |
+| **error**   | expected、make_error、Error 枚举（含 Http2* 等）                                                  |
 
 HTTP 模块不直接依赖 io_uring，只依赖 net 的 TcpStream/TcpListener，因此与《异步 IO》的 IORegistrantAwaiter 无直接耦合，读写通过 net 层封装的 read/write_all 完成。

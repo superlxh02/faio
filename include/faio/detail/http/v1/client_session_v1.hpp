@@ -4,10 +4,10 @@
 #include "faio/detail/common/error.hpp"
 #include "faio/detail/http/types.hpp"
 #include "faio/detail/net.hpp"
-#include <llhttp.h>
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <llhttp.h>
 #include <queue>
 #include <span>
 #include <string>
@@ -39,9 +39,7 @@ public:
   Http1ClientSession &operator=(Http1ClientSession &&) = delete;
 
   // HTTP/1.1 客户端当前无额外握手，预留接口与 HTTP/2 统一。
-  auto initialize() -> task<expected<void>> {
-    co_return expected<void>();
-  }
+  auto initialize() -> task<expected<void>> { co_return expected<void>(); }
 
   // 发送请求并等待完整响应。
   // 读循环直到 llhttp 回调产出一条完整响应（_pending_responses 非空）。
@@ -80,7 +78,8 @@ public:
     }
 
     if (_pending_responses.empty()) {
-      co_return std::unexpected(make_error(static_cast<int>(Error::UnexpectedEOF)));
+      co_return std::unexpected(
+          make_error(static_cast<int>(Error::UnexpectedEOF)));
     }
 
     // 4) 取出第一条完整响应。
@@ -98,10 +97,9 @@ public:
 
 private:
   static auto lower_ascii(std::string value) -> std::string {
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](unsigned char ch) {
-                     return static_cast<char>(std::tolower(ch));
-                   });
+    std::transform(
+        value.begin(), value.end(), value.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return value;
   }
 
@@ -168,7 +166,8 @@ private:
 
     out.append("\r\n");
     if (!req.body().empty()) {
-      out.append(reinterpret_cast<const char *>(req.body().data()), req.body().size());
+      out.append(reinterpret_cast<const char *>(req.body().data()),
+                 req.body().size());
     }
 
     return out;
@@ -202,8 +201,8 @@ private:
     return HPE_OK;
   }
 
-  static auto on_header_field(llhttp_t *parser, const char *at,
-                              size_t length) -> int {
+  static auto on_header_field(llhttp_t *parser, const char *at, size_t length)
+      -> int {
     auto *self = static_cast<Http1ClientSession *>(parser->data);
     if (self == nullptr) {
       return HPE_USER;
@@ -219,8 +218,8 @@ private:
     return HPE_OK;
   }
 
-  static auto on_header_value(llhttp_t *parser, const char *at,
-                              size_t length) -> int {
+  static auto on_header_value(llhttp_t *parser, const char *at, size_t length)
+      -> int {
     auto *self = static_cast<Http1ClientSession *>(parser->data);
     if (self == nullptr) {
       return HPE_USER;
@@ -250,7 +249,8 @@ private:
     }
 
     auto start = reinterpret_cast<const uint8_t *>(at);
-    self->_current_body.insert(self->_current_body.end(), start, start + length);
+    self->_current_body.insert(self->_current_body.end(), start,
+                               start + length);
     return HPE_OK;
   }
 
@@ -268,18 +268,18 @@ private:
   }
 
 private:
-  faio::net::detail::TcpStream _stream;
-  llhttp_t _parser{};
-  llhttp_settings_t _settings{};
+  faio::net::detail::TcpStream _stream; // 网络层流
+  llhttp_t _parser{};                   // llhttp 解析器
+  llhttp_settings_t _settings{};        // llhttp 设置
 
-  int _current_status = 200;
-  HttpHeaders _current_headers;
-  std::vector<uint8_t> _current_body;
-  std::string _current_header_field;
-  std::string _current_header_value;
-  bool _reading_header_value = false;
+  int _current_status = 200;          // 当前响应状态码
+  HttpHeaders _current_headers;       // 当前响应头
+  std::vector<uint8_t> _current_body; // 当前响应体
+  std::string _current_header_field;  // 当前响应头字段
+  std::string _current_header_value;  // 当前响应头值
+  bool _reading_header_value = false; // 是否正在读取响应头值
 
-  std::queue<HttpResponse> _pending_responses;
+  std::queue<HttpResponse> _pending_responses; // 待处理的响应队列
 };
 
 using ClientSessionAdapterV1 = Http1ClientSession;
