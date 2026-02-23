@@ -30,7 +30,6 @@ python3 scripts/compare_http_benchmarks.py
 
 默认压测参数：`wrk -t4 -c5000 -d60s`
 
-输出目录：`bench/http/result/`
 
 - `summary.csv`
 - `summary.md`
@@ -52,7 +51,6 @@ python3 scripts/compare_tcp_benchmarks.py
 
 默认压测参数：`wrk -t4 -c5000 -d60s`
 
-输出目录：`bench/tcp/result/`
 
 - `summary.csv`
 - `summary.md`
