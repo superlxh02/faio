@@ -1,5 +1,5 @@
 #include "faio/faio.hpp"
-#include "fastlog/fastlog.hpp"
+#include "faio/log.hpp"
 
 // ============================================================================
 // 示例1: mutex 互斥锁
@@ -15,22 +15,22 @@ faio::task<void> increment_with_mutex(int id, int times) {
     ++g_counter;
     g_mutex.unlock();
   }
-  fastlog::console.info("  task {} done (counter={})", id, g_counter);
+  faio::log::logger()->info("  task {} done (counter={})", id, g_counter);
   co_return;
 }
 
-void example_mutex(faio::runtime_context &ctx) {
-  fastlog::console.info("===== 示例1: mutex =====");
+void example_mutex() {
+  faio::log::logger()->info("===== 示例1: mutex =====");
   g_counter = 0;
 
-  faio::block_on<void>(ctx, []() -> faio::task<void> {
-    faio::spawn(increment_with_mutex(1, 100));
-    faio::spawn(increment_with_mutex(2, 100));
-    faio::spawn(increment_with_mutex(3, 100));
+  faio::block_on<void>([]() -> faio::task<void> {
+    faio::spawn_detached(increment_with_mutex(1, 100));
+    faio::spawn_detached(increment_with_mutex(2, 100));
+    faio::spawn_detached(increment_with_mutex(3, 100));
     co_return;
   }());
 
-  fastlog::console.info("  final counter = {} (expected 300)", g_counter);
+  faio::log::logger()->info("  final counter = {} (expected 300)", g_counter);
 }
 
 // ============================================================================
@@ -46,7 +46,7 @@ static bool g_ready = false;
 faio::task<void> wait_for_ready(int id) {
   co_await g_cv_mutex.lock();
   co_await g_cv.wait(g_cv_mutex, [] { return g_ready; });
-  fastlog::console.info("  waiter {} woke up", id);
+  faio::log::logger()->info("  waiter {} woke up", id);
   g_cv_mutex.unlock();
   co_return;
 }
@@ -57,78 +57,73 @@ faio::task<void> signal_after_delay() {
   g_ready = true;
   g_cv_mutex.unlock();
   g_cv.notify_all();
-  fastlog::console.info("  signaller: notified all");
+  faio::log::logger()->info("  signaller: notified all");
   co_return;
 }
 
-void example_condition_variable(faio::runtime_context &ctx) {
-  fastlog::console.info("===== 示例2: ConditionVariable =====");
+void example_condition_variable() {
+  faio::log::logger()->info("===== 示例2: ConditionVariable =====");
   g_ready = false;
 
-  faio::block_on<void>(ctx, []() -> faio::task<void> {
-    faio::spawn(wait_for_ready(1));
-    faio::spawn(wait_for_ready(2));
-    faio::spawn(signal_after_delay());
+  faio::block_on<void>([]() -> faio::task<void> {
+    faio::spawn_detached(wait_for_ready(1));
+    faio::spawn_detached(wait_for_ready(2));
+    faio::spawn_detached(signal_after_delay());
     co_return;
   }());
 }
 
 // ============================================================================
-// 示例3: Channel 通道
-// Channel<T>::make(cap) 得到 Sender 和 Receiver，send/recv 返回
-// task<expected<...>>。
+// 示例3: MPSC 队列
+// mpsc<T>::make(cap) 得到 sender 和 receiver；send/recv 返回可等待操作，
+// co_await 后得到 expected<...>。无竞争路径不创建额外协程帧。
 // ============================================================================
 
-faio::task<void> channel_sender(faio::sync::channel<int>::Sender sender,
-                                int count) {
+faio::task<void> mpsc_sender(faio::sync::mpsc<int>::sender sender,
+                             int count) {
   for (int i = 0; i < count; ++i) {
     auto result = co_await sender.send(i);
     if (!result) {
-      fastlog::console.info("  sender: channel closed");
+      faio::log::logger()->info("  sender: mpsc closed");
       co_return;
     }
   }
-  fastlog::console.info("  sender: sent {} values", count);
+  faio::log::logger()->info("  sender: sent {} values", count);
   co_return;
 }
 
-faio::task<void> channel_receiver(faio::sync::channel<int>::Receiver receiver,
-                                  int expect_count) {
+faio::task<void> mpsc_receiver(faio::sync::mpsc<int>::receiver receiver,
+                               int expect_count) {
   int received = 0;
   while (received < expect_count) {
     auto result = co_await receiver.recv();
     if (!result) {
-      fastlog::console.info("  receiver: channel closed after {}", received);
+      faio::log::logger()->info("  receiver: mpsc closed after {}", received);
       co_return;
     }
-    fastlog::console.info("  receiver: got {}", *result);
+    faio::log::logger()->trace("  receiver: got {}", *result);
     ++received;
   }
-  fastlog::console.info("  receiver: done, total {}", received);
+  faio::log::logger()->info("  receiver: done, total {}", received);
   co_return;
 }
 
-void example_channel(faio::runtime_context &ctx) {
-  fastlog::console.info("===== 示例3: Channel =====");
+void example_mpsc() {
+  faio::log::logger()->info("===== 示例3: MPSC =====");
 
-  auto [sender, receiver] = faio::sync::channel<int>::make(2);
+  auto endpoints = faio::sync::mpsc<int>::make(2);
 
-  faio::block_on<void>(ctx,
-                       [sender, receiver]() mutable -> faio::task<void> {
-                         faio::spawn(channel_sender(sender, 5));
-                         faio::spawn(channel_receiver(receiver, 5));
-                         co_return;
-                       }());
+  faio::block_on(faio::join(mpsc_sender(std::move(endpoints.first), 5),
+                                 mpsc_receiver(std::move(endpoints.second), 5)));
 }
 
 int main() {
-  fastlog::set_consolelog_level(fastlog::LogLevel::Info);
-  faio::runtime_context ctx;
+  faio::log::logger()->set_level(spdlog::level::info);
 
-  example_mutex(ctx);
-  example_condition_variable(ctx);
-  example_channel(ctx);
+  example_mutex();
+  example_condition_variable();
+  example_mpsc();
 
-  fastlog::console.info("===== all sync examples done =====");
+  faio::log::logger()->info("===== all sync examples done =====");
   return 0;
 }

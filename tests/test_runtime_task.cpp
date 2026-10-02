@@ -3,6 +3,7 @@
 #include "faio/faio.hpp"
 
 #include <atomic>
+#include <thread>
 
 namespace {
 
@@ -16,8 +17,8 @@ auto child_increment(std::atomic<int>& counter) -> faio::task<void> {
 }
 
 auto spawn_children(std::atomic<int>& counter) -> faio::task<void> {
-  faio::spawn(child_increment(counter));
-  faio::spawn(child_increment(counter));
+  faio::spawn_detached(child_increment(counter));
+  faio::spawn_detached(child_increment(counter));
   co_return;
 }
 
@@ -65,4 +66,20 @@ TEST(RuntimeTaskTest, ConfigBuilderAppliesValues) {
   EXPECT_EQ(cfg._submit_interval, 3u);
   EXPECT_EQ(cfg._io_interval, 5u);
   EXPECT_EQ(cfg._global_queue_interval, 7u);
+}
+
+TEST(RuntimeTaskTest, DefaultRuntimeWorksAcrossExternalThreads) {
+  faio::runtime::configure(faio::ConfigBuilder{}.set_num_workers(2).build());
+  EXPECT_EQ(faio::block_on(return_value_task()), 42);
+  auto [first, second] = faio::block_on(faio::join(compute_one(), compute_two()));
+  EXPECT_EQ(first + second, 3);
+  int result = 0;
+  std::thread submitter([&] {
+    auto handle = faio::spawn(return_value_task());
+    result = handle.get();
+  });
+  submitter.join();
+  EXPECT_EQ(result, 42);
+  EXPECT_THROW(faio::runtime::configure(faio::ConfigBuilder{}.build()),
+               std::logic_error);
 }

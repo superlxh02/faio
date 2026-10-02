@@ -3,7 +3,7 @@
 #include "faio/detail/common/error.hpp"
 #include "faio/detail/net/common/addr_util.hpp"
 #include "faio/detail/net/common/socket.hpp"
-#include "fastlog/fastlog.hpp"
+#include "faio/log.hpp"
 namespace faio::net::detail {
 template <class Listener, class Stream, class Addr>
 class BaseListener
@@ -69,7 +69,7 @@ public:
       if (auto ret = bind(address); ret) [[likely]] {
         return ret;
       } else {
-        fastlog::console.error("Bind {} failed, error: {}", address.to_string(),
+        faio::log::logger()->warn("Bind {} failed, error: {}", address.to_string(),
                                ret.error().message());
       }
     }

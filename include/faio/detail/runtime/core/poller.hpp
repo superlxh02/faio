@@ -2,78 +2,54 @@
 #define FAIO_DETAIL_RUNTIME_CORE_POLLER_HPP
 
 #include "faio/detail/runtime/core/worker.hpp"
+#include <cstddef>
+#include <latch>
 #include <thread>
+#include <vector>
+
 namespace faio::runtime::detail {
-
-class RuntimePoller {
+// 管理线程池及 shared 的生命周期；worker 对象直接存放在各工作线程的栈上。
+class runtime_poller {
 public:
-  RuntimePoller(const Config &config)
-      : _shared(config), _sync_start(static_cast<std::ptrdiff_t>(
-                             _shared.config()._num_workers + 1)) {
-    work();
+  // 创建共享调度域，再启动并等待所有线程完成本地队列注册。
+  explicit runtime_poller(const runtime_config& config)
+      : shared_(config), workers_started_(static_cast<std::ptrdiff_t>(config._num_workers + 1)) {
+    start_workers();
   }
-
-  ~RuntimePoller() {
+  runtime_poller(const runtime_poller&) = delete;
+  runtime_poller& operator=(const runtime_poller&) = delete;
+  // 根帧全部销毁后关闭调度器；join 保证 shared 比任何本地调度状态活得更久。
+  ~runtime_poller() {
+    shared_.wait_for_tasks();
     close();
     wait_for_all();
   }
-
-public:
-  // 等待所有线程完成
+  // 借用共享组件，供 runtime_context 构造调度/生命周期引用。
+  detail::shared* shared() noexcept { return &shared_; }
+  // 外部线程等待所有 worker 析构完毕，包含本地注册注销和 I/O 资源释放。
   void wait_for_all() {
-    // 等待所有 Worker 线程完成任务
-    for (auto &worker : _runtime_thread_pool) {
-      worker.join();
-    }
+    for (auto& thread : threads_) if (thread.joinable()) thread.join();
   }
-  // 关闭共享资源
-  void close() { _shared.close(); }
+  // 根任务排空后通知所有事件循环退出。
+  void close() { shared_.close(); }
 
 private:
-  // 工作函数，创建线程并运行工作者
-  void work() {
-    for (std::size_t i = 0; i < _shared.config()._num_workers; ++i) {
-      _runtime_thread_pool.emplace_back([this, i]() {
-        Worker worker{&_shared, i};
-        // 等待所有的worker全部创建完成(shared内的worker数组完整注册好)
-        _sync_start.arrive_and_wait();
-        // 统一启动run
-        worker.run();
+  // 启动阶段先注册所有本地队列，再统一进入事件循环，窃取表在运行阶段保持稳定。
+  void start_workers() {
+    threads_.reserve(shared_.config()._num_workers);
+    for (std::size_t i = 0; i < shared_.config()._num_workers; ++i) {
+      threads_.emplace_back([this, i] {
+        worker current_worker{shared_, i};
+        workers_started_.arrive_and_wait();
+        current_worker.run();
       });
     }
-    // 等待所有线程启动完成，此函数才执行完成
-    _sync_start.arrive_and_wait();
+    workers_started_.arrive_and_wait();
   }
 
-private:
-  std::vector<std::jthread> _runtime_thread_pool;
-  Shared _shared;
-  std::latch _sync_start;
+  detail::shared shared_;       // 共享调度域、配置与根任务计数，先构造、最后销毁。
+  std::latch workers_started_;  // 全部本地队列注册完成的启动屏障，包含创建线程。
+  std::vector<std::jthread> threads_; // 线程句柄；显式 join 后成员析构不再阻塞。
 };
-
-// 投递任务到当前worker实例的本地队列
-static inline void push_task_to_local_queue(std::coroutine_handle<> task) {
-  if (current_worker == nullptr) {
-    throw std::runtime_error("current_worker is nullptr");
-  }
-  current_worker->push_back_task_to_local_queue(task);
-}
-// 投递任务到全局队列
-static inline void push_task_to_global_queue(std::coroutine_handle<> task) {
-  if (current_shared == nullptr) {
-    throw std::runtime_error("current_shared is nullptr");
-  }
-  current_shared->push_back_task_to_global_queue(task);
-}
-
-// 投递批量任务到全局队列
-static inline void
-push_batch_tasks_to_global_queue(std::span<std::coroutine_handle<>> tasks) {
-  if (current_shared == nullptr) {
-    throw std::runtime_error("current_shared is nullptr");
-  }
-  current_shared->push_back_batch_tasks_to_global_queue(std::move(tasks));
-}
-
 } // namespace faio::runtime::detail
 #endif // FAIO_DETAIL_RUNTIME_CORE_POLLER_HPP

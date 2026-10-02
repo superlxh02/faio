@@ -2,11 +2,16 @@
 #define FAIO_DETAIL_IO_BASE_IO_REGISTRANT_HPP
 #include "faio/detail/common/error.hpp"
 #include "faio/detail/io/uring/io_uring.hpp"
+#include "faio/detail/runtime/core/io_engine.hpp"
+#include "faio/detail/coroutine/task_context.hpp"
 #include "faio/detail/io/uring/io_user_data.hpp"
 #include "faio/detail/time/timeout.hpp"
 #include <functional>
 #include <liburing.h>
 #include <utility>
+#include <memory>
+#include <optional>
+#include <stop_token>
 namespace faio::io::detail {
 
 // IO操作注册器，通过构造函数传入IO操作函数和参数。
@@ -31,13 +36,14 @@ public:
   IORegistrantAwaiter &operator=(const IORegistrantAwaiter &) = delete;
   IORegistrantAwaiter(IORegistrantAwaiter &&other)
       : _user_data(std::move(other._user_data)), _sqe(other._sqe) {
-    io_uring_sqe_set_data(_sqe, &this->_user_data);
+    if (_sqe != nullptr) io_uring_sqe_set_data(_sqe, &this->_user_data);
     other._sqe = nullptr;
   }
   IORegistrantAwaiter &operator=(IORegistrantAwaiter &&other) {
+    _stop_callback.reset(); // 只能在 await_suspend 之前移动 awaiter。
     _user_data = std::move(other._user_data);
     _sqe = other._sqe;
-    io_uring_sqe_set_data(_sqe, &this->_user_data);
+    if (_sqe != nullptr) io_uring_sqe_set_data(_sqe, &this->_user_data);
     other._sqe = nullptr;
     return *this;
   };
@@ -51,6 +57,17 @@ public:
   // 挂起逻辑，设置用户数据和提交io请求
   void await_suspend(std::coroutine_handle<> handle) {
     _user_data.handle = std::move(handle);
+    auto token = ::faio::detail::current_stop_token;
+    if (token.stop_possible()) {
+      // SQE 在构造函数已登记 user_data；此处若分配失败就不能安全销毁帧，
+      // 因为尚未提交的 SQE 仍持有帧内地址。明确终止，避免隐蔽的 UAF。
+      try {
+        _user_data.cancel_state = std::make_shared<io_cancel_state>();
+        _user_data.cancel_state->target = &_user_data;
+        _stop_callback.emplace(token, cancel_callback{_user_data.cancel_state,
+                                                        runtime::detail::current_io_engine});
+      } catch (...) { std::terminate(); }
+    }
     io::detail::current_uring->submit();
   }
 
@@ -65,8 +82,14 @@ public:
   }
 
 protected:
+  struct cancel_callback {
+    std::shared_ptr<io_cancel_state> state;
+    runtime::detail::io_engine* engine;
+    void operator()() const noexcept { engine->request_cancel(state); }
+  };
   io_user_data_t _user_data{};
   io_uring_sqe *_sqe;
+  std::optional<std::stop_callback<cancel_callback>> _stop_callback;
 };
 
 } // namespace faio::io::detail

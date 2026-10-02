@@ -3,10 +3,10 @@
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 #include <asio/use_awaitable.hpp>
+#include "faio/log.hpp"
 
 #include <array>
 #include <cstdlib>
-#include <iostream>
 #include <string>
 #include <thread>
 
@@ -26,10 +26,10 @@ auto handle_session(tcp::socket socket) -> awaitable<void> {
 	static const std::string response =
 			"HTTP/1.1 200 OK\r\n"
 			"Content-Type: text/plain; charset=utf-8\r\n"
-			"Content-Length: 20\r\n"
+			"Content-Length: 16\r\n"
 			"Connection: keep-alive\r\n"
 			"\r\n"
-			"hello from asio tcp\n";
+			"hello benchmark\n";
 
 	try {
 		while (true) {
@@ -64,7 +64,7 @@ auto listener(tcp::acceptor acceptor) -> awaitable<void> {
 			co_spawn(acceptor.get_executor(), handle_session(std::move(socket)), detached);
 		}
 	} catch (const std::exception &e) {
-		std::cerr << "asio listener error: " << e.what() << std::endl;
+		faio::log::logger()->error("asio listener error: {}", e.what());
 	}
 	co_return;
 }
@@ -84,10 +84,11 @@ int main(int argc, char **argv) {
 	asio::io_context io;
 	tcp::endpoint endpoint(asio::ip::make_address(host), port);
 	tcp::acceptor acceptor(io, endpoint);
-	std::cout << "asio tcp benchmark listening on " << host << ":" << port << std::endl;
+	faio::log::logger()->info("asio tcp benchmark listening on {}:{}", host, port);
 	co_spawn(io, listener(std::move(acceptor)), detached);
 
-	const std::size_t workers = std::max<std::size_t>(1, std::thread::hardware_concurrency());
+	// host、port、workers；所有对照服务使用同样的线程数。
+	const std::size_t workers = argc>3 ? std::max(1ul,std::strtoul(argv[3],nullptr,10)) : 4;
 	std::vector<std::thread> pool;
 	pool.reserve(workers > 0 ? workers - 1 : 0);
 	for (std::size_t i = 1; i < workers; ++i) {

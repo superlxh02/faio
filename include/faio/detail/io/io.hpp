@@ -1,5 +1,6 @@
 #ifndef FAIO_DETAIL_IO_IO_HPP
 #define FAIO_DETAIL_IO_IO_HPP
+#include "faio/log.hpp"
 
 #include "faio/detail/io/awaiter/accept.hpp"
 #include "faio/detail/io/awaiter/cancel.hpp"
@@ -105,8 +106,9 @@ private:
         if (ret == 0) [[likely]] {
           break;
         } else {
-          fastlog::console.error("close {} failed, error: {}, times: {}", _fd,
-                                 strerror(errno), i);
+          faio::log::logger()->log(
+              i == 3 ? spdlog::level::err : spdlog::level::warn,
+              "close {} failed, error: {}, attempt: {}", _fd, strerror(errno), i);
         }
       }
     }

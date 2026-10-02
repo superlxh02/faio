@@ -1,648 +1,230 @@
-# Fast Async IO (faio)
+# faio · Fast Async IO
 
-## 项目简介
+**简体中文** | [English](README_EN.md)
 
-**Fast Async IO**（faio）是一个基于 **C++20 协程** 与 **io_uring** 的高性能异步 IO 库，面向 Linux 平台。它提供基于协程的通用异步任务调度和并发，同时提供了基于协程语义的网络（TCP/UDP）、时间、同步原语与 HTTP（HTTP/1.1 + HTTP/2）能力。
+faio 是一个基于现代 C++ 编写的 Linux 异步 I/O 库：以 C++20 协程为执行模型，以 Linux io_uring 为原生 Proactor 异步引擎，提供协程任务、多线程运行时、网络与文件 I/O、定时器和协程同步原语。库以头文件形式提供，采用 [Apache-2.0](LICENSE) 开源许可证。
 
----
+在 faio 中，异步流程以同步的方式书写：等待 I/O 完成、定时器到期或同步原语就绪时，当前协程挂起并让出工作线程；完成事件到达后，协程由运行时重新调度恢复。整个过程中没有线程被阻塞在读写或等待上，适用于高并发网络服务、异步任务处理和通用协程并发程序。
 
-## 项目特点
+[功能](#功能) · [特点](#特点) · [简单示例](#简单示例) · [环境](#环境) · [集成](#集成) · [文档](#文档)
 
-- **基于 Proactor 模式（io_uring）**：采用 Proactor 异步模型，底层使用 Linux io_uring 。
-- **基于 C++20 协程**：基于C++20协程封装faio::task `<T>`。
-- **高性能异步运行时**：Worker-Thread模式 + 任务窃取模式，构成高性能异步运行时。
-- **高性能定时器** ： 基于多级时间轮构建高性能定时器
-- **协程友好同步原语**：提供互斥锁、条件变量、csp模式的channel。
-- **协程化异步IO**：基于C++20协程的awaitable机制，封装IO操作awaitable,提供TCP/UDP通信接口
-- **HTTP 模块（HTTP/1.1 + HTTP/2）**：HTTP/1.1 基于 llhttp，HTTP/2 基于 nghttp2，支持路由、中间件、动态参数与错误处理。
+## 功能
 
----
+| 模块 | 能力 |
+| --- | --- |
+| 协程任务 | 惰性 `task<T>`、任务启动与结果句柄、异常传播、协作取消 |
+| 并发组合 | `join`、`join_all`、`select`、结构化任务作用域 `scope` |
+| 异步运行时 | 默认运行时、独立运行时、多工作线程调度、任务窃取 |
+| 网络 I/O | TCP 监听与连接、流读写、UDP 数据报、IPv4 / IPv6 地址 |
+| 底层 I/O | 基于 io_uring 的文件与套接字操作 awaitable |
+| 时间操作 | 休眠、截止时间、I/O 超时、周期性定时器 |
+| 同步原语 | 互斥锁、信号量、条件变量、闩、屏障、有界 MPSC 队列 |
+| 日志 | spdlog，支持运行时级别调整与输出 sink 配置 |
 
-## 项目环境
+## 特点
 
-| 项目     | 要求                                                                                                                                                                                                                                             |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 操作系统 | Linux（依赖 io_uring，内核 5.1+ 推荐 5.10+）                                                                                                                                                                                                     |
-| 编译器   | 支持 C++23 的 GCC 或 Clang                                                                                                                                                                                                                       |
-| 构建     | CMake 3.20+                                                                                                                                                                                                                                      |
-| 依赖     | [liburing](https://github.com/axboe/liburing)（io_uring 用户态库） ; [nghttp2](https://github.com/nghttp2/nghttp2)（HTTP/2 协议库）; [llhttp](https://github.com/nodejs/llhttp)（HTTP/1.1 协议库）; [fastlog](https://github.com/superlxh02/FastLog)(日志库) |
-
----
-
-## 性能测试
-
-### 测试命令
-
-- HTTP 对比（Gin / faio / Beast）
-
-```bash
-python3 scripts/compare_http_benchmarks.py
-```
-
-- TCP 对比（Asio / faio-tcp / Tokio）
-
-```bash
-python3 scripts/compare_tcp_benchmarks.py
-```
-
-默认压测参数：`wrk -t4 -c5000 -d60s`
-
-### 最近一次结果摘要
-
-#### HTTP（`benchmark/result/http/summary.csv`）
-
-图表：`benchmark/result/http/comparison.png`
-
-![HTTP Benchmark Comparison](benchmark/result/http/comparison.png)
-
-| Runtime | Requests/sec | Avg(ms) | P50(ms) | P90(ms) | P99(ms) | Timeout |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Go(Gin) | 447991.66 | 9.61 | 8.14 | 17.18 | 39.14 | 0 |
-| C++(faio) | 638900.79 | 8.58 | 4.25 | 12.81 | 32.53 | 0 |
-| C++(beast) | 257148.38 | 18.52 | 18.77 | 20.14 | 24.52 | 2940 |
-
-#### TCP（`benchmark/result/tcp/summary.csv`）
-
-图表：`benchmark/result/tcp/comparison.png`
-
-![TCP Benchmark Comparison](benchmark/result/tcp/comparison.png)
-
-| Runtime | Requests/sec | Avg(ms) | P50(ms) | P90(ms) | P99(ms) | Timeout |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| C++(asio) | 446577.63 | 14.20 | 10.63 | 12.50 | 59.42 | 2445 |
-| C++(faio-tcp) | 651550.61 | 4.53 | 3.51 | 7.16 | 14.18 | 0 |
-| Rust(tokio) | 859649.68 | 4.23 | 3.07 | 8.22 | 14.60 | 0 |
-
-> 注：该结果受机器配置、系统负载、内核参数与并发连接上限影响，建议在同机空载条件下多轮测试取中位数。
-
----
+- **C++20 无栈协程**：任务模型构建于 C++20 无栈协程（stackless coroutine）之上。`task<T>` 是惰性、移动独占的协程任务；嵌套 `co_await` 通过对称转移（symmetric transfer）直接接续子任务，不引入额外的栈分配与调度开销。结果与异常沿等待链逐层传播，异步错误可以用标准 `try/catch` 处理。
+- **Proactor I/O 模型**：io_uring 负责异步请求提交与完成通知，运行时将完成事件转成协程就绪任务。
+- **Worker-Thread 模式**：运行时由固定数量的工作线程组成，每个工作线程运行独立的事件循环，在同一循环中执行就绪协程、收割 io_uring 完成、处理定时器到期与跨线程唤醒。协程挂起即让出线程，任何任务都无法阻塞其所在的工作线程。
+- **任务窃取调度**：采用本地就绪队列加全局队列的两级结构。同线程提交直接进入本地队列的快速槽，跨线程提交进入全局队列；空闲工作线程按窃取协议从其他线程的本地队列批量领取任务，在降低锁竞争的同时保持多核负载均衡。
+- **协程语义的同步原语**：互斥锁、信号量、条件变量、闩、屏障与有界 MPSC 队列均为协程级原语——发生争用时挂起当前协程而非阻塞线程，恢复仍投递回原调度域；全部等待操作支持基于停止令牌的协作取消。
+- **协程化的异步网络与文件 I/O**：TCP 监听与连接、流式读写、UDP 数据报，以及文件与套接字的底层操作，统一封装为可 `co_await` 的 awaitable。网络服务可以用同步的书写方式实现一连接一协程，并天然获得超时与协作取消能力。
 
 ## 简单示例
 
-```cpp
-#include "faio/faio.hpp"
-#include "fastlog/fastlog.hpp"
+### 协程任务：block_on、spawn 与 join
 
-auto handle(faio::net::TcpStream stream) -> faio::task<void> {
-  char buf[1025];
-  while (true) {
-    auto ok = co_await stream.read(buf);
-    auto len = ok.value();
-    ok = co_await stream.write({buf, len});
-  }
-  co_return;
+```cpp
+#include <faio/faio.hpp>
+#include <chrono>
+
+using namespace std::chrono_literals;
+
+faio::task<int> delayed_value(int value) {
+    co_await faio::time::sleep(10ms);
+    co_return value;
 }
 
-faio::task<void> server(uint16_t port) {
-  auto addr = faio::net::address::parse("0.0.0.0", port);
-  auto has_listener = faio::net::TcpListener::bind(addr.value());
-  if (!has_listener) {
-    co_return ;
-  }
-  auto listener = std::move(has_listener.value());
-  auto has_stream = co_await listener.accept();
-  if (has_stream) {
-    auto &[stream, peer_addr] = has_stream.value();
-    spawn(handle(std::move(stream)));
-  } else {
-    co_return ;
-  }
-  co_return ;
+faio::task<int> sum() {
+    // spawn 立即提交任务并发执行，返回可等待的结果句柄
+    auto first = faio::spawn(delayed_value(20));
+    const auto a = co_await first;
+
+    // join 把多个惰性任务组合为一个并发组合，按参数顺序返回结果
+    auto [b, c] = co_await faio::join(delayed_value(11), delayed_value(11));
+    co_return a + b + c;
 }
 
 int main() {
-  faio::runtime_context ctx;
-   faio::block_on(ctx, server(8080));
-}
-
-```
-
-## 接口使用指南
-
-### 1. 结构体与辅助类
-
-| 类型 / 接口                  | 功能说明                                                                                                                                                                                     |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `faio::Error`              | 错误类型，含 `value()`（错误码）、`message()`（描述）；含自定义错误码枚举（如 `EmptySqe`、`InvalidAddresses`、`ClosedChannel` 等）。                                               |
-| `faio::expected<T, Error>` | 即 `std::expected<T, faio::Error>`，表示成功返回 `T` 或失败返回 `Error`，用于所有可能出错的接口。                                                                                      |
-| `faio::net::address`       | 即 `SocketAddr`，表示套接字地址（IPv5/IPv6 + 端口）；提供 `parse(host_name, port)`、`ip()`、`port()`、`to_string()`、`is_ipv5()`/`is_ipv6()`、`sockaddr()`/`length()` 等。 |
-| `faio::net::v4addr`        | IPv4 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                                         |
-| `faio::net::v6addr`        | IPv6 地址类型，支持 `parse(ip)`、`to_string()`。                                                                                                                                         |
-| `faio::ConfigBuilder`      | 运行时配置构建器，链式调用 `set_num_events()`、`set_num_workers()`、`set_submit_interval()`、`set_io_interval()`、`set_global_queue_interval()` 后 `build()` 得到 `Config`。   |
-
----
-
-### 2. 主要接口
-
-#### 2.1 运行时
-
-**`faio::runtime_context`**
-异步运行时上下文，构造时根据配置启动多 Worker 线程池。提供 `config()`、`stop()`、`running()`。
-
-```cpp
-#include "faio/faio.hpp"
-
-// 默认配置
-faio::runtime_context ctx;
-
-// 或使用 ConfigBuilder 自定义
-auto config = faio::ConfigBuilder{}
-    .set_num_workers(5)
-    .set_num_events(2058)
-    .build();
-faio::runtime_context ctx2{config};
-
-//是否运行
-if (ctx.running())
-//context本身是RAII的，会在析构的时候自动stop,但是暴露了stop接口给用户手动调用。
-    ctx.stop();
-```
-
----
-
-#### 2.2 协程：协程类型与并发
-
-**`faio::task<T>`**
-协程类型，支持 `co_await`、`co_return`；可被 `spawn`、`block_on`、`wait_all` 使用。
-**注意** 支持co_await faio::task `<T>`，库内部已经对task实现了awaitable机制
-
-```cpp
-// 无返回值
-faio::task<void> do_work() {
-    co_await faio::time::sleep(std::chrono::milliseconds(50));
-    co_return;
-}
-
-// 有返回值，可被 co_await 得到 T
-faio::task<int> fetch_value() {
-    co_await faio::time::sleep(std::chrono::milliseconds(10));
-    co_return 52;
-}
-
-faio::task<void> caller() {
-    co_await do_work();
-    int v = co_await fetch_value();  // v == 52
-    co_return;
+    // 普通线程用 block_on 等待任务完成；协程内部用 co_await
+    const auto result = faio::block_on(sum());
+    faio::log::logger()->info("sum = {}", result); // 42
+    faio::runtime::shutdown();
 }
 ```
 
-**`faio::block_on(runtime_context& ctx, task<T> t)`**
-阻塞当前线程直到给定 task 及其所有通过 `spawn` 派生的子任务完成，返回该 task 的 `T`。
+### 协程同步：互斥锁与条件变量
 
 ```cpp
-faio::runtime_context ctx;
+#include <faio/faio.hpp>
+#include <chrono>
 
-// void 协程
-faio::block_on(ctx, []() -> faio::task<void> {
-    // 协程体
-    co_return;
-}());
-
-// 带返回值的协程
-faio::task<int> compute() { co_return 52; }
-int result = faio::block_on(ctx, compute());
-```
-
-**`faio::spawn(task<T>&& t)`**
-将 task 投递到运行时执行，不等待结果；在 `block_on` 上下文中会被追踪，全部完成后 `block_on` 才返回。
-
-```cpp
-faio::task<void> background_work() {
-    co_await faio::time::sleep(std::chrono::milliseconds(100));
-    co_return;
-}
-
-faio::block_on(ctx, []() -> faio::task<void> {
-    faio::spawn(background_work());  // 派发子任务，不等待
-    faio::spawn(background_work());
-    co_return;  // block_on 会等所有 spawn 完成
-}());
-```
-
-**`faio::wait_all(runtime_context& ctx, task<T1> t1, task<T2> t2, ...)`**
-并行执行多个 task，阻塞直到全部完成，返回 `std::tuple<T1, T2, ...>`。
-
-```cpp
-faio::task<int> a() { co_return 1; }
-faio::task<int> b() { co_return 2; }
-faio::task<std::string> c() { co_return "ok"; }
-
-auto [x, y, z] = faio::wait_all(ctx, a(), b(), c());
-// x == 1, y == 2, z == "ok"
-```
-
----
-
-#### 2.3 协程：同步原语
-
-**`faio::sync::mutex`**
-可与 `co_await` 配合的互斥锁；支持 `lock()`、`unlock()`、`try_lock()`。
-
-```cpp
-#include "faio/faio.hpp"
-
-faio::sync::mutex mtx;
-int shared_value = 0;
-
-faio::task<void> add_one() {
-    co_await mtx.lock();
-    shared_value++;
-    mtx.unlock();
-    co_return;
-}
-
-// 非阻塞尝试
-if (mtx.try_lock()) {
-    // 拿到锁
-    mtx.unlock();
-}
-```
-
-**`faio::sync::condition_variable`**
-条件变量，需与 `faio::sync::mutex` 配合；`wait(mtx, predicate)` 返回可 `co_await` 的 task。
-
-```cpp
-faio::sync::mutex mtx;
-faio::sync::condition_variable cv;
-bool ready = false;
+faio::sync::mutex g_mutex;
+faio::sync::condition_variable g_cv;
+bool g_ready = false;
 
 faio::task<void> waiter() {
-    co_await mtx.lock();
-    co_await cv.wait(mtx, [] { return ready; });  // 条件为真前挂起
-    mtx.unlock();
-    co_return;
+    co_await g_mutex.lock();
+    // 等待期间挂起协程并释放互斥锁，通知到达后重新竞争锁
+    co_await g_cv.wait(g_mutex, [] { return g_ready; });
+    g_mutex.unlock();
+    faio::log::logger()->info("条件满足，waiter 退出");
 }
 
 faio::task<void> notifier() {
-    co_await mtx.lock();
-    ready = true;
-    mtx.unlock();
-    cv.notify_one();
-    co_return;
+    co_await faio::time::sleep(std::chrono::milliseconds{50});
+    co_await g_mutex.lock();
+    g_ready = true;
+    g_mutex.unlock();
+    g_cv.notify_all();
+}
+
+int main() {
+    faio::block_on(faio::join(waiter(), notifier()));
+    faio::runtime::shutdown();
 }
 ```
 
-**`faio::sync::channel<T>::make(size_t max_cap)`**
-创建有界通道，返回 `std::pair<Sender, Receiver>`；`Sender::send`、`Receiver::recv` 可 `co_await`。
+### TCP 服务
 
 ```cpp
-auto [sender, receiver] = faio::sync::channel<int>::make(65);
+#include <faio/faio.hpp>
+#include <cstdint>
 
-// 发送端
-auto ok = co_await sender.send(52);
-sender.close();  // 关闭发送端
-
-// 接收端
-auto result = co_await receiver.recv();  // expected<int, Error>
-if (result)
-    int value = result.value();
-receiver.close();
-```
-
----
-
-#### 2.4 协程：时间操作
-
-**`faio::time::sleep(duration)`**
-挂起当前协程指定时长。
-
-```cpp
-#include "faio/faio.hpp"
-
-co_await faio::time::sleep(std::chrono::milliseconds(100));
-co_await faio::time::sleep(std::chrono::seconds(1));
-```
-
-**`faio::time::sleep_until(time_point)`**
-挂起当前协程直到指定绝对时间点。
-
-```cpp
-auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-co_await faio::time::sleep_until(deadline);
-```
-
-**`faio::time::timeout(io_awaiter, duration)`**
-为 IO 操作设置相对超时。
-
-```cpp
-char buf[1025];
-auto result = co_await faio::time::timeout(
-    stream.read(buf),
-    std::chrono::seconds(5)
-);
-if (!result) { /* 超时或读失败 */ }
-```
-
-**`faio::time::timeout_at(io_awaiter, time_point)`**
-为 IO 操作设置绝对时间点超时。
-
-```cpp
-auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-auto result = co_await faio::time::timeout_at(stream.read(buf), deadline);
-```
-
-**`faio::time::interval(period)`**
-创建周期性定时器，首次 tick 在一个 period 之后；`tick()` 可 `co_await`。
-
-```cpp
-auto ticker = faio::time::interval(std::chrono::seconds(1));
-for (int i = 0; i < 5; ++i) {
-    co_await ticker.tick();  // 每秒触发一次
-    // 周期性逻辑
-}
-ticker.reset();           // 下一个 tick 在一个 period 后
-ticker.reset_immediately();  // 下一个 tick 立即触发
-```
-
-**`faio::time::interval_at(start, period)`**
-创建周期性定时器，首次 tick 在 `start + period`。
-
-```cpp
-auto start = std::chrono::steady_clock::now();
-auto ticker = faio::time::interval_at(start, std::chrono::seconds(1));
-co_await ticker.tick();
-```
-
----
-
-#### 2.5 网络 IO：TCP
-
-**`faio::net::address::parse(host_name, port)`**
-解析主机名/IP 与端口，得到 `expected<address, Error>`。
-
-```cpp
-#include "faio/faio.hpp"
-
-auto addr = faio::net::address::parse("0.0.0.0", 8080).value();
-auto addr2 = faio::net::address::parse("127.0.0.1", 9000).value();
-```
-
-**`faio::net::TcpListener::bind(addr)`**
-在给定地址上绑定并开始监听。
-
-```cpp
-auto addr = faio::net::address::parse("0.0.0.0", 8080).value();
-auto listener = faio::net::TcpListener::bind(addr).value();
-```
-
-**`listener.accept()`**
-接受一个连接，返回 `(TcpStream, address)`。
-
-```cpp
-faio::task<void> server(faio::net::TcpListener& listener) {
+faio::task<void> echo(faio::net::TcpStream stream) {
+    char buf[1024];
     while (true) {
-        auto result = co_await listener.accept();
-        if (!result) break;
-        auto [stream, peer_addr] = result.value();
-        faio::spawn(process(std::move(stream)));
+        auto n = co_await stream.read(buf);
+        if (!n || *n == 0) break;
+        if (!(co_await stream.write_all({buf, *n}))) break;
     }
-    co_return;
+}
+
+faio::task<void> server(std::uint16_t port) {
+    auto addr = faio::net::address::parse("0.0.0.0", port);
+    auto listener = faio::net::TcpListener::bind(*addr);
+    if (!listener) co_return;
+
+    while (true) {
+        auto accepted = co_await listener->accept();
+        if (!accepted) break;
+        auto& [stream, peer] = *accepted;
+        faio::spawn_detached(echo(std::move(stream))); // 每个连接一个协程
+    }
+}
+
+int main() {
+    faio::block_on(server(8080));
 }
 ```
 
-**`faio::net::TcpStream::connect(addr)`**
-连接到指定地址。
+默认运行时在首次使用时启动，可用 `faio::runtime::configure()` 在首次使用前调整线程数等参数。更多完整程序见 [examples](examples)，包括 [协程与并发](examples/coroutine_task.cpp)、[同步原语](examples/sync_demo.cpp)、[TCP 服务](examples/tcp_server.cpp) 和 [UDP 服务](examples/udp_server.cpp)。
 
-```cpp
-auto addr = faio::net::address::parse("127.0.0.1", 8080).value();
-auto stream = (co_await faio::net::TcpStream::connect(addr)).value();
+日志默认以 `info` 级别输出到 stderr，包含时间、级别和线程 ID；级别与输出配置见 [运行时日志说明](docs/异步运行时.md#6-诊断日志)。
+
+## 环境
+
+| 项目 | 要求 |
+| --- | --- |
+| 操作系统 | Linux，内核需支持使用到的 io_uring 操作；容器同样依赖宿主内核 |
+| 编译器与标准库 | 支持 C++23，包括协程、`std::expected` 和 `std::format`；已验证 GCC 15 |
+| 构建工具 | CMake 3.20+、pkg-config；预设使用 Ninja |
+| 库依赖 | liburing、spdlog、线程库 |
+| 可选开发依赖 | 单元测试使用 GoogleTest；TCP 性能对照使用 standalone Asio |
+| 可选性能工具 | Rust / Cargo、wrk、Python 3 及 numpy / pandas / matplotlib，详见 [benchmark](benchmark/README.md) |
+
+## 集成
+
+### CMake 源码集成
+
+将仓库作为子目录或 Git submodule 引入，通过 `faio::faio` 使用库：
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(my_app LANGUAGES CXX)
+
+set(FAIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(FAIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(FAIO_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+add_subdirectory(thirdparty/faio)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-**`stream.read(buf)`** / **`stream.write(buf)`**
-读写的 awaitable；`read` 返回 `expected<size_t, Error>`。
+该目标自动传递 C++23 编译要求、头文件路径，以及 liburing、spdlog 和线程库链接依赖。应用中包含 `<faio/faio.hpp>` 即可使用完整库。
 
-```cpp
-char buf[1025];
-auto n = (co_await stream.read(buf)).value();
-if (n > 0)
-    co_await stream.write(std::span{buf, n});
+### CMake 安装集成
+
+只安装库时，关闭示例、测试和性能测试，再指定安装目录：
+
+```bash
+cmake -S . -B build/install -G Ninja \
+  -DFAIO_BUILD_EXAMPLES=OFF -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF \
+  -DCMAKE_INSTALL_PREFIX=/path/to/faio-install
+cmake --install build/install
 ```
 
-**`stream.shutdown(how)`** / **`stream.close()`**
-关闭方向或关闭 fd。
+安装内容包含头文件、许可证和 CMake 包。应用通过安装前缀查找包，并使用同一目标链接依赖：
 
-```cpp
-co_await stream.shutdown(faio::io::ShutdownBehavior::Write);
-co_await stream.close();
+```cmake
+find_package(faio CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-**`stream.local_addr()`** / **`stream.peer_addr()`**
-获取本端/对端地址（同步）。
+配置应用时传入 `-DCMAKE_PREFIX_PATH=/path/to/faio-install`，并确保 liburing、spdlog 与 pkg-config 可用。
 
-```cpp
-auto local = stream.local_addr().value();
-auto peer = stream.peer_addr().value();
-// local.to_string(), peer.port() 等
+### 构建示例与测试
+
+在具备 C++23 编译器的 Linux 环境中，使用系统包安装依赖。以下命令以 Ubuntu 开发环境为例：
+
+```bash
+sudo apt-get install g++ cmake ninja-build pkg-config liburing-dev libspdlog-dev
+
+git clone https://github.com/superlxh02/faio.git
+cd faio
+cmake --preset release -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
+cmake --build --preset release -j4
+./build/examples/coroutine_task
 ```
 
----
+三个构建开关默认均为 `ON`。启用完整开发构建时，再安装 GoogleTest 和 standalone Asio：
 
-#### 2.6 网络 IO：UDP
-
-**`faio::net::UdpDatagram::bind(addr)`**
-在给定地址上绑定 UDP 套接字。
-
-```cpp
-auto addr = faio::net::address::parse("0.0.0.0", 9999).value();
-auto socket = faio::net::UdpDatagram::bind(addr).value();
+```bash
+sudo apt-get install libgtest-dev libasio-dev
+cmake --preset debug
+cmake --build --preset debug -j4
+ctest --preset debug
 ```
 
-**`faio::net::UdpDatagram::unbound(is_ipv6)`**
-创建未绑定的 UDP 套接字。
+`CMakePresets.json` 提供 `debug`、`release` 及对应的 vcpkg 预设。使用 vcpkg 时设置 `VCPKG_ROOT`，再选择 `vcpkg-debug` 或 `vcpkg-release`；清单包含库与开发构建的依赖。
 
-```cpp
-auto socket = faio::net::UdpDatagram::unbound(false).value();  // IPv4
-```
+## 文档
 
-**`socket.recv_from(buf)`**
-接收数据报并得到发送方地址。
+模块设计与源码解析：
 
-```cpp
-char buf[1025];
-auto result = co_await socket.recv_from(buf);
-if (result) {
-    auto [len, peer] = result.value();
-    // 处理 len 字节，peer 为发送方 address
-}
-```
+| 文档 | 内容 |
+| --- | --- |
+| [协程封装](docs/协程封装.md) | 任务帧协议、任务上下文、this_coro、等待节点与调度边界 |
+| [协程并发](docs/协程并发.md) | spawn / block_on、join_handle、join / select / scope 的完成边界 |
+| [协程同步](docs/协程同步.md) | 等待节点协议、互斥锁、条件变量、信号量、闩、屏障与 MPSC |
+| [异步运行时](docs/异步运行时.md) | 运行时组件、协程调度、I/O 驱动、启动与关闭流程 |
+| [异步 I/O](docs/异步IO.md) | io_uring 封装与 I/O awaitable 的提交、完成与超时 |
+| [网络 I/O](docs/网络IO.md) | TCP / UDP 接口的 Mixin 与 CRTP 设计及关键源码 |
+| [定时器](docs/定时器.md) | 多级时间轮、休眠、周期 tick 与 I/O 超时 |
 
-**`socket.send_to(buf, addr)`**
-向指定地址发送数据报。
+性能测试与复现方式见 [benchmark README](benchmark/README.md)。
 
-```cpp
-auto peer = faio::net::address::parse("192.168.1.1", 9999).value();
-co_await socket.send_to(std::span{buf, len}, peer);
-```
+## 许可证
 
-**`socket.connect(addr)`**
-将套接字“连接”到对端，之后可用 `send`/`recv`。
-
-```cpp
-co_await socket.connect(peer_addr);
-co_await socket.send(std::span{buf, len});
-auto n = (co_await socket.recv(buf)).value();
-```
-
-**`socket.close()`** / **`socket.local_addr()`** / **`socket.peer_addr()`**
-关闭与地址查询，用法同 TCP。
-
-```cpp
-co_await socket.close();
-auto local = socket.local_addr().value();
-auto peer = socket.peer_addr().value();
-```
-
----
-
-#### 2.7 文件 IO（faio::io）
-
-`faio::io` 提供基于 io_uring 的底层异步 IO 接口，网络层的 TCP/UDP 读写内部也依赖这些接口。除套接字外，可直接用于**文件**的打开、读写、同步与关闭。所有接口均返回可 `co_await` 的 awaitable，resume 后得到 `expected<T, Error>`；支持与 `faio::time::timeout` / `timeout_at` 组合做超时控制。
-
-以 **`faio::io::open`** 为例，打开文件后进行读并关闭：
-
-```cpp
-#include "faio/faio.hpp"
-
-faio::task<void> read_file() {
-    int fd = (co_await faio::io::open("/tmp/foo.txt", O_RDONLY, 0)).value();
-    char buf[4096];
-    auto n = (co_await faio::io::read(fd, buf, sizeof(buf), 0)).value();
-    co_await faio::io::close(fd);
-    co_return;
-}
-```
-
-其余文件 IO 接口如下表，用法均为 `co_await faio::io::xxx(...)`，返回值均为 `expected<T, Error>`。
-
-| 接口                                               | 功能说明                                   |
-| -------------------------------------------------- | ------------------------------------------ |
-| `open(path, flags, mode)`                        | 异步打开文件，返回 fd                      |
-| `openat(dfd, path, flags, mode)`                 | 相对于目录 fd 打开文件                     |
-| `open2(path, how)` / `openat2(dfd, path, how)` | 使用 `struct open_how` 的打开（openat2） |
-| `read(fd, buf, nbytes, offset)`                  | 从指定偏移读，返回读取字节数               |
-| `write(fd, buf, nbytes, offset)`                 | 向指定偏移写，返回写入字节数               |
-| `readv(fd, iovecs, nr_vecs, offset, flags)`      | 分散读                                     |
-| `writev(fd, iovecs, nr_vecs, offset, flags)`     | 集中写                                     |
-| `close(fd)`                                      | 异步关闭文件描述符                         |
-| `fsync(fd, fsync_flags)`                         | 将文件数据/元数据刷入磁盘                  |
-
----
-
-#### 2.8 HTTP
-
-**`faio::http::HttpServer::bind(host, port)`**
-在给定地址上绑定并开始监听，返回 `expected<HttpServer, Error>`。
-
-```cpp
-#include "faio/http.hpp"
-
-auto server_res = faio::http::HttpServer::bind("127.0.0.1", 9998);
-if (server_res) {
-    auto server = std::move(server_res).value();
-    // co_await server.run(router);
-}
-```
-
-**`faio::http::HttpRouter`**
-路由与中间件分发器，支持动态参数、中间件与错误处理。
-
-```cpp
-faio::http::HttpRouter router;
-
-// 注册中间件
-router.use([](const faio::http::HttpRequest &req) -> faio::task<faio::http::HttpMiddlewareResult> {
-    co_return faio::http::HttpMiddlewareResult::next();
-});
-
-// 注册路由
-router.get("/users/:id", [](const faio::http::HttpRequest &req) -> faio::task<faio::http::HttpResponse> {
-    auto id = req.path_param("id").value_or("unknown");
-    co_return faio::http::HttpResponseBuilder(200)
-        .header("content-type", "application/json")
-        .body("{\"id\":\"" + std::string(id) + "\"}\n")
-        .build();
-});
-
-// 兜底处理
-router.fallback([](const faio::http::HttpRequest &req) -> faio::task<faio::http::HttpResponse> {
-    co_return faio::http::HttpResponseBuilder(404).body("Not Found\n").build();
-});
-```
-
-**`faio::http::HttpStream::connect(host, port, protocol)`**
-连接到指定地址，支持协议选择（Auto/Http1/Http2），返回 `expected<HttpStream, Error>`。
-
-```cpp
-auto stream_res = co_await faio::http::HttpStream::connect("127.0.0.1", 9998, faio::http::HttpProtocol::Auto);
-if (stream_res) {
-    auto stream = std::move(stream_res).value();
-    // co_await stream.request(req);
-}
-```
-
-**`stream.request(req)`**
-发送 HTTP 请求并等待响应，返回 `expected<HttpResponse, Error>`。
-
-```cpp
-auto req = faio::http::HttpRequest::create(
-    faio::http::HttpMethod::GET,
-    "/users/42?verbose=true",
-    {{"user-agent", "faio-http-client"}}
-);
-
-auto resp_res = co_await stream.request(req);
-if (resp_res) {
-    auto &resp = resp_res.value();
-    // resp.status() / resp.headers() / resp.body()
-}
-co_await stream.close();
-```
-
----
-
-## 异步运行时整体架构
-
-```mermaid
-flowchart TB
-  subgraph RC["faio::runtime_context"]
-    RC1["Config + RuntimePoller 生命周期管理"]
-  end
-
-  subgraph RP["RuntimePoller"]
-    RP1["创建并持有 N 个 Worker 线程 (jthread)"]
-    RP2["持有 Shared（全局队列、Worker 注册等）"]
-    RP3["std::latch 同步各 Worker 启动"]
-  end
-
-  subgraph W0["Worker 0"]
-    IE0["IOEngine: io_uring, Timer, Waker"]
-    LQ0["本地任务队列"]
-    TS0["任务窃取"]
-  end
-
-  subgraph W1["Worker 1"]
-    IE1["IOEngine: io_uring, Timer, Waker"]
-    LQ1["本地任务队列"]
-    TS1["任务窃取"]
-  end
-
-  subgraph WN["Worker N-1"]
-    IEN["IOEngine: io_uring, Timer, Waker"]
-    LQN["本地任务队列"]
-    TSN["任务窃取"]
-  end
-
-  subgraph SH["Shared"]
-    SH1["全局任务队列 MPMC"]
-    SH2["Worker 数组、关闭/唤醒状态"]
-    SH3["wake_up_one / wake_up_all (eventfd)"]
-  end
-
-  RC --> RP
-  RP --> W0
-  RP --> W1
-  RP --> WN
-  W0 --> SH
-  W1 --> SH
-  WN --> SH
-```
+[Apache-2.0](LICENSE)

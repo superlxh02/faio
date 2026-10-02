@@ -2,93 +2,41 @@
 #define FAIO_DETAIL_RUNTIME_CORE_SHARED_HPP
 
 #include "faio/detail/runtime/core/config.hpp"
-#include "faio/detail/runtime/core/queue.hpp"
-#include "faio/detail/runtime/core/state_machine.hpp"
-#include <coroutine>
+#include "faio/detail/runtime/core/root_task_counter.hpp"
+#include "faio/detail/runtime/core/scheduler/domain_scheduler.hpp"
 #include <cstddef>
 #include <latch>
-#include <optional>
 
 namespace faio::runtime::detail {
-class Worker;
-class Shared;
-
-static inline thread_local Shared *current_shared{nullptr};
-
-// Shared 类，用于管理线程池中的共享资源
-class Shared {
-  friend class Worker;
-
+// 整个 runtime 的共享组件容器：调度域与根任务生命周期各自独立。
+// shared 先于所有 worker 构造，全部工作线程退出并销毁后才销毁。
+class shared {
 public:
-  Shared(const Config &config)
-      : _config(config), _state_machine(config._num_workers),
-        _shutdown_latch(static_cast<std::ptrdiff_t>(config._num_workers)) {
-    current_shared = this;
-    set_workers_size(config._num_workers);
-  }
-  ~Shared() { current_shared = nullptr; }
-
-public:
-  [[nodiscard]]
-  const Config &config() const {
-    return _config;
-  }
-
-  // 关闭全局队列并唤醒所有worker
-  void close() {
-    if (!_global_queue.closed()) {
-      _global_queue.close();
-      wake_up_all();
-    }
-  }
-
-  // 注册工作线程
-  void register_worker(Worker *worker, std::size_t worker_id) {
-    _workers[worker_id] = worker;
-  }
-
-  // 设置工作线程数量,预留空间并初始化
-  void set_workers_size(std::size_t size) {
-    _workers.reserve(size);
-    _workers.resize(size);
-  }
-
-  // 获取下一个全局任务
-  [[nodiscard]]
-  std::optional<std::coroutine_handle<>> get_next_global_task() {
-    return _global_queue.try_pop();
-  }
-
-  // 单个线程任务推送到全局队列并唤醒一个worker
-  // wake_up_one 通过 should_wakeup() 判断是否需要唤醒，当所有 worker
-  // 都处于 working 状态时 should_wakeup() 返回 false。
-  // 此时用 wake_up_all 通过 eventfd 唤醒所有休眠中的 worker 作为后备，
-  // worker 的 cancel_sleeping 会检查全局队列并正确退出 sleep。
-  void push_back_task_to_global_queue(std::coroutine_handle<> task) {
-    _global_queue.push_back(task);
-    wake_up_one();
-    wake_up_all();
-  }
-
-  // 批量线程任务推送到全局队列并唤醒一个worker
-  void push_back_batch_tasks_to_global_queue(
-      std::span<std::coroutine_handle<>> tasks) {
-    _global_queue.push_back_batch(tasks);
-    wake_up_one();
-  }
-
-public:
-  // 预留实现接口，由于shared不持有waker,所以需要在worker实现后实现以下接口
-  void wake_up_one();
-  void wake_up_all();
-  void wake_up_if_work_pending();
-
+  // 固定 worker 数同时决定调度注册表和退出屏障容量。
+  explicit shared(const runtime_config& config)
+      : config_(config), scheduler_(config._num_workers),
+        workers_exited_(static_cast<std::ptrdiff_t>(config._num_workers)) {}
+  shared(const shared&) = delete;
+  shared& operator=(const shared&) = delete;
+  // 查询只读配置，不暴露调度域内部队列。
+  const runtime_config& config() const noexcept { return config_; }
+  // 借用统一调度域；所有本地调度器连接到这个成员对象。
+  domain_scheduler& scheduler() noexcept { return scheduler_; }
+  // 查询纯调度引用，无生命周期计数混入调度器接口。
+  scheduler_ref scheduler_reference() noexcept { return scheduler_ref{scheduler_}; }
+  // 查询根任务生命周期借用引用，仅根帧使用，不扩大同步等待节点。
+  task_lifetime_ref task_lifetime_reference() noexcept { return task_lifetime_ref{root_tasks_}; }
+  // 外部关闭流程先等全部根帧销毁，随后才能关闭调度域。
+  void wait_for_tasks() const noexcept { root_tasks_.wait(); }
+  // 排空后关闭调度域，唤醒空闲 worker 退出事件循环。
+  void close() { scheduler_.close(); }
+  // 每个 worker 在销毁本地队列之前等待其他事件循环退出，保护无锁窃取注册表。
+  void synchronize_worker_exit() { workers_exited_.arrive_and_wait(); }
 private:
-  const detail::Config _config;        // 配置
-  detail::StateMachine _state_machine; // 状态机
-  GlobalQueue _global_queue;           // 全局队列
-  std::latch _shutdown_latch;          // 关闭latch
-  std::vector<Worker *> _workers;      // 工作线程
+  const runtime_config config_;             // runtime 的不可变配置。
+  domain_scheduler scheduler_;      // 拥有共享调度状态，不拥有 worker 或 I/O 引擎。
+  root_task_counter root_tasks_;    // 等待中的根任务也计入，独立于就绪队列长度。
+  std::latch workers_exited_;       // 统一退出屏障，确保没有窃取者仍访问本地队列。
 };
 } // namespace faio::runtime::detail
 #endif // FAIO_DETAIL_RUNTIME_CORE_SHARED_HPP

@@ -3,7 +3,7 @@
 
 #include "faio/detail/io/uring/io_completion.hpp"
 #include "faio/detail/runtime/core/config.hpp"
-#include "fastlog/fastlog.hpp"
+#include "faio/log.hpp"
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -22,7 +22,7 @@ inline thread_local IOuring *current_uring{nullptr};
 // 封装uring实例，提供uring操作接口
 class IOuring {
 public:
-  IOuring(const runtime::detail::Config &config)
+  IOuring(const runtime::detail::runtime_config &config)
       : _submit_interval(config._submit_interval) {
     io_uring_queue_init(config._num_events, &_uring, 0);
     assert(current_uring == nullptr);
@@ -76,12 +76,12 @@ public:
       if (auto res = io_uring_wait_cqe_timeout(&_uring, &cqe, &ts); res < 0) {
         // -ETIME 是正常超时，不是错误
         if (res != -ETIME) {
-          fastlog::console.error("wait cqe failed, {}", strerror(-res));
+          faio::log::logger()->error("wait cqe failed, {}", strerror(-res));
         }
       }
     } else {
       if (auto res = io_uring_wait_cqe(&_uring, &cqe); res < 0) {
-        fastlog::console.error("wait cqe failed, {}", strerror(-res));
+        faio::log::logger()->error("wait cqe failed, {}", strerror(-res));
       }
     }
   }
@@ -89,7 +89,7 @@ public:
   void reset_and_submit() {
     _submit_tick = 0;
     if (auto ret = io_uring_submit(&_uring); ret < 0) {
-      fastlog::console.error("submit sqes failed, {}", strerror(-ret));
+      faio::log::logger()->error("submit sqes failed, {}", strerror(-ret));
     }
   }
 

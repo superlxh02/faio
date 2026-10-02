@@ -4,8 +4,9 @@
 #include "faio/detail/runtime/core/config.hpp"
 #include "faio/detail/runtime/core/timer/task.hpp"
 #include "faio/detail/runtime/core/timer/wheel.hpp"
-#include "fastlog/fastlog.hpp"
+#include "faio/log.hpp"
 #include <chrono>
+#include <atomic>
 #include <variant>
 
 namespace faio::runtime::detail::timer {
@@ -40,6 +41,10 @@ inline thread_local Timer *current_timer;
 
 class Timer {
 public:
+  // stop_callback 可从其他线程调用；只记录请求，时间轮本身仍由所属 worker 修改。
+  void request_prune() noexcept {
+    _cancel_requests.fetch_add(1, std::memory_order_release);
+  }
   Timer(const Timer &) = delete;
   Timer &operator=(const Timer &) = delete;
   Timer(Timer &&) = delete;
@@ -47,12 +52,12 @@ public:
 
   Timer() {
     current_timer = this;
-    fastlog::console.debug("Timer: initialized at thread");
+    faio::log::logger()->debug("Timer: initialized at thread");
   }
 
   ~Timer() {
     current_timer = nullptr;
-    fastlog::console.debug("Timer: destroyed, entries remaining={}",
+    faio::log::logger()->debug("Timer: destroyed, entries remaining={}",
                            _num_entries);
   }
 
@@ -62,8 +67,9 @@ public:
   /// @param handle 任务到期时要恢复的协程句柄
   /// @return 任务的裸指针（用于后续移除操作），调用者不拥有所有权
   auto add_task(std::chrono::steady_clock::time_point deadline,
-                std::coroutine_handle<> handle) -> TimerTask * {
-    auto task = std::make_unique<TimerTask>(deadline, handle);
+                std::coroutine_handle<> handle,
+                std::shared_ptr<std::atomic<unsigned char>> claim = {}) -> TimerTask * {
+    auto task = std::make_unique<TimerTask>(deadline, handle, std::move(claim));
     auto *raw = task.get();
     add_task_impl(std::move(task));
     return raw;
@@ -119,11 +125,20 @@ public:
   }
 
   /// 轮询处理到期任务
-  /// @param local_queue 本地任务队列
-  /// @param global_queue 全局任务队列
+  /// @param sink 所属线程的就绪接收端
   /// @return 本次处理的到期任务数量
-  template <typename LocalQueue, typename GlobalQueue>
-  auto poll(LocalQueue &local_queue, GlobalQueue &global_queue) -> std::size_t {
+  template <ready_sink sink_type>
+  auto poll(sink_type &sink) -> std::size_t {
+    if (_cancel_requests.exchange(0, std::memory_order_acq_rel) != 0) {
+      std::size_t removed = 0;
+      std::visit([&](auto& wheel_ptr) {
+        using T = std::decay_t<decltype(wheel_ptr)>;
+        if constexpr (!std::is_same_v<T, std::monostate>)
+          if (wheel_ptr) removed = wheel_ptr->prune_cancelled();
+      }, _root_wheel);
+      _num_entries -= std::min(_num_entries, removed);
+      if (removed) try_level_down();
+    }
     if (_num_entries == 0) {
       return 0;
     }
@@ -139,7 +154,7 @@ public:
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
-              wheel_ptr->handle_expired_tasks(local_queue, global_queue, count,
+              wheel_ptr->handle_expired_tasks(sink, count,
                                               elapsed);
             }
           }
@@ -154,7 +169,7 @@ public:
       // 尝试降级
       try_level_down();
 
-      fastlog::console.trace("Timer::poll: processed {} tasks, {} remaining",
+      faio::log::logger()->trace("Timer::poll: processed {} tasks, {} remaining",
                              count, _num_entries);
     }
 
@@ -297,7 +312,7 @@ private:
                 // 继续检查是否需要再升级
                 ensure_capacity_visit(interval_ms);
               } else {
-                fastlog::console.error(
+                faio::log::logger()->error(
                     "Timer: cannot level_up beyond MAX_LEVEL={}", MAX_LEVEL);
               }
             }
@@ -410,6 +425,7 @@ private:
       std::chrono::steady_clock::now()};
   /// 当前活跃的定时器任务数
   std::size_t _num_entries{0};
+  std::atomic<std::size_t> _cancel_requests{0};
   /// 根时间轮（variant 存储，支持不同层级）
   VariantWheelBuilder<MAX_LEVEL + 1uz>::Type _root_wheel{};
 };

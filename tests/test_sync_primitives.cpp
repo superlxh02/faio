@@ -2,6 +2,13 @@
 
 #include "faio/faio.hpp"
 
+// 具名谓词具有外部链接，避免 GCC 在模板协程帧里存放局部 lambda 时发出
+// -Wsubobject-linkage；实际 API 仍接受任意可调用谓词。
+struct sync_ready_predicate {
+  bool& ready;
+  bool operator()() const noexcept { return ready; }
+};
+
 namespace {
 
 auto mutex_worker(faio::sync::mutex& mtx, int& shared, int loops) -> faio::task<int> {
@@ -19,7 +26,7 @@ auto condition_waiter(faio::sync::condition_variable& cv,
                       bool& ready,
                       int& observed) -> faio::task<void> {
   co_await mtx.lock();
-  co_await cv.wait(mtx, [&]() { return ready; });
+  co_await cv.wait(mtx, sync_ready_predicate{ready});
   observed = 1;
   mtx.unlock();
   co_return;
@@ -42,14 +49,17 @@ auto condition_run() -> faio::task<int> {
   bool ready = false;
   int observed = 0;
 
-  faio::spawn(condition_waiter(cv, mtx, ready, observed));
-  faio::spawn(condition_notifier(cv, mtx, ready));
+  faio::spawn_detached(condition_waiter(cv, mtx, ready, observed));
+  faio::spawn_detached(condition_notifier(cv, mtx, ready));
   co_await faio::time::sleep(std::chrono::milliseconds(20));
   co_return observed;
 }
 
-auto channel_run() -> faio::task<int> {
-  auto [sender, receiver] = faio::sync::channel<int>::make(8);
+auto mpsc_run() -> faio::task<int> {
+  // GCC 15 的协程结构化绑定析构缺陷：端点放在具名 pair 中。
+  auto endpoints = faio::sync::mpsc<int>::make(8);
+  auto& sender = endpoints.first;
+  auto& receiver = endpoints.second;
   auto send_res = co_await sender.send(52);
   if (!send_res) {
     co_return -1;
@@ -60,6 +70,19 @@ auto channel_run() -> faio::task<int> {
     co_return -1;
   }
   co_return recv_res.value();
+}
+
+auto raii_run() -> faio::task<int> {
+  faio::sync::mutex m;
+  faio::sync::semaphore s{1};
+  {
+    auto lock = co_await m.scoped_lock();
+    auto permit = co_await s.acquire_permit();
+    if (m.try_lock() || s.available_permits() != 0) co_return -1;
+  }
+  if (!m.try_lock()) co_return -2;
+  m.unlock();
+  co_return s.try_acquire() ? 1 : -3;
 }
 
 }  // namespace
@@ -81,8 +104,13 @@ TEST(SyncTest, ConditionVariableWakesWaiter) {
   EXPECT_EQ(observed, 1);
 }
 
-TEST(SyncTest, ChannelSendRecvWorks) {
+TEST(SyncTest, MpscSendRecvWorks) {
   faio::runtime_context ctx;
-  const int value = faio::block_on(ctx, channel_run());
+  const int value = faio::block_on(ctx, mpsc_run());
   EXPECT_EQ(value, 52);
+}
+
+TEST(SyncTest, RaiiAwaitersReleaseWithoutExtraTaskFrame) {
+  faio::runtime_context ctx;
+  EXPECT_EQ(faio::block_on(ctx, raii_run()), 1);
 }

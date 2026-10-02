@@ -1,6 +1,7 @@
 #ifndef FAIO_DETAIL_RUNTIME_CORE_TIMER_TIME_TASK_HPP
 #define FAIO_DETAIL_RUNTIME_CORE_TIMER_TIME_TASK_HPP
 
+#include "faio/detail/coroutine/scheduler.hpp"
 #include "faio/detail/io/uring/io_uring.hpp"
 #include "faio/detail/io/uring/io_user_data.hpp"
 #include <cerrno>
@@ -8,6 +9,7 @@
 #include <coroutine>
 #include <liburing.h>
 #include <memory>
+#include <atomic>
 
 namespace faio::runtime::detail::timer {
 
@@ -19,23 +21,32 @@ namespace faio::runtime::detail::timer {
 class TimerTask {
 public:
   TimerTask(std::chrono::steady_clock::time_point deadline,
-            std::coroutine_handle<> handle)
-      : _handle(handle), _deadline(deadline) {}
+            std::coroutine_handle<> handle,
+            std::shared_ptr<std::atomic<unsigned char>> claim = {})
+      : _handle(handle), _deadline(deadline), _claim(std::move(claim)) {}
 
   TimerTask(std::chrono::steady_clock::time_point deadline,
             io::detail::io_user_data_t *user_data)
       : _handle(nullptr), _deadline(deadline), _user_data(user_data) {}
 
 public:
+  bool cancelled() const noexcept {
+    return _claim && _claim->load(std::memory_order_acquire) == 2;
+  }
   /// 执行到期的定时器任务
   ///
   /// sleep 路径：将协程句柄推入本地任务队列等待调度
   /// IO 超时路径：设置超时错误码，通过 io_uring 取消挂起的 IO 操作
-  template <typename LocalQueue, typename GlobalQueue>
-  void execute(LocalQueue &local_queue, GlobalQueue &global_queue) {
+  template <ready_sink sink_type>
+  void execute(sink_type &sink) {
     if (_handle != nullptr) {
       // sleep 路径：直接恢复协程
-      local_queue.push_back(_handle, global_queue);
+      // stop callback 与超时路径竞争唯一恢复权。取消后帧可能已释放，
+      // 此时只销毁定时器项，绝不再访问协程句柄。
+      unsigned char expected = 1;
+      if (!_claim || _claim->compare_exchange_strong(expected, 3,
+                                                      std::memory_order_acq_rel))
+        sink.enqueue_ready(_handle);
     } else if (_user_data != nullptr) {
       // IO 超时路径：设置超时错误并取消 IO 操作
       _user_data->result = -ETIMEDOUT;
@@ -53,6 +64,7 @@ public:
   std::chrono::steady_clock::time_point _deadline; // 截止时间
   io::detail::io_user_data_t *_user_data{nullptr}; // 用户数据（IO 超时场景）
   std::unique_ptr<TimerTask> _next{nullptr};       // 链表下一个节点
+  std::shared_ptr<std::atomic<unsigned char>> _claim;
 };
 
 } // namespace faio::runtime::detail::timer

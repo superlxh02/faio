@@ -1,7 +1,7 @@
 #ifndef FAIO_DETAIL_IO_URING_WEAKER_HPP
 #define FAIO_DETAIL_IO_URING_WEAKER_HPP
 #include "faio/detail/io/uring/io_uring.hpp"
-#include "fastlog/fastlog.hpp"
+#include "faio/log.hpp"
 #include <cstdint>
 #include <cstring>
 #include <liburing.h>
@@ -23,7 +23,7 @@ public:
     if (auto res = ::write(this->_fd, &buf, sizeof(buf)); res < 0) {
       // EAGAIN 是正常的：eventfd 计数器溢出，说明已经有未消费的唤醒
       if (errno != EAGAIN) {
-        fastlog::console.error("wake_up failed: {}", strerror(errno));
+        faio::log::logger()->error("wake_up failed: {}", strerror(errno));
       }
     }
   }
@@ -33,7 +33,7 @@ public:
       _flag = 0;
       auto sqe = current_uring->get_sqe();
       if (sqe == nullptr) {
-        fastlog::console.error("get sqe failed");
+        faio::log::logger()->error("get sqe failed");
         return;
       }
       io_uring_prep_read(sqe, _fd, &_flag, sizeof(_flag), 0);

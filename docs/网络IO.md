@@ -9,7 +9,7 @@
 
 ---
 
-## 3. 类图
+## 2. 类图
 
 下面用 Mermaid 表示继承与组合关系（省略 io 层 Read/Send 等）。
 
@@ -108,7 +108,7 @@ classDiagram
 
 ---
 
-## 4. 类与接口表格
+## 3. 类与接口表格
 
 | 类                                                                    | 所在文件                                    | 职责                              | 主要接口                                                                                                                 |
 | --------------------------------------------------------------------- | ------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -132,9 +132,9 @@ classDiagram
 
 ---
 
-## 5. 设计模式的具体分析
+## 4. 设计模式的具体分析
 
-### 5.1 组合
+### 4.1 组合
 
 ```
   BaseListener / BaseStream / BaseDatagram
@@ -160,7 +160,7 @@ private:
 int fd() const noexcept { return _inner_socket.fd(); }
 ```
 
-### 5.2 CRTP
+### 4.2 CRTP
 
 | 基类                  | 模板参数                     | 关键返回                                                   |
 | --------------------- | ---------------------------- | ---------------------------------------------------------- |
@@ -183,7 +183,7 @@ return Stream{Socket{fd_}};         // connect await_resume
 class TcpListener : public BaseListener<TcpListener, TcpStream, SocketAddr>, public ImplTTL<TcpListener>;
 ```
 
-### 5.3 Mixin
+### 4.3 Mixin
 
 - BaseStream 把「自己」作为 T 传给各 Impl；mixin 里用 **static_cast\<const T*\>(this)->fd()** 拿 fd，不依赖最终派生类名。
 
@@ -200,7 +200,7 @@ class TcpListener : public BaseListener<TcpListener, TcpStream, SocketAddr>, pub
 return io::detail::Read{static_cast<const T*>(this)->fd(), buf.data(), buf.size(), 0};
 ```
 
-### 5.4 与 io 层
+### 4.4 与 io 层
 
 | 操作                       | 网络层返回                     | 说明                                                                                          |
 | -------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
@@ -209,9 +209,9 @@ return io::detail::Read{static_cast<const T*>(this)->fd(), buf.data(), buf.size(
 
 ---
 
-## 6. 重要源码
+## 5. 重要源码
 
-### 6.1 accept()
+### 5.1 accept()
 
 **流程**：构造 Accept(get_sqe, prep_accept(fd, &addr_, &length_)) → await_suspend(存 handle, submit) → 协程挂起 → drive 写 result → await_resume 用 result(新 fd) 与 addr_ 造 pair\<Stream, Addr\>。
 
@@ -240,7 +240,7 @@ private:
 
 ---
 
-### 6.2 connect()
+### 5.2 connect()
 
 **流程**：构造时 prep_connect(-1, nullptr) 占位 → await_suspend 里 ::socket()；失败则 prep_nop、set_data(nullptr)、return false（不挂起）；成功则填 sqe->fd/addr、Base::await_suspend → drive 写 result → await_resume 里 Stream{Socket{fd_}} 或错误。
 
@@ -273,7 +273,7 @@ auto await_resume() noexcept -> expected<Stream> {
 
 ---
 
-### 6.3 read_bytes / write_all
+### 5.3 read_bytes / write_all
 
 **流程**：循环「co_await read(buf)/write(buf) → 错误则 return；0 则 UnexpectedEOF/WriteZero；否则 buf=subspan(已读/已写, 剩余)」直到 buf.empty()。
 
@@ -293,7 +293,7 @@ task<expected<void>> read_bytes(std::span<char> buf) const noexcept {
 
 ---
 
-### 6.4 read_v / write_v
+### 5.4 read_v / write_v
 
 **read_v**：变参 N 个 buffer → 成员 `std::array<iovec, N> _iovecs`；prep_readv(fd, nullptr, N, -1) 占位，构造体里把 _iovecs.data() 交给 uring（当前实现为覆盖 _sqe）。**write_v**：`_iovecs` + `msghdr _msg`（msg_iov=_iovecs.data(), msg_iovlen=N, msg_name=nullptr）；prep_sendmsg(fd, &_msg)。
 
@@ -314,7 +314,7 @@ Base{io_uring_prep_sendmsg, fd, &_msg, MSG_NOSIGNAL};
 
 ---
 
-### 6.5 recv_from
+### 5.5 recv_from
 
 **结构**：RecvFrom 持 `iovec _iovecs`(用户 buf)、`Addr _addr`、`msghdr _msg`；msg_name=&_addr（内核填发送方地址），msg_iov=&_iovecs。prep_recvmsg(fd, &_msg)；CQE result=字节数。
 

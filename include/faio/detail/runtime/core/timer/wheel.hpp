@@ -4,7 +4,7 @@
 #include "faio/detail/common/static_math.hpp"
 #include "faio/detail/runtime/core/config.hpp"
 #include "faio/detail/runtime/core/timer/task.hpp"
-#include "fastlog/fastlog.hpp"
+#include "faio/log.hpp"
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -68,7 +68,7 @@ public:
     // 计算任务应该落在哪个槽位（右移代替除法）
     auto slot_idx = interval >> CHILD_SHIFT;
     if (slot_idx >= SLOT_SIZE) {
-      fastlog::console.error(
+      faio::log::logger()->error(
           "TimerWheel<{}>::add_task: interval {} exceeds wheel span, "
           "slot_idx={}, clamping to last slot",
           LEVEL, interval, slot_idx);
@@ -86,13 +86,27 @@ public:
     _wheels_slots[slot_idx]->add_task(std::move(task), child_interval);
   }
 
+  // 只在所属 worker 的 timer poll 中清理取消项；非取消路径没有扫描成本。
+  std::size_t prune_cancelled() {
+    std::size_t removed = 0;
+    for (std::size_t i = 0; i < SLOT_SIZE; ++i) {
+      if (!_wheels_slots[i]) continue;
+      removed += _wheels_slots[i]->prune_cancelled();
+      if (_wheels_slots[i]->empty()) {
+        _wheels_slots[i].reset();
+        _slot_map &= ~(1ull << i);
+      }
+    }
+    return removed;
+  }
+
   /// 从子时间轮中移除定时器任务
   /// @param task 待移除的任务指针
   /// @param interval 任务所在的时间间隔
   void remove_task(TimerTask *task, std::size_t interval) {
     auto slot_idx = interval >> CHILD_SHIFT;
     if (slot_idx >= SLOT_SIZE || _wheels_slots[slot_idx] == nullptr) {
-      fastlog::console.warn(
+      faio::log::logger()->warn(
           "TimerWheel<{}>::remove_task: invalid slot {} or empty child wheel",
           LEVEL, slot_idx);
       return;
@@ -109,12 +123,11 @@ public:
   }
 
   /// 处理到期任务：递归处理子时间轮中的到期任务
-  /// @param local_queue 本地任务队列
-  /// @param global_queue 全局任务队列
+  /// @param sink 所属线程的就绪接收端
   /// @param count 已处理任务计数（累加）
   /// @param remaining_ms 剩余需要处理的毫秒数
-  template <typename LocalQueue, typename GlobalQueue>
-  void handle_expired_tasks(LocalQueue &local_queue, GlobalQueue &global_queue,
+  template <ready_sink sink_type>
+  void handle_expired_tasks(sink_type &sink,
                             std::size_t &count, std::size_t remaining_ms) {
     if (_slot_map == 0 || remaining_ms == 0) {
       return;
@@ -130,7 +143,7 @@ public:
         continue;
       }
       // 完整处理整个子时间轮
-      _wheels_slots[i]->handle_expired_tasks(local_queue, global_queue, count,
+      _wheels_slots[i]->handle_expired_tasks(sink, count,
                                              child_wheel::SPAN_MS);
       _wheels_slots[i].reset();
       _slot_map &= ~(1ull << i);
@@ -140,7 +153,7 @@ public:
     if (partial_remaining > 0 && full_slots < SLOT_SIZE) {
       if ((_slot_map & (1ull << full_slots)) != 0) {
         _wheels_slots[full_slots]->handle_expired_tasks(
-            local_queue, global_queue, count, partial_remaining);
+            sink, count, partial_remaining);
 
         // 如果子时间轮处理后变空，清理
         if (_wheels_slots[full_slots]->empty()) {
@@ -195,7 +208,7 @@ public:
       -> std::unique_ptr<TimerWheel<LEVEL + 1>>
     requires(LEVEL < MAX_LEVEL)
   {
-    fastlog::console.debug("TimerWheel<{}>::level_up: upgrading to level {}",
+    faio::log::logger()->trace("TimerWheel<{}>::level_up: upgrading to level {}",
                            LEVEL, LEVEL + 1);
     return std::make_unique<TimerWheel<LEVEL + 1>>(std::move(me));
   }
@@ -210,7 +223,7 @@ public:
     }
     auto child = std::move(_wheels_slots[0]);
     _slot_map &= ~1ull;
-    fastlog::console.debug(
+    faio::log::logger()->trace(
         "TimerWheel<{}>::level_down: downgrading to level {}", LEVEL,
         LEVEL - 1);
     return child;
@@ -278,6 +291,23 @@ public:
     _slot_map |= (1ull << slot_idx);
   }
 
+  std::size_t prune_cancelled() {
+    std::size_t removed = 0;
+    for (std::size_t i = 0; i < SLOT_SIZE; ++i) {
+      auto* link = &_task_slots[i];
+      while (*link) {
+        if ((*link)->cancelled()) {
+          *link = std::move((*link)->_next);
+          ++removed;
+        } else {
+          link = &(*link)->_next;
+        }
+      }
+      if (!_task_slots[i]) _slot_map &= ~(1ull << i);
+    }
+    return removed;
+  }
+
   /// 从指定槽位中移除定时器任务
   /// @param task 待移除的任务指针（裸指针，用于查找匹配）
   /// @param interval 任务所在的时间间隔
@@ -304,18 +334,17 @@ public:
       prev = current;
       current = current->_next.get();
     }
-    fastlog::console.warn("TimerWheel<0>::remove_task: task not found in "
+    faio::log::logger()->warn("TimerWheel<0>::remove_task: task not found in "
                           "slot {}",
                           slot_idx);
   }
 
   /// 处理到期任务：扫描 [0, remaining_ms) 范围内所有槽位，执行到期任务
-  /// @param local_queue 本地任务队列引用（模板参数，适配不同队列类型）
-  /// @param global_queue 全局任务队列引用
+  /// @param sink 所属线程的就绪接收端，不依赖具体队列
   /// @param count 已处理任务计数器（输出参数，累加）
   /// @param remaining_ms 剩余需要处理的毫秒数
-  template <typename LocalQueue, typename GlobalQueue>
-  void handle_expired_tasks(LocalQueue &local_queue, GlobalQueue &global_queue,
+  template <ready_sink sink_type>
+  void handle_expired_tasks(sink_type &sink,
                             std::size_t &count, std::size_t remaining_ms) {
     // 计算实际需要扫描的槽位数
     auto slots_to_scan = std::min(remaining_ms, SLOT_SIZE);
@@ -332,7 +361,7 @@ public:
       // 遍历链表，逐个执行到期任务
       while (task_ptr != nullptr) {
         auto next = std::move(task_ptr->_next);
-        task_ptr->execute(local_queue, global_queue);
+        task_ptr->execute(sink);
         ++count;
         task_ptr = std::move(next);
       }
@@ -387,7 +416,7 @@ public:
   /// @return 新创建的父时间轮（level-1）
   [[nodiscard]]
   auto level_up(std::unique_ptr<TimerWheel> &&me) -> father_wheel_ptr {
-    fastlog::console.debug("TimerWheel<0>::level_up: upgrading to level 1");
+    faio::log::logger()->trace("TimerWheel<0>::level_up: upgrading to level 1");
     return std::make_unique<father_wheel>(std::move(me));
   }
 

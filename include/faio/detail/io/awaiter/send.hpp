@@ -12,7 +12,6 @@ private:
 public:
   Send(int sockfd, const void *buf, size_t len, int flags)
       : Base{io_uring_prep_send, sockfd, buf, len, flags} {
-    // std::cout << "send fd is" << sockfd << std::endl;
   }
 
   auto await_resume() const noexcept -> expected<std::size_t> {
