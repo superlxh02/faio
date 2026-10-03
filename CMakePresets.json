@@ -62,6 +62,65 @@
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
       }
+    },
+    {
+      "name": "linux-epoll",
+      "displayName": "Linux epoll only, GCC 15+",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/linux-epoll",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "OFF"
+      }
+    },
+    {
+      "name": "linux-uring",
+      "displayName": "Linux native io_uring and epoll, GCC 15+",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/linux-uring",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "ON"
+      }
+    },
+    {
+      "name": "macos-clang23",
+      "displayName": "macOS kqueue, Homebrew Clang 23",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-clang23",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_PREFIX_PATH": "/opt/homebrew",
+        "FAIO_ENABLE_IO_URING": "OFF"
+      }
+    },
+    {
+      "name": "linux-dual",
+      "displayName": "Linux native io_uring and epoll, GCC 15+",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/linux-dual",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "ON"
+      }
+    },
+    {
+      "name": "linux-clang22-dual",
+      "displayName": "Linux native io_uring and epoll, Clang 22",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/linux-clang22-dual",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++-22",
+        "FAIO_ENABLE_IO_URING": "ON"
+      }
+    },
+    {
+      "name": "linux-clang22-epoll",
+      "displayName": "Linux epoll only, Clang 22",
+      "inherits": "linux-clang22-dual",
+      "binaryDir": "${sourceDir}/build/linux-clang22-epoll",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -88,6 +147,30 @@
     {
       "name": "vcpkg-release",
       "configurePreset": "vcpkg-release"
+    },
+    {
+      "name": "linux-epoll",
+      "configurePreset": "linux-epoll"
+    },
+    {
+      "name": "linux-uring",
+      "configurePreset": "linux-uring"
+    },
+    {
+      "name": "macos-clang23",
+      "configurePreset": "macos-clang23"
+    },
+    {
+      "name": "linux-dual",
+      "configurePreset": "linux-dual"
+    },
+    {
+      "name": "linux-clang22-dual",
+      "configurePreset": "linux-clang22-dual"
+    },
+    {
+      "name": "linux-clang22-epoll",
+      "configurePreset": "linux-clang22-epoll"
     }
   ],
   "testPresets": [
@@ -129,6 +212,80 @@
     {
       "name": "vcpkg-release",
       "configurePreset": "vcpkg-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-epoll",
+      "configurePreset": "linux-epoll",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
+      }
+    },
+    {
+      "name": "linux-uring",
+      "configurePreset": "linux-uring",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-clang23",
+      "configurePreset": "macos-clang23",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-dual-epoll",
+      "configurePreset": "linux-dual",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-dual-uring",
+      "configurePreset": "linux-dual",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "uring"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-clang22-dual-uring",
+      "configurePreset": "linux-clang22-dual",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "uring"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-clang22-dual-epoll",
+      "configurePreset": "linux-clang22-dual",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-clang22-epoll",
+      "configurePreset": "linux-clang22-epoll",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
+      },
       "output": {
         "outputOnFailure": true
       }

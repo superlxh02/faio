@@ -1,36 +1,32 @@
-#ifndef FAIO_DETAIL_IO_AWAITER_SHUTDOWN_HPP
-#define FAIO_DETAIL_IO_AWAITER_SHUTDOWN_HPP
-
+#pragma once
 #include "faio/detail/io/base/io_registrant.hpp"
-
-namespace faio::io {
-
-enum class ShutdownBehavior {
-  Read = SHUT_RD,
-  Write = SHUT_WR,
-  ReadWrite = SHUT_RDWR,
-};
-}
-
+#include <cstring>
+#include <fcntl.h>
 namespace faio::io::detail {
+/** @brief Shutdown 请求；参数由稳定 operation_state
+ * 保存，挂起前没有内核副作用。 */
 class Shutdown : public IORegistrantAwaiter<Shutdown> {
-private:
   using Base = IORegistrantAwaiter<Shutdown>;
 
 public:
-  Shutdown(int fd, int how) : Base{io_uring_prep_shutdown, fd, how} {}
-
-  Shutdown(int fd, ShutdownBehavior how)
-      : Base{io_uring_prep_shutdown, fd, static_cast<int>(how)} {}
+  Shutdown(int fd, int how)
+      : Base{[&] {
+          io_request r;
+          r.kind = operation_kind::shutdown;
+          r.fd = fd;
+          r.argument = how;
+          return r;
+        }()} {}
+  Shutdown(resource_ptr resource, int how)
+      : Shutdown{resource ? resource->fd() : -1, how} {
+    this->request_.resource = std::move(resource);
+  }
 
   auto await_resume() const noexcept -> expected<void> {
-    if (this->_user_data.result >= 0) [[likely]] {
-      return {};
-    } else {
-      return ::std::unexpected{make_error(-this->_user_data.result)};
-    }
+    if (this->_user_data.result < 0)
+      return std::unexpected{Error{static_cast<int>(-this->_user_data.result),
+                                   this->_user_data.transferred}};
+    return {};
   }
 };
-
 } // namespace faio::io::detail
-#endif // FAIO_DETAIL_IO_AWAITER_SHUTDOWN_HPP

@@ -1,32 +1,22 @@
-#ifndef FAIO_DETAIL_TIME_TIMEOUT_HPP
-#define FAIO_DETAIL_TIME_TIMEOUT_HPP
-
-#include "faio/detail/runtime/core/timer/timer.hpp"
-#include <cassert>
-#include <coroutine>
-
-namespace faio::io::detail {
-template <class T> class IORegistrantAwaiter;
-}
-
+#pragma once
+#include "faio/detail/io/base/io_registrant.hpp"
+#include <concepts>
+#include <type_traits>
+#include <utility>
 namespace faio::time::detail {
+/** @brief 兼容超时拥有包装；deadline 已在 request 中，后端不借用 timer 指针。
+ * @tparam T 公开继承某个完整或紧凑 IORegistrantAwaiter 的无 cv/ref 操作类型。
+ * @details 包装按值移动拥有 operation，右值源对象可在真实挂起后销毁。
+ *          约束读取公共基类别名，不假定 Request
+ * 策略；本头直接包含唯一模板定义。
+ */
 template <class T>
-  requires std::derived_from<T, io::detail::IORegistrantAwaiter<T>>
+  requires io::detail::io_registrant_operation<T> &&
+           std::same_as<T, std::remove_cvref_t<T>>
 class Timeout : public T {
 public:
-  Timeout(T &&io) : T{std::move(io)} {}
-
-public:
-  auto await_suspend(std::coroutine_handle<> handle) -> bool {
-    // 将定时器任务注册到当前 worker 的 Timer 中
-    // add_task 返回 TimerTask* 裸指针（Timer 拥有所有权）
-    auto *timer_task = runtime::detail::timer::current_timer->add_task(
-        this->_user_data.deadline, &this->_user_data);
-    this->_user_data.timer_task = timer_task;
-    T::await_suspend(handle);
-    return true;
-  }
+  explicit Timeout(T &&operation) noexcept(
+      std::is_nothrow_move_constructible_v<T>)
+      : T(std::move(operation)) {}
 };
 } // namespace faio::time::detail
-
-#endif // FAIO_DETAIL_TIME_TIMEOUT_HPP

@@ -1,24 +1,25 @@
 #ifndef FAIO_DETAIL_TIME_SLEEP_HPP
 #define FAIO_DETAIL_TIME_SLEEP_HPP
 
-#include "faio/detail/runtime/core/timer/timer.hpp"
+#include "faio/detail/common/cancellation.hpp"
+#include "faio/detail/coroutine/task_context.hpp"
+#include "faio/detail/runtime/timer/timer.hpp"
+#include <atomic>
 #include <chrono>
 #include <coroutine>
-#include <atomic>
 #include <memory>
 #include <optional>
 #include <stop_token>
-#include "faio/detail/coroutine/task_context.hpp"
-#include "faio/detail/common/cancellation.hpp"
 
 namespace faio::time::detail {
 class Sleep {
 public:
   explicit Sleep(std::chrono::steady_clock::time_point deadline)
       : _deadline(deadline) {}
-  Sleep(Sleep&& other) noexcept
-      : _deadline(other._deadline), _cancelled_immediate(other._cancelled_immediate) {}
-  Sleep(const Sleep&) = delete;
+  Sleep(Sleep &&other) noexcept
+      : _deadline(other._deadline),
+        _cancelled_immediate(other._cancelled_immediate) {}
+  Sleep(const Sleep &) = delete;
 
 public:
   [[nodiscard]]
@@ -45,9 +46,10 @@ public:
     // 0=注册中、1=已挂起、2=取消、3=到期。注册阶段收到 stop
     // 只改状态，await_suspend 自己返回 false；挂起后 callback 才投递恢复。
     _claim = std::make_shared<std::atomic<unsigned char>>(0);
-    auto* timer = runtime::detail::timer::current_timer;
-    _callback.emplace(token, cancel_callback{_claim, timer, handle,
-                                              ::faio::detail::current_scheduler()});
+    auto *timer = runtime::detail::timer::current_timer;
+    _callback.emplace(token,
+                      cancel_callback{_claim, timer, handle,
+                                      ::faio::detail::current_scheduler()});
     timer->add_task(_deadline, handle, _claim);
     unsigned char expected = 0;
     if (_claim->compare_exchange_strong(expected, 1, std::memory_order_acq_rel))
@@ -67,7 +69,7 @@ public:
 private:
   struct cancel_callback {
     std::shared_ptr<std::atomic<unsigned char>> claim;
-    runtime::detail::timer::Timer* timer;
+    runtime::detail::timer::Timer *timer;
     std::coroutine_handle<> handle;
     scheduler_ref scheduler;
     void operator()() const noexcept {

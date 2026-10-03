@@ -2,8 +2,10 @@ use std::env;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-async fn handle(mut stream: TcpStream) {
-    let mut buf = vec![0u8; 8192];
+async fn handle(mut stream: TcpStream, echo: bool) {
+    // 与 faio 使用同样的 Nagle 设置和接收缓冲。
+    stream.set_nodelay(true).unwrap();
+    let mut buf = vec![0u8; 65536];
     let mut request_buf = Vec::<u8>::with_capacity(4096);
     let response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 16\r\nConnection: keep-alive\r\n\r\nhello benchmark\n";
 
@@ -14,6 +16,11 @@ async fn handle(mut stream: TcpStream) {
             Err(_) => return,
         };
 
+        if echo {
+            if stream.write_all(&buf[..n]).await.is_err() { return; }
+            continue;
+        }
+        if request_buf.len() + n > 65536 { return; }
         request_buf.extend_from_slice(&buf[..n]);
 
         loop {
@@ -36,6 +43,7 @@ async fn run_server() {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(18083);
 
+    let echo = args.get(4).is_some_and(|s| s == "echo");
     let addr = format!("{}:{}", host, port);
     let listener = TcpListener::bind(&addr)
         .await
@@ -48,7 +56,7 @@ async fn run_server() {
             Ok(v) => v,
             Err(_) => continue,
         };
-        tokio::spawn(handle(stream));
+        tokio::spawn(handle(stream, echo));
     }
 }
 

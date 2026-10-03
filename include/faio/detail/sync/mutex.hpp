@@ -9,33 +9,44 @@ namespace faio::sync {
 class mutex {
 public:
   mutex() : permit_(1) {}
-  mutex(const mutex&) = delete;
-  mutex& operator=(const mutex&) = delete;
+  mutex(const mutex &) = delete;
+  mutex &operator=(const mutex &) = delete;
   bool try_lock() noexcept { return permit_.try_acquire(); }
   auto lock() noexcept { return permit_.acquire(); }
+  /** @brief 条件变量恢复锁的清理路径；停止请求不能使用户 guard 失去持锁不变量。
+   */
+  auto lock_uncancellable() noexcept { return permit_.acquire_uncancellable(); }
   void unlock() { permit_.release(); }
 
   class guard {
   public:
-    explicit guard(mutex& m) noexcept : mutex_(&m) {}
-    ~guard() { if (mutex_) mutex_->unlock(); }
-    guard(const guard&) = delete;
-    guard& operator=(const guard&) = delete;
-    guard(guard&& other) noexcept : mutex_(std::exchange(other.mutex_, nullptr)) {}
+    explicit guard(mutex &m) noexcept : mutex_(&m) {}
+    ~guard() {
+      if (mutex_)
+        mutex_->unlock();
+    }
+    guard(const guard &) = delete;
+    guard &operator=(const guard &) = delete;
+    guard(guard &&other) noexcept
+        : mutex_(std::exchange(other.mutex_, nullptr)) {}
+
   private:
-    mutex* mutex_;
+    mutex *mutex_;
   };
   struct guard_awaiter {
-    mutex& owner;
+    mutex &owner;
     semaphore::acquire_awaiter inner;
     bool await_ready() noexcept { return inner.await_ready(); }
-    bool await_suspend(std::coroutine_handle<> h) { return inner.await_suspend(h); }
+    bool await_suspend(std::coroutine_handle<> h) {
+      return inner.await_suspend(h);
+    }
     guard await_resume() {
       inner.await_resume();
       return guard{owner};
     }
   };
   guard_awaiter scoped_lock() noexcept { return {*this, permit_.acquire()}; }
+
 private:
   semaphore permit_;
 };

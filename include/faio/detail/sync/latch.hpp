@@ -11,15 +11,17 @@ namespace faio::sync {
 class latch {
 public:
   explicit latch(std::ptrdiff_t count) : remaining_(count) {
-    if (count < 0) throw std::invalid_argument("latch 计数不能为负");
+    if (count < 0)
+      throw std::invalid_argument("latch 计数不能为负");
   }
-  latch(const latch&) = delete;
-  latch& operator=(const latch&) = delete;
+  latch(const latch &) = delete;
+  latch &operator=(const latch &) = delete;
   void count_down(std::ptrdiff_t n = 1) {
-    detail::wait_node* nodes{};
+    detail::wait_node *nodes{};
     {
       std::lock_guard lock(mutex_);
-      if (n < 0 || n > remaining_) throw std::invalid_argument("latch count_down 越界");
+      if (n < 0 || n > remaining_)
+        throw std::invalid_argument("latch count_down 越界");
       remaining_ -= n;
       if (remaining_ == 0) {
         nodes = waiters_.take_all();
@@ -32,13 +34,14 @@ public:
     return remaining_ == 0;
   }
   struct awaiter {
-    latch& self;
+    latch &self;
     detail::wait_node node;
     bool await_ready() const { return self.try_wait(); }
     bool await_suspend(std::coroutine_handle<> h) {
       {
         std::lock_guard lock(self.mutex_);
-        if (self.remaining_ == 0) return false;
+        if (self.remaining_ == 0)
+          return false;
         node.capture(h);
         self.waiters_.push(&node);
       }
@@ -46,10 +49,12 @@ public:
       return node.arm();
     }
     void await_resume() const {
-      if (node.cancelled()) throw operation_cancelled{};
+      if (node.cancelled())
+        throw operation_cancelled{};
     }
   };
   awaiter wait() noexcept { return {*this, {}}; }
+
 private:
   mutable std::mutex mutex_;
   std::ptrdiff_t remaining_;

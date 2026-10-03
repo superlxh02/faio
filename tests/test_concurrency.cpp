@@ -1,3 +1,4 @@
+#include "backend_test_support.hpp"
 #include <gtest/gtest.h>
 #include "faio/faio.hpp"
 #include <atomic>
@@ -108,22 +109,22 @@ faio::task<void> delayed_spawn(std::atomic<int>& count) {
 } // namespace
 
 TEST(ConcurrencyTest, JoinAndJoinAll) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(4).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(4).build()};
   std::atomic<int> started{0};
   auto combined = faio::join(record_start(started, 2), record_start(started, 3));
   EXPECT_EQ(started.load(std::memory_order_relaxed), 0);
-  auto [left, right] = faio::block_on(ctx, std::move(combined));
+  auto [left, right] = ctx.block_on(std::move(combined));
   EXPECT_EQ(left + right, 5);
   EXPECT_EQ(started.load(std::memory_order_relaxed), 2);
-  EXPECT_EQ(faio::block_on(ctx, joined()), 5);
-  EXPECT_EQ(faio::block_on(ctx, joined_all()), 28);
-  EXPECT_LT(faio::block_on(ctx, selected()), 2u);
+  EXPECT_EQ(ctx.block_on(joined()), 5);
+  EXPECT_EQ(ctx.block_on(joined_all()), 28);
+  EXPECT_LT(ctx.block_on(selected()), 2u);
 }
 TEST(ConcurrencyTest, SemaphoreAndBarrier) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(4).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(4).build()};
   faio::sync::semaphore sem{2};
   std::atomic<int> active{0}, maximum{0};
-  faio::block_on(ctx, faio::join(semaphore_worker(sem, active, maximum),
+  ctx.block_on(faio::join(semaphore_worker(sem, active, maximum),
                                  semaphore_worker(sem, active, maximum),
                                  semaphore_worker(sem, active, maximum),
                                  semaphore_worker(sem, active, maximum)));
@@ -131,36 +132,36 @@ TEST(ConcurrencyTest, SemaphoreAndBarrier) {
   EXPECT_EQ(active.load(), 0);
   faio::sync::barrier gate{3};
   std::atomic<int> arrived{0}, passed{0};
-  faio::block_on(ctx, faio::join(barrier_worker(gate, arrived, passed),
+  ctx.block_on(faio::join(barrier_worker(gate, arrived, passed),
                                  barrier_worker(gate, arrived, passed),
                                  barrier_worker(gate, arrived, passed)));
   EXPECT_EQ(passed.load(), 3);
 }
 TEST(ConcurrencyTest, LatchCrossThreadNotification) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(2).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(2).build()};
   faio::sync::latch done{1};
   std::atomic<bool> flag{false};
   std::thread notifier([&] {
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
     done.count_down();
   });
-  faio::block_on(ctx, latch_waiter(done, flag));
+  ctx.block_on(latch_waiter(done, flag));
   notifier.join();
   EXPECT_TRUE(flag.load());
 }
 TEST(ConcurrencyTest, BoundedMpscAndTrackedSpawn) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(4).build()};
-  EXPECT_EQ(faio::block_on(ctx, mpsc_transfer()), 4160);
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(4).build()};
+  EXPECT_EQ(ctx.block_on(mpsc_transfer()), 4160);
   std::atomic<int> count{0};
-  faio::block_on(ctx, delayed_spawn(count));
+  ctx.block_on(delayed_spawn(count));
   EXPECT_EQ(count.load(), 1);
 }
 
 TEST(ConcurrencyTest, ExternalSpawnIsDrainedOnStop) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(2).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(2).build()};
   std::atomic<int> count{0};
-  faio::spawn_detached(ctx, delayed_spawn(count));
-  ctx.stop();
+  ctx.submit(delayed_spawn(count));
+  ctx.stop(faio::io::shutdown_policy::drain);
   EXPECT_EQ(count.load(), 1);
 }
 
@@ -282,10 +283,6 @@ faio::task<bool> yield_then_spawn(std::atomic<bool>& start) {
   auto child = faio::spawn(token_requested());
   co_return co_await child;
 }
-faio::task<void> release_semaphore(faio::sync::semaphore& sem) {
-  sem.release();
-  co_return;
-}
 faio::task<int> sem_wait_forever(faio::sync::semaphore& sem) {
   co_await sem.acquire();
   co_return 3;
@@ -353,59 +350,59 @@ faio::task<void> failed_scope() {
 }
 
 TEST(ConcurrencyTest, MpscContentionAndClosure) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(4).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(4).build()};
   constexpr long long expected = 3999LL * 4000 / 2;
   for (auto capacity : {1u, 2u, 3u, 64u})
-    EXPECT_EQ(faio::block_on(ctx, stress_mpsc(capacity)), expected);
-  EXPECT_EQ(faio::block_on(ctx, lease_survives_sender_close()), 41);
-  EXPECT_TRUE(faio::block_on(ctx, closed_receiver_rejects_send()));
-  EXPECT_TRUE(faio::block_on(ctx, pending_recv_observes_close()));
-  EXPECT_EQ(faio::block_on(ctx, move_only_channel_value()), 17);
+    EXPECT_EQ(ctx.block_on(stress_mpsc(capacity)), expected);
+  EXPECT_EQ(ctx.block_on(lease_survives_sender_close()), 41);
+  EXPECT_TRUE(ctx.block_on(closed_receiver_rejects_send()));
+  EXPECT_TRUE(ctx.block_on(pending_recv_observes_close()));
+  EXPECT_EQ(ctx.block_on(move_only_channel_value()), 17);
 }
 TEST(ConcurrencyTest, TaskOwnershipAndSelectDrain) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(4).build()};
-  auto pointer = faio::block_on(ctx, move_only_value());
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(4).build()};
+  auto pointer = ctx.block_on(move_only_value());
   ASSERT_TRUE(pointer);
   EXPECT_EQ(*pointer, 33);
-  EXPECT_EQ(faio::block_on(ctx, deep_chain(1000)), 1000);
-  EXPECT_THROW(faio::block_on(ctx, faio::join(number(1), failing_task())),
+  EXPECT_EQ(ctx.block_on(deep_chain(1000)), 1000);
+  EXPECT_THROW(ctx.block_on(faio::join(number(1), failing_task())),
                std::runtime_error);
   std::atomic<bool> finished{false};
-  faio::block_on(ctx, select_with_loser(finished));
+  ctx.block_on(select_with_loser(finished));
   // select 请求停止落选分支，并等待其退出后返回。
   EXPECT_FALSE(finished.load());
   auto started = std::chrono::steady_clock::now();
-  EXPECT_EQ(faio::block_on(ctx, select_cancelable_sleep()), 0u);
+  EXPECT_EQ(ctx.block_on(select_cancelable_sleep()), 0u);
   EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(100));
   ctx.stop();
 }
 
 TEST(ConcurrencyTest, JoinHandleScopeAndThisCoro) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(2).build()};
-  EXPECT_EQ(faio::block_on(ctx, join_handle_run()), 42);
-  auto external = faio::spawn(ctx, number(12));
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(2).build()};
+  EXPECT_EQ(ctx.block_on(join_handle_run()), 42);
+  auto external = ctx.spawn_observed(number(12));
   EXPECT_EQ(external.get(), 12);
   std::atomic<int> count{0};
-  EXPECT_EQ(faio::block_on(ctx, scope_run(count)), 13);
+  EXPECT_EQ(ctx.block_on(scope_run(count)), 13);
   EXPECT_EQ(count.load(), 2);
-  EXPECT_EQ(faio::block_on(ctx, inspect_coro_context()), 1);
-  EXPECT_EQ(faio::block_on(ctx, inspect_priority().with_priority(faio::task_priority::high)),
+  EXPECT_EQ(ctx.block_on(inspect_coro_context()), 1);
+  EXPECT_EQ(ctx.block_on(inspect_priority().with_priority(faio::task_priority::high)),
             faio::task_priority::high);
   std::atomic<bool> start{false};
-  auto parent = faio::spawn(ctx, yield_then_spawn(start));
+  auto parent = ctx.spawn_observed(yield_then_spawn(start));
   parent.request_stop();
   start.store(true, std::memory_order_release);
   EXPECT_TRUE(parent.get());
 }
 
 TEST(ConcurrencyTest, SelectCancelsPrimitiveWaitersAndScopeDrains) {
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(4).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(4).build()};
   faio::sync::semaphore sem{0};
-  EXPECT_EQ(faio::block_on(ctx, select_sem_cancel(sem)), 0);
+  EXPECT_EQ(ctx.block_on(select_sem_cancel(sem)), 0);
   sem.release();
   EXPECT_TRUE(sem.try_acquire());
   auto endpoints = faio::sync::mpsc<int>::make(1);
-  EXPECT_EQ(faio::block_on(ctx, select_recv_cancel(endpoints.second)), 0);
+  EXPECT_EQ(ctx.block_on(select_recv_cancel(endpoints.second)), 0);
   auto sent = endpoints.first.try_send(4);
   ASSERT_TRUE(sent);
   EXPECT_TRUE(*sent);
@@ -414,18 +411,18 @@ TEST(ConcurrencyTest, SelectCancelsPrimitiveWaitersAndScopeDrains) {
   ASSERT_TRUE(value->has_value());
   EXPECT_EQ(**value, 4);
   faio::sync::barrier gate{2};
-  EXPECT_EQ(faio::block_on(ctx, select_barrier_cancel(gate)), 0);
-  EXPECT_THROW(faio::block_on(ctx, wait_broken_barrier(gate)), faio::operation_cancelled);
+  EXPECT_EQ(ctx.block_on(select_barrier_cancel(gate)), 0);
+  EXPECT_THROW(ctx.block_on(wait_broken_barrier(gate)), faio::operation_cancelled);
   faio::sync::condition_variable cv;
   faio::sync::mutex mtx;
   bool ready = false;
-  EXPECT_EQ(faio::block_on(ctx, select_cv_cancel(cv, mtx, ready)), 0);
+  EXPECT_EQ(ctx.block_on(select_cv_cancel(cv, mtx, ready)), 0);
   EXPECT_TRUE(mtx.try_lock());
   mtx.unlock();
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_THROW(faio::block_on(ctx, failed_scope()), std::runtime_error);
+  EXPECT_THROW(ctx.block_on(failed_scope()), std::runtime_error);
   EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(100));
-  auto canceled = faio::spawn(ctx, long_sleep());
+  auto canceled = ctx.spawn_observed(long_sleep());
   canceled.request_stop();
   EXPECT_THROW(canceled.get(), faio::operation_cancelled);
 }
@@ -433,9 +430,9 @@ TEST(ConcurrencyTest, SelectCancelsPrimitiveWaitersAndScopeDrains) {
 TEST(ConcurrencyTest, SelectCancelsIoUringWaiter) {
   int sockets[2];
   ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
-  faio::runtime_context ctx{faio::ConfigBuilder{}.set_num_workers(2).build()};
+  faio::runtime::detail::runtime_context ctx{faio_test::config_builder().set_num_workers(2).build()};
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_EQ(faio::block_on(ctx, select_socket_cancel(sockets[0])), 0);
+  EXPECT_EQ(ctx.block_on(select_socket_cancel(sockets[0])), 0);
   EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(100));
   ::close(sockets[0]);
   ::close(sockets[1]);

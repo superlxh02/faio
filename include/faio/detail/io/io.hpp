@@ -1,7 +1,4 @@
-#ifndef FAIO_DETAIL_IO_IO_HPP
-#define FAIO_DETAIL_IO_IO_HPP
-#include "faio/log.hpp"
-
+#pragma once
 #include "faio/detail/io/awaiter/accept.hpp"
 #include "faio/detail/io/awaiter/cancel.hpp"
 #include "faio/detail/io/awaiter/close.hpp"
@@ -21,236 +18,235 @@
 #include "faio/detail/io/awaiter/socket.hpp"
 #include "faio/detail/io/awaiter/write.hpp"
 #include "faio/detail/io/awaiter/writev.hpp"
-
+#include "faio/detail/io/engine.hpp"
+#include "faio/detail/io/native_file_op.hpp"
 namespace faio::io::detail {
+/** @brief 资源包装所有者；移动/共享不改变 IO 归属，析构只请求非阻塞关闭。 */
 class FileDescriptor {
 protected:
-  explicit FileDescriptor(int fd) : _fd{fd} {}
-
-  ~FileDescriptor() {
-    if (_fd >= 0) {
-      do_close();
-    }
+  explicit FileDescriptor(int fd, io_context context = io_context::current(),
+                          bool regular = false)
+      : resource_(adopt_resource(context, fd, true, regular)) {
+    resource_->wrappers.fetch_add(1, std::memory_order_relaxed);
   }
-
-  FileDescriptor(FileDescriptor &&other) noexcept : _fd{other._fd} {
-    other._fd = -1;
+  explicit FileDescriptor(io_context context, int fd, bool regular = false)
+      : FileDescriptor(fd, std::move(context), regular) {}
+  explicit FileDescriptor(resource_ptr resource)
+      : resource_(std::move(resource)) {
+    if (resource_)
+      resource_->wrappers.fetch_add(1, std::memory_order_relaxed);
   }
-
-  auto operator=(FileDescriptor &&other) noexcept -> FileDescriptor & {
-    if (_fd >= 0) {
-      do_close();
+  ~FileDescriptor() { release(); }
+  FileDescriptor(FileDescriptor &&other) noexcept
+      : resource_(std::move(other.resource_)) {}
+  FileDescriptor &operator=(FileDescriptor &&other) noexcept {
+    if (this != &other) {
+      release();
+      resource_ = std::move(other.resource_);
     }
-    _fd = other._fd;
-    other._fd = -1;
     return *this;
   }
-
-  // Delete copy
-  FileDescriptor(const FileDescriptor &other) = delete;
-  FileDescriptor &operator=(const FileDescriptor &other) = delete;
+  FileDescriptor(const FileDescriptor &) = delete;
+  FileDescriptor &operator=(const FileDescriptor &) = delete;
 
 public:
-  auto close() noexcept {
-    auto fd = _fd;
-    _fd = -1;
-    return Close{fd};
+  int fd() const noexcept { return resource_ ? resource_->fd() : -1; }
+  const resource_ptr &resource() const noexcept { return resource_; }
+  io_context context() const noexcept {
+    return resource_ ? io_context{resource_->owner} : io_context{};
   }
-
-  [[nodiscard]]
-  auto fd() const noexcept {
-    return _fd;
+  auto close() noexcept { return Close{resource_}; }
+  expected<int> into_native() noexcept {
+    if (!resource_)
+      return std::unexpected{make_error(EBADF)};
+    if (resource_->owner)
+      return resource_->owner->detach(*resource_);
+    const int value = resource_->handle.exchange(-1);
+    resource_->owns_handle = false;
+    if (value < 0)
+      return std::unexpected{make_error(EBADF)};
+    return value;
   }
-
-  [[nodiscard]]
-  auto take_fd() noexcept {
-    auto ret = _fd;
-    _fd = -1;
-    return ret;
+  int take_fd() noexcept {
+    auto value = into_native();
+    return value ? *value : -1;
   }
-
-  [[nodiscard]]
-  auto set_nonblocking(bool status) const noexcept -> expected<void> {
-    auto flags = ::fcntl(_fd, F_GETFL, 0);
-    if (status) {
-      flags |= O_NONBLOCK;
-    } else {
-      flags &= ~O_NONBLOCK;
-    }
-    if (::fcntl(_fd, F_SETFL, flags) == -1) [[unlikely]] {
-      return std::unexpected{make_error(errno)};
-    }
-    return {};
+  /** @brief 设置异步句柄为非阻塞；关闭非阻塞模式会返回 EINVAL。
+   * @details 后端直接尝试系统调用，O_NONBLOCK 是保障 worker
+   * 不被内核阻塞的前提。 如需原生阻塞句柄，应先通过 into_native
+   * 导出所有权再修改 flags。
+   */
+  expected<void> set_nonblocking(bool enabled) const noexcept {
+    return with_resource(resource_, Interest::none, [&]() -> expected<void> {
+      if (!enabled)
+        return std::unexpected{make_error(EINVAL)};
+      const int status = ::fcntl(fd(), F_GETFL, 0);
+      if (status < 0 || ::fcntl(fd(), F_SETFL, status | O_NONBLOCK) < 0)
+        return std::unexpected{make_error(errno)};
+      return {};
+    });
   }
-
-  [[nodiscard]]
-  auto nonblocking() const noexcept -> expected<bool> {
-    auto flags = ::fcntl(_fd, F_GETFL, 0);
-    if (flags == -1) [[unlikely]] {
-      return std::unexpected{make_error(errno)};
-    }
-    return flags & O_NONBLOCK;
+  expected<bool> nonblocking() const noexcept {
+    return with_resource(resource_, Interest::none, [&]() -> expected<bool> {
+      const int status = ::fcntl(fd(), F_GETFL, 0);
+      if (status < 0)
+        return std::unexpected{make_error(errno)};
+      return (status & O_NONBLOCK) != 0;
+    });
   }
 
 private:
-  void do_close() noexcept {
-    auto sqe = current_uring->get_sqe();
-    if (sqe != nullptr) [[likely]] {
-      // async close
-      io_uring_prep_close(sqe, _fd);
-      io_uring_sqe_set_data(sqe, nullptr);
-    } else {
-      // sync close
-      for (auto i = 1; i <= 3; i += 1) {
-        auto ret = ::close(_fd);
-        if (ret == 0) [[likely]] {
-          break;
-        } else {
-          faio::log::logger()->log(
-              i == 3 ? spdlog::level::err : spdlog::level::warn,
-              "close {} failed, error: {}, attempt: {}", _fd, strerror(errno), i);
-        }
-      }
-    }
-    _fd = -1;
+  void release() noexcept {
+    if (!resource_)
+      return;
+    if (resource_->wrappers.fetch_sub(1, std::memory_order_acq_rel) == 1 &&
+        resource_->owner)
+      resource_->owner->request_close(resource_);
+    resource_.reset();
   }
-
-protected:
-  int _fd;
+  resource_ptr resource_;
+};
+/** @brief 多观察者 ready awaiter 不消费数据；关闭/取消与读写遵循同一终态协议。
+ */
+class ReadyAwaiter : public IORegistrantAwaiter<ReadyAwaiter> {
+public:
+  ReadyAwaiter(resource_ptr resource, Interest interest)
+      : IORegistrantAwaiter{[&] {
+          auto r = make_request(resource, operation_kind::ready);
+          r.argument = static_cast<int>(interest);
+          return r;
+        }()} {}
+  ReadyAwaiter(int fd, Interest interest)
+      : IORegistrantAwaiter{[&] {
+          io_request r;
+          r.fd = fd;
+          r.kind = operation_kind::ready;
+          r.argument = static_cast<int>(interest);
+          return r;
+        }()} {}
+  expected<Ready> await_resume() const noexcept {
+    if (_user_data.result < 0)
+      return std::unexpected{make_error(static_cast<int>(-_user_data.result))};
+    return Ready{static_cast<std::uint32_t>(_user_data.result),
+                 _user_data.transferred};
+  }
 };
 } // namespace faio::io::detail
-
 namespace faio::io {
-// 接受连接
-static inline auto accept(int fd, struct sockaddr *addr, socklen_t *addrlen,
-                          int flags) {
-  return detail::Accept{fd, addr, addrlen, flags};
+// 兼容 raw fd 及现代稳定资源重载；平台类型不透过 liburing 进入公共头。
+template <class F>
+inline auto accept(F fd, sockaddr *address, socklen_t *length, int flags = 0) {
+  return detail::Accept{std::move(fd), address, length, flags};
 }
-
-// 取消io操作
-static inline auto cancel(int fd, unsigned int flags) {
-  return detail::Cancel{fd, flags};
+template <class F> inline auto cancel(F fd, unsigned flags = 0) {
+  return detail::Cancel{std::move(fd), flags};
 }
-// 关闭文件描述符
-static inline auto close(int fd) { return detail::Close{fd}; }
-// 获取socket选项
-static inline auto getsockopt(int fd, int level, int optname, void *optval,
-                              int optlen) {
-  return detail::CmdSock{
-      SOCKET_URING_OP_GETSOCKOPT, fd, level, optname, optval, optlen};
+template <class F> inline auto close(F fd) {
+  return detail::Close{std::move(fd)};
 }
-// 设置socket选项
-static inline auto setsockopt(int fd, int level, int optname, void *optval,
-                              int optlen) {
-  return detail::CmdSock{
-      SOCKET_URING_OP_SETSOCKOPT, fd, level, optname, optval, optlen};
+template <class F>
+inline auto connect(F fd, const sockaddr *address, socklen_t length) {
+  return detail::Connect{std::move(fd), address, length};
 }
-// 执行socket命令
-static inline auto cmdsock(int cmd_op, int fd, int level, int optname,
-                           void *optval, int optlen) {
-  return detail::CmdSock{cmd_op, fd, level, optname, optval, optlen};
+template <class F> inline auto fsync(F fd, unsigned flags = 0) {
+  return detail::Fsync{std::move(fd), flags};
 }
-// 连接到远程地址
-static inline auto connect(int fd, const struct sockaddr *addr,
-                           socklen_t addrlen) {
-  return detail::Connect{fd, addr, addrlen};
-}
-// 同步文件
-static inline auto fsync(int fd, unsigned fsync_flags) {
-  return detail::Fsync{fd, fsync_flags};
-}
-
-// 打开文件
-inline auto open(const char *path, int flags, mode_t mode) {
+inline auto open(const char *path, int flags, mode_t mode = 0666) {
   return detail::Open{path, flags, mode};
 }
-
-// 打开文件2
-static inline auto open2(const char *path, struct open_how *how) {
-  return detail::Open2{path, how};
+inline auto openat(int directory, const char *path, int flags,
+                   mode_t mode = 0666) {
+  return detail::Open{directory, path, flags, mode};
 }
-
-// 打开文件at
-static inline auto openat(int dfd, const char *path, int flags, mode_t mode) {
-  return detail::Open{dfd, path, flags, mode};
+template <class F>
+inline auto read(F fd, void *buffer, std::size_t length,
+                 std::uint64_t offset = UINT64_MAX) {
+  return detail::Read{std::move(fd), buffer, length, offset};
 }
-
-// 打开文件at2
-static inline auto openat2(int dfd, const char *path, struct open_how *how) {
-  return detail::Open2{dfd, path, how};
+template <class F>
+inline auto write(F fd, const void *buffer, std::size_t length,
+                  std::uint64_t offset = UINT64_MAX) {
+  return detail::Write{std::move(fd), buffer, length, offset};
 }
-// 读取文件
-static inline auto read(int fd, void *buf, std::size_t nbytes,
-                        uint64_t offset) {
-  return detail::Read{fd, buf, nbytes, offset};
+template <class F>
+inline auto readv(F fd, const iovec *vectors, unsigned count,
+                  std::uint64_t offset = UINT64_MAX, int flags = 0) {
+  return detail::ReadV{std::move(fd), vectors, count, offset, flags};
 }
-
-// 读取文件v
-static inline auto readv(int fd, const struct iovec *iovecs, unsigned nr_vecs,
-                         __u64 offset, int flags = 0) {
-  return detail::ReadV{fd, iovecs, nr_vecs, offset, flags};
+template <class F>
+inline auto writev(F fd, const iovec *vectors, unsigned count,
+                   std::uint64_t offset = UINT64_MAX, int flags = 0) {
+  return detail::WriteV{std::move(fd), vectors, count, offset, flags};
 }
-// 接收数据
-static inline auto recv(int sockfd, void *buf, size_t len, int flags) {
-  return detail::Recv{sockfd, buf, len, flags};
+template <class F>
+inline auto recv(F fd, void *buffer, std::size_t length, int flags = 0) {
+  return detail::Recv{std::move(fd), buffer, length, flags};
 }
-
-// 接收数据from
-static inline auto recvfrom(int sockfd, void *buf, size_t len, int flags,
-                            struct sockaddr *addr, socklen_t *addrlen) {
-  return detail::RecvFrom{sockfd, buf, len, flags, addr, addrlen};
+template <class F>
+inline auto send(F fd, const void *buffer, std::size_t length, int flags = 0) {
+  return detail::Send{std::move(fd), buffer, length, flags};
 }
-
-// 接收消息
-static inline auto recvmsg(int fd, struct msghdr *msg, unsigned flags) {
-  return detail::RecvMsg{fd, msg, flags};
+template <class F>
+inline auto recvfrom(F fd, void *buffer, std::size_t length, int flags,
+                     sockaddr *address, socklen_t *address_length) {
+  return detail::RecvFrom{std::move(fd), buffer,  length,
+                          flags,         address, address_length};
 }
-
-// 发送数据
-static inline auto send(int sockfd, const void *buf, size_t len, int flags) {
-  return detail::Send{sockfd, buf, len, flags};
+template <class F>
+inline auto sendto(F fd, const void *buffer, std::size_t length, int flags,
+                   const sockaddr *address, socklen_t address_length) {
+  return detail::SendTo{std::move(fd), buffer,  length,
+                        flags,         address, address_length};
 }
-
-// 发送数据零拷贝
-static inline auto send_zc(int sockfd, const void *buf, size_t len, int flags,
-                           unsigned zc_flags) {
-  return detail::SendZC{sockfd, buf, len, flags, zc_flags};
+template <class F>
+inline auto recvmsg(F fd, msghdr *message, unsigned flags = 0) {
+  return detail::RecvMsg{std::move(fd), message, flags};
 }
-
-// 发送消息
-static inline auto sendmsg(int fd, const struct msghdr *msg, unsigned flags) {
-  return detail::SendMsg{fd, msg, flags};
+template <class F>
+inline auto sendmsg(F fd, const msghdr *message, unsigned flags = 0) {
+  return detail::SendMsg{std::move(fd), message, flags};
 }
-
-// 发送消息零拷贝
-static inline auto sendmsg_zc(int fd, const struct msghdr *msg,
-                              unsigned flags) {
-  return detail::SendMsgZC{fd, msg, flags};
+template <class F> inline auto shutdown(F fd, int how) {
+  return detail::Shutdown{std::move(fd), how};
 }
-// 发送数据to
-static inline auto sendto(int sockfd, const void *buf, size_t len, int flags,
-                          const struct sockaddr *addr, socklen_t addrlen) {
-  return detail::SendTo{sockfd, buf, len, flags, addr, addrlen};
+inline auto socket(int family, int type, int protocol, unsigned flags = 0) {
+  return detail::Socket{family, type, protocol, flags};
 }
-// 关闭连接
-static inline auto shutdown(int fd, int how) {
-  return detail::Shutdown{fd, how};
+template <class F> inline auto ready(F fd, Interest interest) {
+  return detail::ReadyAwaiter{std::move(fd), interest};
 }
-// 创建socket
-static inline auto socket(int domain, int type, int protocol,
-                          unsigned int flags) {
-  return detail::Socket{domain, type, protocol, flags};
+inline auto getsockopt(int fd, int level, int option, void *value, int length) {
+  return detail::CmdSock{
+      detail::socket_getsockopt_command, fd, level, option, value, length};
 }
-// 写入文件
-static inline auto write(int fd, const void *buf, unsigned nbytes,
-                         __u64 offset) {
-  return detail::Write(fd, buf, nbytes, offset);
+inline auto setsockopt(int fd, int level, int option, void *value, int length) {
+  return detail::CmdSock{
+      detail::socket_setsockopt_command, fd, level, option, value, length};
 }
-// 写入文件v
-static inline auto writev(int fd, const struct iovec *iovecs, unsigned nr_vecs,
-                          __u64 offset, int flags = 0) {
-  return detail::WriteV{fd, iovecs, nr_vecs, offset, flags};
+inline auto cmdsock(int command, int fd, int level, int option, void *value,
+                    int length) {
+  return detail::CmdSock{command, fd, level, option, value, length};
+}
+template <class F>
+inline auto send_zc(F fd, const void *buffer, std::size_t length, int flags,
+                    unsigned zc_flags = 0) {
+  return detail::SendZC{std::move(fd), buffer, length, flags, zc_flags};
+}
+template <class F>
+inline auto sendmsg_zc(F fd, const msghdr *message, unsigned flags = 0) {
+  return detail::SendMsgZC{std::move(fd), message, flags};
 }
 } // namespace faio::io
 
-#endif // FAIO_DETAIL_IO_IO_HPP
+#if defined(__linux__)
+namespace faio::io {
+/** @brief Linux 特有路径解析约束扩展；旧内核返回 ENOSYS，不伪装支持 resolve
+ * flags。 */
+inline auto open2(const char *path, const open_how *how) {
+  return detail::Open2{path, how};
+}
+inline auto openat2(int directory, const char *path, const open_how *how) {
+  return detail::Open2{directory, path, how};
+}
+} // namespace faio::io
+#endif

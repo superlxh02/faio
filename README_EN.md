@@ -2,9 +2,9 @@
 
 [简体中文](README.md) | **English**
 
-faio is a Linux asynchronous I/O library written in modern C++: it adopts C++20 coroutines as the execution model and Linux io_uring as the native Proactor async engine, providing coroutine tasks, a multi-threaded runtime, network and file I/O, timers, and coroutine synchronization primitives. The library is header-only and licensed under [Apache-2.0](LICENSE).
+faio is a high-performance, cross-platform asynchronous I/O library built on C++20 coroutines (requiring a C++23 toolchain). It runs on Linux (dual io_uring/epoll backends), macOS (kqueue), and Windows (a native IOCP framework), and provides coroutine tasks and synchronization primitives, single/multi-thread runtimes, TCP/UDP/Unix networking, timers, and native asynchronous file I/O (operations without native support fall back to an isolated bounded service). The library is header-only and licensed under [Apache-2.0](LICENSE).
 
-With faio, asynchronous flows read like synchronous code: when awaiting an I/O completion, a timer expiration, or a synchronization primitive, the current coroutine suspends and yields its worker thread; once the completion arrives, the runtime reschedules and resumes it. No thread is ever blocked on a read, a write, or a wait, which makes the library suitable for high-concurrency network services, asynchronous task processing, and general coroutine-based concurrent programs.
+With faio, asynchronous flows read like synchronous code: a coroutine suspends and yields its worker thread while awaiting I/O, a timer, or a synchronization primitive, and the runtime resumes it on completion. io_uring-capable file operations are submitted as native SQEs and the rest run on an isolated bounded service, so workers never block on I/O—suited to high-concurrency network services, asynchronous task processing, and general coroutine-based concurrent programs.
 
 [Features](#features) · [Highlights](#highlights) · [Examples](#examples) · [Requirements](#requirements) · [Integration](#integration) · [Documentation](#documentation)
 
@@ -15,20 +15,20 @@ With faio, asynchronous flows read like synchronous code: when awaiting an I/O c
 | Coroutine tasks | Lazy `task<T>`, task launching and result handles, exception propagation, cooperative cancellation |
 | Concurrency combinators | `join`, `join_all`, `select`, structured task scope `scope` |
 | Async runtime | Default runtime, standalone runtimes, multi-worker scheduling, work stealing |
-| Network I/O | TCP listeners and connections, stream read/write, UDP datagrams, IPv4 / IPv6 addresses |
-| Low-level I/O | io_uring-based awaitables for file and socket operations |
+| Network I/O | TCP/UDP/Unix, asynchronous DNS, IPv4/IPv6, readiness, batched/vectored I/O, split, multicast, and native extensions |
+| Low-level I/O | Neutral completion protocol, epoll/kqueue, AsyncFd, File/directory services, bounded buffers and composite algorithms |
 | Time operations | Sleep, deadlines, I/O timeouts, periodic timers |
 | Synchronization primitives | Mutex, semaphore, condition variable, latch, barrier, bounded MPSC queue |
 | Logging | spdlog with runtime level adjustment and sink configuration |
 
 ## Highlights
 
-- **C++20 stackless coroutines**: the task model is built on C++20 stackless coroutines. `task<T>` is a lazy, move-only coroutine task; nested `co_await` continues into the child through symmetric transfer, with no extra stack allocation or scheduling overhead. Results and exceptions propagate along the await chain, so asynchronous errors are handled with standard `try/catch`.
-- **Proactor I/O model**: io_uring handles asynchronous submission and completion notification; the runtime turns completions into ready coroutines.
-- **Worker-thread model**: the runtime consists of a fixed set of worker threads, each running its own event loop that, within a single loop, executes ready coroutines, reaps io_uring completions, processes timer expirations, and handles cross-thread wakeups. A suspended coroutine yields its thread, so no task can block the worker it runs on.
-- **Work-stealing scheduling**: a two-level structure of per-worker local ready queues plus a shared global queue. Same-thread submissions go straight to a fast slot in the local queue, cross-thread submissions go to the global queue, and idle workers steal batches of tasks from other workers' local queues, reducing lock contention while keeping the load balanced across cores.
-- **Coroutine-semantics synchronization primitives**: mutex, semaphore, condition variable, latch, barrier, and a bounded MPSC queue are all coroutine-level primitives—contention suspends the current coroutine instead of blocking the thread, and resumption is delivered back to the original scheduling domain. Every wait supports cooperative cancellation via stop tokens.
-- **Coroutinized async network and file I/O**: TCP listen/connect, stream read/write, UDP datagrams, and low-level file and socket operations are uniformly exposed as `co_await`-able awaitables. A network service can be written in a synchronous style with one coroutine per connection, gaining timeout and cooperative cancellation support naturally.
+- **C++20 stackless coroutines**: `task<T>` is a lazy, move-only coroutine task; nested `co_await` continues into the child through symmetric transfer with no extra stack allocation or scheduling overhead. Results and exceptions propagate along the await chain and are handled with standard `try/catch`.
+- **Proactor model**: the application submits a complete I/O operation, and the backend posts a completion event that resumes the coroutine. io_uring is a native proactor; epoll/kqueue and Windows IOCP are adapted to the same proactor semantics, so application code needs no per-platform branches.
+- **Worker-thread model**: a fixed set of worker threads each runs an independent event loop handling ready coroutines, I/O completions, timer expirations, and cross-thread wakeups. A suspended coroutine yields its thread; blocking work uses spawn_blocking and long computations yield cooperatively.
+- **Work-stealing scheduling**: a two-level structure of per-worker local queues plus a global queue—same-thread submissions enter a local fast slot, cross-thread submissions the global queue; idle workers steal tasks in batches, reducing lock contention while balancing load across cores.
+- **Coroutine-semantics synchronization primitives**: mutex, semaphore, condition variable, latch, barrier, and bounded MPSC queue suspend the coroutine instead of blocking the thread on contention, with resumption delivered back to the original scheduling domain; all waits support stop-token cooperative cancellation.
+- **Coroutinized async network and file I/O**: TCP/UDP and low-level file/socket operations are uniformly `co_await`-able; write one coroutine per connection in a synchronous style, with timeout and cooperative cancellation built in.
 
 ## Examples
 
@@ -130,7 +130,9 @@ int main() {
 }
 ```
 
-The default runtime starts on first use; call `faio::runtime::configure()` beforehand to adjust worker count and other parameters. See [examples](examples) for complete programs, including [coroutines and concurrency](examples/coroutine_task.cpp), [synchronization primitives](examples/sync_demo.cpp), a [TCP server](examples/tcp_server.cpp), and a [UDP server](examples/udp_server.cpp).
+The default runtime starts on first use; call `faio::runtime::configure()` beforehand to adjust worker count and other parameters. The examples cover [coroutine basics and concurrency](examples/coroutine_basics.cpp), [coroutine synchronization](examples/coroutine_sync.cpp), [TCP echo](examples/tcp_echo_server.cpp), [UDP echo](examples/udp_echo_server.cpp), a [shared TCP counter application](examples/tcp_counter_server.cpp), [blocking work alongside async tasks](examples/blocking_thread_pool.cpp), [TCP echo with current-thread scheduling](examples/tcp_echo_server_single_thread.cpp), and [file and directory operations](examples/file_and_directory.cpp). See the [example guide](examples/README.md) for detailed Chinese explanations and commands; `tcp_counter_server --self-test` runs a finite multi-client scenario.
+
+The default is `multi_thread`; calling `set_mode()` is optional. To drive coroutines on the thread calling `block_on`, configure `faio::config_builder{}.set_mode(faio::runtime::mode::current_thread).build()` before first use; see the [current-thread TCP example](examples/tcp_echo_server_single_thread.cpp). This mode starts no background async worker. Queues, timers and in-flight I/O persist between calls, and submitted async tasks advance while `block_on` runs. `block_on` waits for its task group, without waiting for independently submitted background roots. `spawn_blocking` still uses a separate blocking pool; see the [blocking task example](examples/blocking_thread_pool.cpp) and [scheduling and performance report](docs/单线程运行时性能.md).
 
 Logs are written to stderr at `info` level by default, with timestamps, levels, and thread IDs. See [runtime logging](docs/异步运行时.md#6-诊断日志) for configuration (documentation is currently available in Chinese).
 
@@ -138,10 +140,10 @@ Logs are written to stderr at `info` level by default, with timestamps, levels, 
 
 | Item | Requirement |
 | --- | --- |
-| Operating system | Linux with kernel support for the io_uring operations in use; containers depend on the host kernel |
-| Compiler and standard library | C++23 support including coroutines, `std::expected`, and `std::format`; verified with GCC 15 |
+| Operating system | Linux io_uring/epoll, macOS kqueue; Windows IOCP framework only |
+| Compiler and standard library | C++23 support including coroutines, `std::expected`, and `std::format`; validation toolchains are Linux Clang 22.1.2 and macOS Homebrew Clang 23 |
 | Build tools | CMake 3.20+, pkg-config; presets use Ninja |
-| Library dependencies | liburing, spdlog, threads |
+| Library dependencies | spdlog and threads; Linux dual-backend builds require liburing, epoll-only builds do not |
 | Optional dev dependencies | GoogleTest for unit tests; standalone Asio for TCP benchmark comparison |
 | Optional benchmark tools | Rust / Cargo, wrk, Python 3 with numpy / pandas / matplotlib — see [benchmark](benchmark/README.md) |
 
@@ -164,7 +166,7 @@ add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-The target automatically propagates the C++23 requirement, include paths, and the liburing / spdlog / threads link dependencies. Include `<faio/faio.hpp>` in your application to use the full library.
+The target automatically propagates the C++23 requirement, include paths, and the spdlog / threads link dependencies. Include `<faio/faio.hpp>` in your application to use the full library.
 
 ### CMake install integration
 
@@ -184,20 +186,24 @@ find_package(faio CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-Pass `-DCMAKE_PREFIX_PATH=/path/to/faio-install` when configuring the application, and make sure liburing, spdlog, and pkg-config are available.
+Pass `-DCMAKE_PREFIX_PATH=/path/to/faio-install` when configuring the application, and make sure spdlog and threads are available.
 
 ### Building examples and tests
+
+On macOS, use the `macos-clang23` configure/build/test presets for Homebrew Clang 23. On Linux with Clang 22, use `linux-clang22-dual` to configure/build and `linux-clang22-dual-epoll` / `linux-clang22-dual-uring` to test; use `linux-clang22-epoll` without liburing. Set `CMAKE_PREFIX_PATH` for dependencies installed outside the system prefix.
+
+GCC must include the [coroutine constructor exception cleanup fix](https://github.com/gcc-mirror/gcc/commit/5422486d4bc728688dd2c874cb014fadf745b2da). GCC 15.2.0-16ubuntu1 leaks the coroutine frame when a frame parameter copy or move throws and does not satisfy the complete exception safety requirement. The existing GCC `linux-dual` / `linux-epoll` presets remain available for compilers containing this fix.
 
 On a Linux system with a C++23 compiler, install dependencies from system packages. The following commands use an Ubuntu development environment:
 
 ```bash
-sudo apt-get install g++ cmake ninja-build pkg-config liburing-dev libspdlog-dev
+sudo apt-get install g++ cmake ninja-build liburing-dev libspdlog-dev
 
 git clone https://github.com/superlxh02/faio.git
 cd faio
 cmake --preset release -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
 cmake --build --preset release -j4
-./build/examples/coroutine_task
+./build/examples/coroutine_basics
 ```
 
 All three build switches default to `ON`. For a full development build, also install GoogleTest and standalone Asio:
@@ -221,7 +227,7 @@ Design and source-code walkthroughs (currently in Chinese):
 | [Coroutine Concurrency](docs/协程并发.md) | spawn / block_on, join_handle, and the completion boundaries of join / select / scope |
 | [Coroutine Synchronization](docs/协程同步.md) | Wait-node protocol, mutex, condition variable, semaphore, latch, barrier, and MPSC |
 | [Async Runtime](docs/异步运行时.md) | Runtime components, coroutine scheduling, I/O driving, startup and shutdown |
-| [Async I/O](docs/异步IO.md) | io_uring wrappers and I/O awaitables: submission, completion, and timeouts |
+| [Async I/O](docs/异步IO.md) | epoll/kqueue, file services, buffers and algorithms, cancellation and lifecycle |
 | [Network I/O](docs/网络IO.md) | Mixin and CRTP design of the TCP / UDP interfaces with key source walkthroughs |
 | [Timer](docs/定时器.md) | Multi-level timing wheel, sleep, periodic ticks, and I/O timeouts |
 

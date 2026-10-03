@@ -1,16 +1,16 @@
 #ifndef FAIO_LOG_HPP
 #define FAIO_LOG_HPP
 
+#include <memory>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-#include <memory>
 #include <utility>
 
 namespace faio::log {
 
 // 独立的线程安全 logger，不修改应用的 spdlog 默认 logger 或全局配置。
 // 默认输出到 stderr；返回引用避免每条日志复制 shared_ptr。
-inline auto logger() -> const std::shared_ptr<spdlog::logger>& {
+inline auto logger() -> const std::shared_ptr<spdlog::logger> & {
   static const auto instance = [] {
     auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
     auto result = std::make_shared<spdlog::logger>("faio", std::move(sink));

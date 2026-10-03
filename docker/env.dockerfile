@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cargo \
         cmake \
         curl \
+        fonts-noto-cjk \
         gdb \
         git \
         libasio-dev \

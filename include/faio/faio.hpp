@@ -1,88 +1,123 @@
 #ifndef FAIO_FAIO_HPP
 #define FAIO_FAIO_HPP
-#include "faio/log.hpp"
+#if defined(_WIN32)
+#include "faio/detail/io/platform/windows_framework.hpp"
+#else
 #include "faio/detail/coroutine.hpp"
+#include "faio/detail/fs.hpp"
 #include "faio/detail/io.hpp"
+#include "faio/detail/io/platform/async_fd.hpp"
+#include "faio/detail/io/util/adapters.hpp"
+#include "faio/detail/io/util/buffered.hpp"
+#include "faio/detail/io/util/endian.hpp"
+#include "faio/detail/io/util/memory_stream.hpp"
 #include "faio/detail/net.hpp"
 #include "faio/detail/runtime/context.hpp"
 #include "faio/detail/runtime/default.hpp"
 #include "faio/detail/sync.hpp"
 #include "faio/detail/time.hpp"
+#include "faio/log.hpp"
+#include <chrono>
 
 namespace faio {
 
-using runtime_context = runtime::detail::runtime_context;
-
 // 默认运行时入口：worker 内直接使用 TLS 调度器；任意外部线程通过
-// 进程默认运行时提交，不要求调用线程曾经创建过 runtime_context。
+// 进程默认运行时提交，不要求调用线程曾经创建过运行时。
 template <class T> join_handle<T> spawn(task<T> child) {
   if (auto scheduler = detail::current_scheduler())
-    return join_handle<T>{detail::start_observed(
-        scheduler, std::move(child), detail::current_tracker,
-        detail::current_stop_token)};
+    return join_handle<T>{detail::start_observed(scheduler, std::move(child),
+                                                 detail::current_tracker,
+                                                 detail::current_stop_token)};
   return runtime::detail::default_service().with_context(
-      [&](runtime_context& ctx) -> join_handle<T> {
-        return join_handle<T>{detail::start_observed(
-            ctx.scheduler(), std::move(child), nullptr, {}, ctx.task_lifetime())};
+      [&](runtime::detail::runtime_context &ctx) -> join_handle<T> {
+        return join_handle<T>{detail::start_observed(ctx.scheduler(),
+                                                     std::move(child), nullptr,
+                                                     {}, ctx.task_lifetime())};
       });
 }
 
 template <class T> void spawn_detached(task<T> child) {
   if (auto scheduler = detail::current_scheduler()) {
-    detail::start_unobserved(scheduler, std::move(child), detail::current_tracker);
+    detail::start_unobserved(scheduler, std::move(child),
+                             detail::current_tracker);
     return;
   }
-  runtime::detail::default_service().with_context([&](runtime_context& ctx) {
-    detail::start_unobserved(ctx.scheduler(),
-                             std::move(child), nullptr, ctx.task_lifetime());
-  });
+  runtime::detail::default_service().with_context(
+      [&](runtime::detail::runtime_context &ctx) {
+        detail::start_unobserved(ctx.scheduler(), std::move(child), nullptr,
+                                 ctx.task_lifetime());
+      });
 }
 
-// 旧的显式运行时入口保留给需要隔离多个运行时的调用方。
-template <class T> join_handle<T> spawn(runtime_context& ctx, task<T> child) {
-  return join_handle<T>{detail::start_observed(
-      ctx.scheduler(), std::move(child), nullptr, {}, ctx.task_lifetime())};
-}
-template <class T> void spawn_detached(runtime_context& ctx, task<T> child) {
-  detail::start_unobserved(ctx.scheduler(),
-                           std::move(child), nullptr, ctx.task_lifetime());
+/** @brief 将同步函数提交到预热的有界用户阻塞池；等待只挂起协程，不阻塞IO
+ * worker。 */
+template <class F> auto spawn_blocking(F &&function) {
+  if (auto *pool = detail::current_blocking_pool())
+    return runtime::detail::start_blocking(
+        *pool, std::forward<F>(function), detail::current_tracker,
+        detail::current_stop_token, detail::current_task_lifetime());
+  return runtime::detail::default_service().with_context(
+      [&](runtime::detail::runtime_context &ctx) {
+        return ctx.submit_blocking(std::forward<F>(function));
+      });
 }
 
-template <typename T>
-inline auto block_on(task<T> t) -> T {
+template <typename T> inline auto block_on(task<T> t) -> T {
   if (detail::on_runtime_worker())
     throw std::logic_error("不能在 worker 线程调用 block_on；请 co_await task");
   return runtime::detail::default_service().with_context(
-      [&](runtime_context& ctx) -> T { return ctx.block_on(std::move(t)); });
-}
-
-// block_on: 阻塞执行协程
-template <typename T>
-inline auto block_on(runtime_context &ctx, task<T> t) -> T {
-  return ctx.block_on(std::move(t));
-}
-
-// wait_all: 并行执行多个协程
-template <typename... Ts>
-inline auto wait_all(runtime_context &ctx, task<Ts>... tasks)
-    -> std::tuple<Ts...> {
-  return ctx.wait_all(std::move(tasks)...);
+      [&](runtime::detail::runtime_context &ctx) -> T {
+        return ctx.block_on(std::move(t));
+      });
 }
 
 // 按值构建配置；修改构建器不会影响已经启动的运行时。
 class config_builder {
 public:
+  config_builder &set_mode(runtime::mode selected) {
+    _config._mode = selected;
+    return *this;
+  }
+
+#if defined(__linux__)
+  /** @brief 选择已编译的 Linux 后端，运行时初始化前检查可用性。 */
+  config_builder &set_io_backend(runtime::io_backend selected) noexcept {
+    _config._requested_io_backend = selected;
+    return *this;
+  }
+#endif
+  /** @brief 设置独立文件服务容量；与协程 worker 和用户阻塞池隔离。 */
+  config_builder &set_filesystem_threads(std::size_t count) noexcept {
+    _config._filesystem_threads = count;
+    return *this;
+  }
+  config_builder &set_resolver_threads(std::size_t count) noexcept {
+    _config._resolver_threads = count;
+    return *this;
+  }
+  config_builder &set_filesystem_queue_limit(std::size_t count) noexcept {
+    _config._filesystem_queue_limit = count;
+    return *this;
+  }
+  config_builder &set_resolver_queue_limit(std::size_t count) noexcept {
+    _config._resolver_queue_limit = count;
+    return *this;
+  }
+  config_builder &set_blocking_queue_limit(std::size_t count) noexcept {
+    _config._blocking_queue_limit = count;
+    return *this;
+  }
   config_builder() = default;
   ~config_builder() = default;
 
 public:
-  // 设置 io_uring 队列容量，在启动运行时之前验证非零。
+  // 设置单次reactor事件批量大小，实际批量限制为1至256；不限制全局活跃请求数。
   config_builder &set_num_events(std::size_t num_events) {
     _config._num_events = num_events;
     return *this;
   }
 
-  // 设置 I/O 操作自动批量提交间隔，事件循环仍会刷新待提交请求。
+  // 保留提交批量间隔配置；当前epoll/kqueue请求在await时直接尝试系统调用。
   config_builder &set_submit_interval(uint32_t submit_interval) {
     _config._submit_interval = submit_interval;
     return *this;
@@ -91,6 +126,16 @@ public:
   // 设置工作线程数，同时决定共享调度域注册容量和退出屏障容量。
   config_builder &set_num_workers(std::size_t num_workers) {
     _config._num_workers = num_workers;
+    return *this;
+  }
+
+  config_builder &set_max_blocking_threads(std::size_t count) {
+    _config._max_blocking_threads = count;
+    return *this;
+  }
+
+  config_builder &set_blocking_keep_alive(std::chrono::milliseconds duration) {
+    _config._blocking_keep_alive = duration;
     return *this;
   }
 
@@ -122,4 +167,5 @@ private:
 using ConfigBuilder = config_builder;
 } // namespace faio
 
+#endif // Windows框架/完整POSIX实现
 #endif // FAIO_FAIO_HPP

@@ -1,3 +1,4 @@
+#include "backend_test_support.hpp"
 #include "faio/faio.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
@@ -14,9 +15,9 @@ faio::task<void> increment_after_yield(std::atomic<int>& completed) {
 
 TEST(DefaultRuntimeTest, DrainsExternalSubmissionsAndRejectsLateTasks) {
   EXPECT_THROW(faio::runtime::configure(
-                   faio::ConfigBuilder{}.set_num_workers(0).build()),
+                   faio_test::config_builder().set_num_workers(0).build()),
                std::invalid_argument);
-  faio::runtime::configure(faio::ConfigBuilder{}.set_num_workers(2).build());
+  faio::runtime::configure(faio_test::config_builder().set_num_workers(2).build());
   std::atomic<int> completed{0};
   std::vector<std::thread> submitters;
   for (int thread = 0; thread < 4; ++thread) {
