@@ -57,11 +57,9 @@ faio::task<bool> delayed_owned_operation_after_move() {
   auto moved = std::move(endpoints.first);
   take(co_await endpoints.second.write_all(std::span<const char>{"move", 4}));
   auto result = take(co_await std::move(pending));
-  if (result.bytes != 4 ||
-      std::string_view(result.buffer.data(), result.buffer.size()) != "move")
+  if (result.bytes != 4 || std::string_view(result.buffer.data(), result.buffer.size()) != "move")
     co_return false;
-  auto writing =
-      moved.write(faio::io::io_buffer::copy(std::string_view{"back"}));
+  auto writing = moved.write(faio::io::io_buffer::copy(std::string_view{"back"}));
   auto moved_again = std::move(moved);
   if (take(co_await std::move(writing)).bytes != 4)
     co_return false;
@@ -70,14 +68,15 @@ faio::task<bool> delayed_owned_operation_after_move() {
   co_return std::string_view(buffer.data(), 4) == "back";
 }
 
-faio::task<void> unix_echo(faio::net::unix::UnixListener &listener) {
+faio::task<void> unix_echo(faio::net::unix::UnixListener& listener) {
   auto accepted = take(co_await listener.accept());
   std::array<char, 4> bytes{};
   take(co_await accepted.first.read_exact(bytes));
   take(co_await accepted.first.write_all(bytes));
 }
+
 /** @brief pathname bind/accept/connect 以及配置 socket 的转换都运行实际 IO。 */
-faio::task<bool> unix_listener(const std::filesystem::path &path) {
+faio::task<bool> unix_listener(const std::filesystem::path& path) {
   const auto address = take(faio::net::unix::address::pathname(path.string()));
   auto configurable = take(faio::net::unix::UnixSocket::stream());
   take(configurable.bind(address));
@@ -93,15 +92,15 @@ faio::task<bool> unix_listener(const std::filesystem::path &path) {
 }
 
 /** @brief Unix datagram 保留空包与消息边界；pathname 地址可返回发送者地址。 */
-faio::task<bool> unix_datagrams(const std::filesystem::path &root) {
+faio::task<bool> unix_datagrams(const std::filesystem::path& root) {
   auto paired = take(faio::net::unix::UnixDatagram::pair());
   take(co_await paired.first.send(std::span<const char>{}));
   std::array<char, 8> buffer{};
   if (take(co_await paired.second.recv(buffer)) != 0)
     co_return false;
   take(co_await paired.first.send(std::span<const char>{"packet", 6}));
-  if (take(co_await paired.second.peek(buffer)) != 6 ||
-      take(co_await paired.second.recv(buffer)) != 6)
+  if (take(co_await paired.second.peek(buffer)) != 6
+      || take(co_await paired.second.recv(buffer)) != 6)
     co_return false;
   auto first = take(faio::net::unix::UnixDatagram::bind(
       take(faio::net::unix::address::parse((root / "sender").string()))));
@@ -110,9 +109,8 @@ faio::task<bool> unix_datagrams(const std::filesystem::path &root) {
   const auto local = take(second.local_addr());
   take(co_await first.send_to(std::span<const char>{"path", 4}, local));
   const auto received = take(co_await second.recv_from(buffer));
-  co_return received.first == 4 &&
-      received.second.path() == (root / "sender").string() &&
-      std::string_view(buffer.data(), 4) == "path";
+  co_return received.first == 4 && received.second.path() == (root / "sender").string()
+      && std::string_view(buffer.data(), 4) == "path";
 }
 
 /** @brief pipe 读写和 EOF、EPIPE；库须局部抑制
@@ -123,33 +121,34 @@ faio::task<bool> pipe_roundtrip_and_errors() {
   take(co_await endpoints.first.close());
   std::array<char, 4> bytes{};
   take(co_await endpoints.second.read_exact(bytes));
-  if (take(co_await endpoints.second.read(bytes)) != 0 ||
-      std::string_view(bytes.data(), 4) != "pipe")
+  if (take(co_await endpoints.second.read(bytes)) != 0
+      || std::string_view(bytes.data(), 4) != "pipe")
     co_return false;
   auto broken = take(faio::net::unix::pipe::pair());
   take(co_await broken.second.close());
-  const auto failed =
-      co_await broken.first.write(std::span<const char>{"x", 1});
+  const auto failed = co_await broken.first.write(std::span<const char>{"x", 1});
   co_return !failed && failed.error().value() == EPIPE;
 }
 
 /** @brief 已满pipe的WRITE/WRITEV先挂起，随后读端关闭不能产生进程级SIGPIPE。 */
-faio::task<faio::expected<std::size_t>>
-suspended_pipe_write(faio::io::detail::resource_ptr resource, bool vectored) {
+faio::task<faio::expected<std::size_t>> suspended_pipe_write(
+    faio::io::detail::resource_ptr resource, bool vectored) {
   const std::array<char, 4> payload{'f', 'u', 'l', 'l'};
   if (!vectored)
-    co_return co_await faio::io::write(
-        std::move(resource), payload.data(), payload.size(),
-        std::numeric_limits<std::uint64_t>::max())
+    co_return co_await faio::io::write(std::move(resource),
+                                       payload.data(),
+                                       payload.size(),
+                                       std::numeric_limits<std::uint64_t>::max())
         .set_timeout(1s);
   const std::array<iovec, 2> vectors{
-      {{const_cast<char *>(payload.data()), 2},
-       {const_cast<char *>(payload.data() + 2), 2}}};
-  co_return co_await faio::io::writev(std::move(resource), vectors.data(),
+      {{const_cast<char*>(payload.data()), 2}, {const_cast<char*>(payload.data() + 2), 2}}};
+  co_return co_await faio::io::writev(std::move(resource),
+                                      vectors.data(),
                                       vectors.size(),
                                       std::numeric_limits<std::uint64_t>::max())
       .set_timeout(1s);
 }
+
 faio::task<bool> full_pipe_reader_closes() {
   for (const bool vectored : {false, true}) {
     auto endpoints = take(faio::net::unix::pipe::pair());
@@ -158,8 +157,7 @@ faio::task<bool> full_pipe_reader_closes() {
     }
     if (errno != EAGAIN && errno != EWOULDBLOCK)
       throw std::system_error(errno, std::generic_category());
-    auto pending =
-        faio::spawn(suspended_pipe_write(endpoints.first.resource(), vectored));
+    auto pending = faio::spawn(suspended_pipe_write(endpoints.first.resource(), vectored));
     co_await faio::time::sleep(3ms);
     if (pending.done()) {
       (void)co_await pending;
@@ -174,77 +172,77 @@ faio::task<bool> full_pipe_reader_closes() {
 }
 
 /** @brief 已打开非阻塞 FIFO、异步打开与原生句柄导出/再导入。 */
-faio::task<bool> fifo_and_native(const std::filesystem::path &filename) {
+faio::task<bool> fifo_and_native(const std::filesystem::path& filename) {
   auto context = faio::io::io_context::current();
   if (::mkfifo(filename.c_str(), 0600))
     throw std::system_error(errno, std::generic_category());
   const auto before_open = context.statistics();
-  auto reader = take(co_await faio::net::unix::pipe::Receiver::open(
-      context, filename.string()));
-  auto sender = take(
-      co_await faio::net::unix::pipe::Sender::open(context, filename.string()));
+  auto reader = take(co_await faio::net::unix::pipe::Receiver::open(context, filename.string()));
+  auto sender = take(co_await faio::net::unix::pipe::Sender::open(context, filename.string()));
   const auto after_open = context.statistics();
-  if (context.domain()->capabilities().native_filesystem &&
-      (after_open.native_completed < before_open.native_completed + 2 ||
-       after_open.native_submitted < before_open.native_submitted + 2 ||
-       after_open.native_flushed < before_open.native_flushed + 2 ||
-       context.blocking().started_threads() != 0 ||
-       context.resolver().started_threads() != 0 ||
-       context.cleanup().started_threads() != 0))
-    co_return false; // 两次异步 FIFO open 都必须拥有真实 OPENAT SQE/CQE。
+  if (context.domain()->capabilities().native_filesystem
+      && (after_open.native_completed < before_open.native_completed + 2
+          || after_open.native_submitted < before_open.native_submitted + 2
+          || after_open.native_flushed < before_open.native_flushed + 2
+          || context.blocking().started_threads() != 0 || context.resolver().started_threads() != 0
+          || context.cleanup().started_threads() != 0))
+    co_return false;  // 两次异步 FIFO open 都必须拥有真实 OPENAT SQE/CQE。
   auto native = take(sender.into_native());
-  auto imported = take(
-      faio::net::unix::pipe::Sender::from_native(context, std::move(native)));
+  auto imported = take(faio::net::unix::pipe::Sender::from_native(context, std::move(native)));
   take(co_await imported.write_all(std::span<const char>{"fifo", 4}));
   std::array<char, 4> bytes{};
   take(co_await reader.read_exact(bytes));
   take(co_await imported.close());
-  co_return take(co_await reader.read(bytes)) == 0 &&
-      std::string_view(bytes.data(), 4) == "fifo";
+  co_return take(co_await reader.read(bytes)) == 0 && std::string_view(bytes.data(), 4) == "fifo";
 }
-} // namespace
+}  // namespace
 
 class UnixContract : public testing::TestWithParam<faio::runtime::mode> {
-protected:
+ protected:
   auto config() const {
-    return faio_test::config_builder()
-        .set_mode(GetParam())
-        .set_num_workers(4)
-        .build();
+    return faio_test::config_builder().set_mode(GetParam()).set_num_workers(4).build();
   }
 };
+
 TEST_P(UnixContract, OwnedSplitHalfCloseCredentialsAndReunite) {
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(stream_half_lifetime()));
 }
+
 TEST_P(UnixContract, DelayedOwnedOperationsRetainResourceAcrossWrapperMove) {
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(delayed_owned_operation_after_move()));
 }
+
 TEST_P(UnixContract, PathnameConfiguredListenerAndStreamConnect) {
   faio_test::temporary_directory root;
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(unix_listener(root.path() / "socket")));
 }
+
 TEST_P(UnixContract, DatagramPairEmptyPeekAndPathnameAddress) {
   faio_test::temporary_directory root;
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(unix_datagrams(root.path())));
 }
+
 TEST_P(UnixContract, PipeEofAndBrokenPipeAreOrdinaryResults) {
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(pipe_roundtrip_and_errors()));
 }
-TEST_P(UnixContract,
-       FullPipeWriteAndWritevReturnEpipeWhenReaderClosesAfterSuspension) {
+
+TEST_P(UnixContract, FullPipeWriteAndWritevReturnEpipeWhenReaderClosesAfterSuspension) {
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(full_pipe_reader_closes()));
 }
+
 TEST_P(UnixContract, FifoOpenAndNativeInterop) {
   faio_test::temporary_directory root;
   faio_test::runtime_context runtime{config()};
   EXPECT_TRUE(runtime.block_on(fifo_and_native(root.path() / "fifo")));
 }
-INSTANTIATE_TEST_SUITE_P(RuntimeModes, UnixContract,
+
+INSTANTIATE_TEST_SUITE_P(RuntimeModes,
+                         UnixContract,
                          testing::Values(faio::runtime::mode::current_thread,
                                          faio::runtime::mode::multi_thread));

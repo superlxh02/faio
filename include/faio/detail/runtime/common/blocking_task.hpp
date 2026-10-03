@@ -14,27 +14,25 @@
 #include <utility>
 
 namespace faio::runtime::detail {
-
 // 阻塞任务不创建协程帧；其完成状态与派生协程任务使用相同的可等待协议。
 template <class F>
-  requires std::invocable<std::decay_t<F> &>
-auto start_blocking(blocking_pool &pool, F &&function,
-                    ::faio::detail::task_tracker *tracker,
+  requires std::invocable<std::decay_t<F>&>
+auto start_blocking(blocking_pool& pool,
+                    F&& function,
+                    ::faio::detail::task_tracker* tracker,
                     std::stop_token parent_stop,
                     ::faio::task_lifetime_ref lifetime)
-    -> join_handle<std::invoke_result_t<std::decay_t<F> &>> {
-  using result_type = std::invoke_result_t<std::decay_t<F> &>;
+    -> join_handle<std::invoke_result_t<std::decay_t<F>&>> {
+  using result_type = std::invoke_result_t<std::decay_t<F>&>;
   static_assert(!std::is_reference_v<result_type>, "阻塞任务不能返回引用");
   using state_type = ::faio::detail::join_handle_state<result_type>;
   auto state = std::make_shared<state_type>();
   if (parent_stop.stop_possible())
-    state->parent_callback.emplace(
-        parent_stop, ::faio::detail::forward_stop{&state->stop_source});
+    state->parent_callback.emplace(parent_stop, ::faio::detail::forward_stop{&state->stop_source});
 
   // 先构造类型擦除后的任务，再登记运行时生命周期计数。
   ::faio::move_only_function<void()> job =
-      [state, function = std::forward<F>(function), tracker,
-       lifetime]() mutable {
+      [state, function = std::forward<F>(function), tracker, lifetime]() mutable {
         try {
           if (state->stop_source.stop_requested())
             throw operation_cancelled{};
@@ -65,6 +63,5 @@ auto start_blocking(blocking_pool &pool, F &&function,
   }
   return join_handle<result_type>{std::move(state)};
 }
-
-} // namespace faio::runtime::detail
+}  // namespace faio::runtime::detail
 #endif

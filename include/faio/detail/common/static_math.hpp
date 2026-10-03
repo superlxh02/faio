@@ -4,7 +4,6 @@
 #include <concepts>
 
 namespace faio::util {
-
 template <typename T>
   requires std::is_integral_v<T>
 static inline consteval auto static_pow(T x, T y) -> T {
@@ -25,6 +24,5 @@ static inline consteval auto static_log(T x, T y) -> T {
   }
   return expected;
 }
-
-} // namespace faio::util
-#endif // FAIO_DETAIL_COMMON_STATIC_MATH_HPP
+}  // namespace faio::util
+#endif  // FAIO_DETAIL_COMMON_STATIC_MATH_HPP

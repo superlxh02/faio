@@ -22,11 +22,14 @@ namespace detail {
 // 每个槽仅由对应孩子写入，父协程等待全部完成后才读取。
 template <class T>
 using joined_value = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
-template <class T> struct join_slot {
+
+template <class T>
+struct join_slot {
   // 成功分支的结果，void 分支存占位；失败时保持为空。
   std::optional<joined_value<T>> value;
   // 本分支失败原因，父协程按输入下标取槽时重抛。
   std::exception_ptr error;
+
   // 消费已完成槽位的结果或重抛异常，调用前必须等待全部分支完成。
   joined_value<T> take() {
     // 先检查失败，避免读取失败分支未构造的结果。
@@ -40,10 +43,11 @@ template <class T> struct join_slot {
 // 单个 join 分支的根包装：拥有 child，借用父帧的槽位、计数和完成事件。
 // 父组合器无论成功还是启动失败，都必须排空已提交根任务再离开。
 template <class T>
-detached_task join_child(task<T> child, join_slot<T> *slot,
-                         std::atomic<std::size_t> *remaining,
-                         ::faio::detail::completion_event *completion,
-                         ::faio::detail::task_tracker *scope,
+detached_task join_child(task<T> child,
+                         join_slot<T>* slot,
+                         std::atomic<std::size_t>* remaining,
+                         ::faio::detail::completion_event* completion,
+                         ::faio::detail::task_tracker* scope,
                          std::stop_token token) {
   // 安装外层任务组，分支继续 spawn 时沿用正确的计数归属。
   ::faio::detail::current_tracker = scope;
@@ -71,8 +75,8 @@ detached_task join_child(task<T> child, join_slot<T> *slot,
 }
 
 // 归还启动哨兵或未执行分支的计数，复用最后完成者通知规则。
-inline void finish_join_child(std::atomic<std::size_t> &remaining,
-                              ::faio::detail::completion_event &event) {
+inline void finish_join_child(std::atomic<std::size_t>& remaining,
+                              ::faio::detail::completion_event& event) {
   // 归零才发布完成，确保父协程可安全销毁所有借用状态。
   if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1)
     event.notify();
@@ -80,14 +84,15 @@ inline void finish_join_child(std::atomic<std::size_t> &remaining,
 
 // 构造并立即投递一个 join 孩子，提交失败时配对归还组合器计数。
 template <class T>
-void launch_join_child(task<T> child, join_slot<T> &slot,
-                       std::atomic<std::size_t> &remaining,
-                       ::faio::detail::completion_event &event) {
+void launch_join_child(task<T> child,
+                       join_slot<T>& slot,
+                       std::atomic<std::size_t>& remaining,
+                       ::faio::detail::completion_event& event) {
   // 保存提交瞬间的外层 tracker，根帧及孩子都沿用它。
-  auto *scope = ::faio::detail::current_tracker;
+  auto* scope = ::faio::detail::current_tracker;
   // 先构造包装帧，借用槽位地址；分配失败时尚未增加任何计数。
-  auto root = join_child(std::move(child), &slot, &remaining, &event, scope,
-                         ::faio::detail::current_stop_token);
+  auto root = join_child(
+      std::move(child), &slot, &remaining, &event, scope, ::faio::detail::current_stop_token);
   // 投递前登记孩子，孩子在其他 worker 立即完成也不会漏计。
   remaining.fetch_add(1, std::memory_order_relaxed);
   // 登记外层任务组，根 promise 析构负责减回这一个计数。
@@ -107,25 +112,25 @@ void launch_join_child(task<T> child, join_slot<T> &slot,
 
 // 用编译期下标把异构输入任务逐个配对到同位置槽位并提交。
 template <class... Ts, std::size_t... Is>
-void start_join(std::tuple<join_slot<Ts>...> &slots,
-                std::atomic<std::size_t> &remaining,
-                ::faio::detail::completion_event &event,
-                std::index_sequence<Is...>, task<Ts>... children) {
+void start_join(std::tuple<join_slot<Ts>...>& slots,
+                std::atomic<std::size_t>& remaining,
+                ::faio::detail::completion_event& event,
+                std::index_sequence<Is...>,
+                task<Ts>... children) {
   // 逗号折叠按参数顺序执行提交，所有权逐个移交给根包装。
-  (launch_join_child(std::move(children), std::get<Is>(slots), remaining,
-                     event),
-   ...);
+  (launch_join_child(std::move(children), std::get<Is>(slots), remaining, event), ...);
 }
+
 // 全部完成后按输入位置收集异构结果，第一个失败槽位在此重抛。
 template <class... Ts, std::size_t... Is>
-auto collect_join(std::tuple<join_slot<Ts>...> &slots,
-                  std::index_sequence<Is...>) {
+auto collect_join(std::tuple<join_slot<Ts>...>& slots, std::index_sequence<Is...>) {
   // 生成结果 tuple，完成顺序不会改变结果排列。
   return std::tuple<joined_value<Ts>...>{std::get<Is>(slots).take()...};
 }
 
 // 选择状态位于父 select 帧；返回与异常传播之前排空所有已提交分支。
-template <class... Ts> struct select_state {
+template <class... Ts>
+struct select_state {
   // 异构结果载体，使用 variant 下标区分相同结果类型的不同分支。
   using variant_type = std::variant<joined_value<Ts>...>;
   // 胜出权仲裁位，只允许一个分支 CAS 成功；不是结果已经发布的标志。
@@ -145,6 +150,7 @@ template <class... Ts> struct select_state {
   ::faio::detail::completion_event all_done;
   // 候选任务共用停止源，赢家或外层停止回调向它发请求。
   std::stop_source stop;
+
   // 归还分支或启动哨兵计数，最后一位唤醒排空等待者。
   void child_done() {
     // 汇合分支完成并发布排空，父协程从此可以返回和释放借用对象。
@@ -155,8 +161,7 @@ template <class... Ts> struct select_state {
 
 // 第 I 个选择分支的根包装：先执行孩子，再以完成结果竞争唯一胜出权。
 template <std::size_t I, class T, class State>
-detached_task select_child(task<T> child, State *state,
-                           ::faio::detail::task_tracker *scope) {
+detached_task select_child(task<T> child, State* state, ::faio::detail::task_tracker* scope) {
   // 安装外层任务组，分支继续 spawn 时沿用正确的计数归属。
   ::faio::detail::current_tracker = scope;
   // 候选任务继承本次选择的停止令牌，获胜后其他孩子可响应取消。
@@ -185,8 +190,7 @@ detached_task select_child(task<T> child, State *state,
   // CAS 仅在尚无人胜出时成功。
   bool expected = false;
   // 唯一成功者负责发布赢家结果；claimed 先置位，父协程仍须等 completion。
-  if (state->claimed.compare_exchange_strong(expected, true,
-                                             std::memory_order_acq_rel)) {
+  if (state->claimed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
     // 记录获胜的原始参数下标。
     state->index = I;
     // 把本分支的失败原因写入赢家状态；无异常时为空。
@@ -214,11 +218,12 @@ detached_task select_child(task<T> child, State *state,
   // 最后归还完成计数；notify 后父帧可销毁，从此不再访问 state。
   state->child_done();
 }
+
 // 构造并立即提交第 I 个候选分支，只借用父帧状态；父任务排空后才能退出。
 template <std::size_t I, class T, class State>
-void launch_select_child(task<T> child, State *state) {
+void launch_select_child(task<T> child, State* state) {
   // 保存提交瞬间的外层 tracker，根帧及孩子都沿用它。
-  auto *scope = ::faio::detail::current_tracker;
+  auto* scope = ::faio::detail::current_tracker;
   // 创建尚未启动的候选包装帧，转移用户 task 所有权。
   auto root = select_child<I>(std::move(child), state, scope);
   // 投递前登记候选，防止分支快速完成导致 running 提前归零。
@@ -236,10 +241,10 @@ void launch_select_child(task<T> child, State *state) {
     throw;
   }
 }
+
 // 按轮转起点提交异构候选，保持结果下标仍对应原始参数位置。
 template <class... Ts, std::size_t... Is>
-void start_select(select_state<Ts...> *state, std::index_sequence<Is...>,
-                  task<Ts>... children) {
+void start_select(select_state<Ts...>* state, std::index_sequence<Is...>, task<Ts>... children) {
   // 把输入帧所有权移入本地 tuple，按运行期轮转下标选择编译期元素。
   auto tasks = std::tuple<task<Ts>...>{std::move(children)...};
   // 轮转提交顺序使多个立即完成的分支长期运行时没有固定的 branch-0 偏置。
@@ -252,21 +257,21 @@ void start_select(select_state<Ts...> *state, std::index_sequence<Is...>,
     // 在环形下标空间计算本轮需要启动的候选。
     const auto index = (start + step) % sizeof...(Ts);
     // 用编译期折叠匹配运行期 index，仅命中的元素转交一次所有权。
-    ((index == Is
-          ? (launch_select_child<Is>(std::move(std::get<Is>(tasks)), state),
-             void())
-          : void()),
+    ((index == Is ? (launch_select_child<Is>(std::move(std::get<Is>(tasks)), state), void())
+                  : void()),
      ...);
   }
 }
+
 // 外层停止源到本次选择停止源的回调连接。
 struct forward_select_stop {
   // 借用 select_state 的停止源，回调注销前共享状态必须仍存活。
-  std::stop_source *source;
+  std::stop_source* source;
+
   // 外层停止时请求全部候选停止，父选择器仍会等待它们排空。
   void operator()() const noexcept { source->request_stop(); }
 };
-} // namespace detail
+}  // namespace detail
 
 // 函数调用只构造惰性 task；被 co_await 或 block_on 执行时才同时启动分支。
 // 等全部完成后返回 tuple；void 用 std::monostate 占位，异常在所有分支
@@ -289,9 +294,8 @@ task<std::tuple<detail::joined_value<Ts>...>> join(task<Ts>... children) {
     std::exception_ptr launch_error;
     try {
       // 逐个提交异构输入；中途失败时已经启动的根协程仍由计数保护。
-      detail::start_join(slots, remaining, completion,
-                         std::index_sequence_for<Ts...>{},
-                         std::move(children)...);
+      detail::start_join(
+          slots, remaining, completion, std::index_sequence_for<Ts...>{}, std::move(children)...);
       // 先保存启动错误，不能立即离开并销毁仍被孩子借用的槽位。
     } catch (...) {
       launch_error = std::current_exception();
@@ -311,8 +315,7 @@ task<std::tuple<detail::joined_value<Ts>...>> join(task<Ts>... children) {
 // 同类型动态任务集合；同样是惰性 task，空集合执行后返回空 vector。
 // 惰性同类动态任务组合，返回与输入数量和顺序对应的 vector。
 template <class T>
-task<std::vector<detail::joined_value<T>>>
-join_all(std::vector<task<T>> children) {
+task<std::vector<detail::joined_value<T>>> join_all(std::vector<task<T>> children) {
   // 最终返回容器，空输入时无需分配结果元素。
   std::vector<detail::joined_value<T>> result;
   // 空集合立即返回空 vector，无根任务提交。
@@ -330,8 +333,7 @@ join_all(std::vector<task<T>> children) {
     // 按输入顺序给每个同类孩子提交一份根包装。
     for (std::size_t i = 0; i < children.size(); ++i)
       // 将第 i 个 task 配对到第 i 个槽，不再保留输入 task 的帧所有权。
-      detail::launch_join_child(std::move(children[i]), slots[i], remaining,
-                                completion);
+      detail::launch_join_child(std::move(children[i]), slots[i], remaining, completion);
     // 先保存启动错误，不能立即离开并销毁仍被孩子借用的槽位。
   } catch (...) {
     launch_error = std::current_exception();
@@ -346,14 +348,15 @@ join_all(std::vector<task<T>> children) {
   // 排空后预留全部结果空间，避免结果收集时多次扩容。
   result.reserve(slots.size());
   // 按槽位顺序消费结果，遇到第一个失败槽位时重抛。
-  for (auto &slot : slots)
+  for (auto& slot : slots)
     result.push_back(slot.take());
   // 把已完成的结果 vector 返回给唯一调用者。
   co_return result;
 }
 
 // 选择器对用户返回的结果，只有赢家的下标与值，没有落选任务的句柄。
-template <class... Ts> struct select_result {
+template <class... Ts>
+struct select_result {
   // 赢家对应原输入参数位置；读取 value 时应使用同一 variant 下标。
   std::size_t index;
   // 赢家结果，void 以 monostate 占位；相同类型分支仍由下标区分。
@@ -370,23 +373,20 @@ task<select_result<Ts...>> select(task<Ts>... children) {
   // 状态直接保存在父帧，省去共享状态分配及每个分支的引用计数更新。
   // 启动失败、赢家异常和正常返回都先等待 all_done，不提前销毁这块存储。
   detail::select_state<Ts...> state_storage;
-  auto *state = &state_storage;
+  auto* state = &state_storage;
   // 读取父任务停止令牌，稍后转发到本次选择的停止源。
   auto parent_stop = co_await this_coro::stop_token();
   // 回调保存在父 select 帧，覆盖启动、等待赢家和排空阶段。
-  std::optional<std::stop_callback<detail::forward_select_stop>>
-      parent_callback;
+  std::optional<std::stop_callback<detail::forward_select_stop>> parent_callback;
   // 不可取消的父任务不注册停止回调。
   if (parent_stop.stop_possible())
     // 父停止时请求所有候选停止，已停止父令牌也会立即同步转发。
-    parent_callback.emplace(parent_stop,
-                            detail::forward_select_stop{&state->stop});
+    parent_callback.emplace(parent_stop, detail::forward_select_stop{&state->stop});
   // 区别启动失败与用户孩子异常；启动失败先排空再优先重抛。
   std::exception_ptr launch_error;
   try {
     // 按本次轮转顺序提交所有候选，把输入帧所有权移交出去。
-    detail::start_select(state, std::index_sequence_for<Ts...>{},
-                         std::move(children)...);
+    detail::start_select(state, std::index_sequence_for<Ts...>{}, std::move(children)...);
     // 先保存启动错误，不能立即离开并销毁仍被孩子借用的槽位。
   } catch (...) {
     launch_error = std::current_exception();
@@ -410,5 +410,5 @@ task<select_result<Ts...>> select(task<Ts>... children) {
   // 返回原输入下标及对应 variant 值；落选结果在分支退出时丢弃。
   co_return select_result<Ts...>{state->index, std::move(*state->value)};
 }
-} // namespace faio
+}  // namespace faio
 #endif

@@ -8,22 +8,24 @@
 
 ## 目录与阅读顺序
 
-| 顺序 | 程序                                                                   | 场景与阅读重点                                                          | 运行方式                                 |
-|------|------------------------------------------------------------------------|-------------------------------------------------------------------------|------------------------------------------|
-| 1    | [coroutine_basics.cpp](coroutine_basics.cpp)                           | 商品价格查询：等待子协程、启动并发任务、后台通知、汇合和超时竞速        | 运行后自动退出                           |
-| 2    | [coroutine_sync.cpp](coroutine_sync.cpp)                               | 库存更新、配置加载、下载限流、初始化、分轮处理、订单队列                | 运行后自动退出                           |
-| 3    | [tcp_echo_server.cpp](tcp_echo_server.cpp)                             | 简单 TCP echo：接受连接，每个连接一个协程                               | `127.0.0.1:8080` 常驻服务                |
-| 4    | [udp_echo_server.cpp](udp_echo_server.cpp)                             | 简单 UDP echo：按数据报回显给来源地址                                   | `127.0.0.1:9090` 常驻服务                |
-| 5    | [tcp_counter_server.cpp](tcp_counter_server.cpp)                       | 多客户端共享计数器：文本协议、拆包与流水线、共享状态、超时和错误处理    | `127.0.0.1:8081`；`--self-test` 自动退出 |
-| 6    | [blocking_thread_pool.cpp](blocking_thread_pool.cpp)                   | 同步旧 SDK 与异步价格查询并发，阻塞期间协程心跳持续运行                 | 运行后自动退出                           |
-| 7    | [tcp_echo_server_single_thread.cpp](tcp_echo_server_single_thread.cpp) | 相同 TCP echo 迁移到单线程调度，比较调度模式                            | `127.0.0.1:8080` 常驻服务                |
-| 8    | [file_and_directory.cpp](file_and_directory.cpp)                       | 创建 `test/main.c`、写入 Hello World 源码、枚举目录、进入目录后读取文件 | 运行后自动退出，保留生成的目录与文件     |
+| 顺序 | 程序                                                                     | 场景与阅读重点                                           | 运行方式                                |
+|----|------------------------------------------------------------------------|---------------------------------------------------|-------------------------------------|
+| 1  | [coroutine_basics.cpp](coroutine_basics.cpp)                           | 商品价格查询：等待子协程、启动并发任务、后台通知、汇合和超时竞速                  | 运行后自动退出                             |
+| 2  | [coroutine_sync.cpp](coroutine_sync.cpp)                               | 库存更新、配置加载、下载限流、初始化、分轮处理、订单队列                      | 运行后自动退出                             |
+| 3  | [tcp_echo_server.cpp](tcp_echo_server.cpp)                             | 简单 TCP echo：接受连接，每个连接一个协程                         | `127.0.0.1:8080` 常驻服务               |
+| 4  | [udp_echo_server.cpp](udp_echo_server.cpp)                             | 简单 UDP echo：按数据报回显给来源地址                           | `127.0.0.1:9090` 常驻服务               |
+| 5  | [tcp_counter_server.cpp](tcp_counter_server.cpp)                       | 多客户端共享计数器：文本协议、拆包与流水线、共享状态、超时和错误处理                | `127.0.0.1:8081`；`--self-test` 自动退出 |
+| 6  | [blocking_thread_pool.cpp](blocking_thread_pool.cpp)                   | 同步旧 SDK 与异步价格查询并发，阻塞期间协程心跳持续运行                    | 运行后自动退出                             |
+| 7  | [tcp_echo_server_single_thread.cpp](tcp_echo_server_single_thread.cpp) | 相同 TCP echo 迁移到单线程调度，比较调度模式                       | `127.0.0.1:8080` 常驻服务               |
+| 8  | [file_and_directory.cpp](file_and_directory.cpp)                       | 创建 `test/main.c`、写入 Hello World 源码、枚举目录、进入目录后读取文件 | 运行后自动退出，保留生成的目录与文件                  |
 
 `tcp_echo_server_single_thread.cpp` 直接复制并完整实现 TCP echo 的监听与连接处理。该文件包含全部逻辑，无需查阅多线程版本或公共头文件。两个版本使用相同的端口和协议，main
 中的调度模式不同。Linux 后端参数也在各程序自己的 main 中独立处理。
 
-`windows_framework.cpp` 是 Windows 框架的构建检查入口，未列入这八个使用示例；完整示例当前面向项目支持的 Linux/macOS
-运行时。高级网络能力的独立验证见 `tests/test_network_contract.cpp`，接口说明见 [网络 IO](../docs/网络IO.md)。
+这八个示例也构建并验证于 Windows 的 MSVC、clang-cl 和 MinGW-w64。`windows_framework.cpp` 保留原文件名，用于独立 IOCP
+引擎能力与停机排空检查。Windows 构建步骤见根目录 [README 的源码编译](../README.md#源码编译)，IOCP 后端实现见
+[异步 IO](../docs/异步IO.md) 的 Windows IOCP 章节，原生网络契约见
+`tests/test_windows_network.cpp`，接口说明见 [网络 IO](../docs/网络IO.md)。
 
 ## 构建与运行
 
@@ -34,11 +36,11 @@ cmake --preset macos-clang23
 cmake --build --preset macos-clang23 --target coroutine_basics coroutine_sync tcp_echo_server udp_echo_server tcp_counter_server blocking_thread_pool tcp_echo_server_single_thread file_and_directory -j4
 ```
 
-Linux 双后端构建：
+Linux Clang 22 双后端构建：
 
 ```sh
-cmake --preset linux-dual
-cmake --build --preset linux-dual --target coroutine_basics coroutine_sync tcp_echo_server udp_echo_server tcp_counter_server blocking_thread_pool tcp_echo_server_single_thread file_and_directory -j4
+cmake --preset linux-clang22-dual
+cmake --build --preset linux-clang22-dual --target coroutine_basics coroutine_sync tcp_echo_server udp_echo_server tcp_counter_server blocking_thread_pool tcp_echo_server_single_thread file_and_directory -j4
 ```
 
 下面统一把构建目录记为 `BUILD_DIR`。macOS：
@@ -50,7 +52,7 @@ BUILD_DIR=build/macos-clang23
 Linux：
 
 ```sh
-BUILD_DIR=build/linux-dual
+BUILD_DIR=build/linux-clang22-dual
 ```
 
 先运行无需外部客户端的程序：
@@ -84,14 +86,14 @@ Linux 所有八个示例都接受 `--io-backend=epoll` 或 `--io-backend=uring`�
 
 `coroutine_basics.cpp` 的六个示例互相独立：
 
-| 函数                            | 核心写法                                                     | 应观察到的行为                                         |
-|---------------------------------|--------------------------------------------------------------|--------------------------------------------------------|
-| `example_await_and_block_on`    | 子协程 `co_await query_price(...)`，普通线程 `block_on(...)` | 等单价查询返回再计算，总价 42                          |
-| `example_spawn_and_join_handle` | `spawn(...)`，再 `co_await handle`                           | 两个查询已并发启动，等待结果时不占住 worker            |
-| `example_spawn_detached`        | `spawn_detached(...)`                                        | 主流程继续，后台发送两条订单通知；通过完成信号观察结束 |
-| `example_join`                  | `co_await join(...)`                                         | 不同结果类型的任务并发完成，得到商品名和价格的 tuple   |
-| `example_join_all`              | `co_await join_all(vector<task<int>>)`                       | 动态数量的查询同时运行，结果按供应商输入顺序排列       |
-| `example_select`                | `co_await select(query, deadline)`                           | 查询先完成返回 88，定时器落选并被取消                  |
+| 函数                              | 核心写法                                                 | 应观察到的行为                       |
+|---------------------------------|------------------------------------------------------|-------------------------------|
+| `example_await_and_block_on`    | 子协程 `co_await query_price(...)`，普通线程 `block_on(...)` | 等单价查询返回再计算，总价 42              |
+| `example_spawn_and_join_handle` | `spawn(...)`，再 `co_await handle`                     | 两个查询已并发启动，等待结果时不占住 worker     |
+| `example_spawn_detached`        | `spawn_detached(...)`                                | 主流程继续，后台发送两条订单通知；通过完成信号观察结束   |
+| `example_join`                  | `co_await join(...)`                                 | 不同结果类型的任务并发完成，得到商品名和价格的 tuple |
+| `example_join_all`              | `co_await join_all(vector<task<int>>)`               | 动态数量的查询同时运行，结果按供应商输入顺序排列      |
+| `example_select`                | `co_await select(query, deadline)`                   | 查询先完成返回 88，定时器落选并被取消          |
 
 `spawn_detach` 对应的实际 API 名称是 **`spawn_detached`**。
 
@@ -118,14 +120,14 @@ lambda 并让其返回的任务异步执行，闭包可能在任务执行前已�
 `coroutine_sync.cpp` 保留六个原语示例函数，不拆文件。每个入口自建数据与同步对象，互相独立；mutex 在同一个函数中对照手动加解锁和
 guard。
 
-| 函数                         | 原语                                               | 场景与关键点                                                                |
-|------------------------------|----------------------------------------------------|-----------------------------------------------------------------------------|
+| 函数                           | 原语                                                | 场景与关键点                                        |
+|------------------------------|---------------------------------------------------|-----------------------------------------------|
 | `example_mutex`              | `lock()` / `unlock()` 与 `scoped_lock()` / `guard` | 分别运行两组补货任务，每组三个协程各加 100，手动与 guard 写法的库存都为 300 |
-| `example_condition_variable` | `condition_variable.wait(mutex, predicate)`        | 两个请求等配置加载；wait 释放锁、挂起，恢复后重获锁并检查谓词               |
-| `example_semaphore`          | `semaphore.acquire_permit()`                       | 五个下载最多同时运行两个；permit 跨异步等待持有，析构归还                   |
-| `example_latch`              | `count_down()` / `wait()`                          | 三个初始化任务完成后开放服务；一次性倒计时，不能重置                        |
-| `example_barrier`            | `arrive_and_wait()`                                | 三个分片每一轮全部完成后再进入下一轮；屏障可以重复使用                      |
-| `example_mpsc`               | `sender.send()` / `receiver.recv()`                | 两个订单生产者、一个消费者；容量 2，队列满时生产者挂起，体现背压            |
+| `example_condition_variable` | `condition_variable.wait(mutex, predicate)`       | 两个请求等配置加载；wait 释放锁、挂起，恢复后重获锁并检查谓词             |
+| `example_semaphore`          | `semaphore.acquire_permit()`                      | 五个下载最多同时运行两个；permit 跨异步等待持有，析构归还              |
+| `example_latch`              | `count_down()` / `wait()`                         | 三个初始化任务完成后开放服务；一次性倒计时，不能重置                    |
+| `example_barrier`            | `arrive_and_wait()`                               | 三个分片每一轮全部完成后再进入下一轮；屏障可以重复使用                   |
+| `example_mpsc`               | `sender.send()` / `receiver.recv()`               | 两个订单生产者、一个消费者；容量 2，队列满时生产者挂起，体现背压             |
 
 mutex 的两个写法在同一个示例函数中完整展示，各自新建 mutex 和库存：
 
@@ -207,13 +209,13 @@ UDP 无 accept 语义，每次 `recv_from` 返回一条数据报及来源地址�
 
 协议是区分大小写的文本命令，一行一条请求、一行一条响应，支持 LF 和 CRLF。键不能含空白，最多 32 字节；值是有符号 64 位十进制整数。
 
-| 请求           | 响应示例   | 含义                                    |
-|----------------|------------|-----------------------------------------|
-| `SET stock 12` | `OK`       | 设置一个整数值                          |
-| `GET stock`    | `VALUE 12` | 读取现有值；不存在返回 `NOT_FOUND`      |
-| `INCR stock`   | `VALUE 13` | 原子递增并返回新值；不存在从 0 开始加 1 |
-| `DEL stock`    | `DELETED`  | 删除键；不存在返回 `NOT_FOUND`          |
-| `QUIT`         | `BYE`      | 回复后关闭当前连接                      |
+| 请求             | 响应示例       | 含义                      |
+|----------------|------------|-------------------------|
+| `SET stock 12` | `OK`       | 设置一个整数值                 |
+| `GET stock`    | `VALUE 12` | 读取现有值；不存在返回 `NOT_FOUND` |
+| `INCR stock`   | `VALUE 13` | 原子递增并返回新值；不存在从 0 开始加 1  |
+| `DEL stock`    | `DELETED`  | 删除键；不存在返回 `NOT_FOUND`   |
+| `QUIT`         | `BYE`      | 回复后关闭当前连接               |
 
 一次交互可以输入：
 

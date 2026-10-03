@@ -1,13 +1,30 @@
+# 安装包配置模板，由 configure_package_config_file 生成 faioConfig.cmake。
+# 包初始化占位符展开为目录校验等辅助逻辑；后续文件位置均以安装目录为准，
+# 不把源码树路径或本机依赖库的绝对路径写入消费方的导出配置。
 @PACKAGE_INIT@
 
+# find_dependency 沿用外层 find_package(faio) 的 REQUIRED/QUIET 语义。
+# 先创建 faio 导出目标需要引用的依赖目标，再加载 faioTargets.cmake。
 include(CMakeFindDependencyMacro)
+
+# 占位值在生成安装包时固定，反映生产该包时是否启用了原生 io_uring 后端。
+# Windows IOCP 和未启用 io_uring 的安装包均不要求消费方安装 liburing。
 if(@FAIO_ENABLE_IO_URING@)
-    # 同安装包提供模块，不把本地构建的liburing绝对路径写入导出目标。
+    # 使用同安装包提供的 FindLiburing.cmake，在消费方重新查找并验证原生 API。
     list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
     find_dependency(Liburing)
 endif()
+
+# 线程库由 CMake 根据消费方平台选择；spdlog 使用其原生 CONFIG 导出目标。
 find_dependency(Threads)
 find_dependency(spdlog CONFIG)
 
+# MinGW 需要在消费项目的目标创建阶段配置精确 TLS alias 适配。
+# 模块入口只作用于 Windows GNU；MSVC、Clang 和其他平台立即返回。
+# Python/nm/objcopy 仅在这一 MinGW 分支中查找，不成为其他工具链的额外依赖。
+include("${CMAKE_CURRENT_LIST_DIR}/FaioMinGW.cmake")
+faio_enable_mingw_tls_workaround()
+
+# 加载公开的 faio::faio 目标，最后按 CMake 约定校验用户请求的包组件。
 include("${CMAKE_CURRENT_LIST_DIR}/faioTargets.cmake")
 check_required_components(faio)

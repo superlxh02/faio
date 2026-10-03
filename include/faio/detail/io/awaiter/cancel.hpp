@@ -2,6 +2,7 @@
 #include "faio/detail/io/base/io_registrant.hpp"
 #include <cstring>
 #include <fcntl.h>
+
 namespace faio::io::detail {
 /** @brief Cancel 请求；0/ALL(1)/FD(2)/ALL|FD(3) 兼容本资源的统一取消语义。
  * @details 控制成功不表示 original CQE 已消费；数据缓冲区必须等原请求
@@ -11,8 +12,8 @@ namespace faio::io::detail {
 class Cancel : public IORegistrantAwaiter<Cancel> {
   using Base = IORegistrantAwaiter<Cancel>;
 
-public:
-  Cancel(int fd, unsigned flags)
+ public:
+  Cancel(native_descriptor fd, unsigned flags)
       : Base{[&] {
           io_request r;
           r.kind = operation_kind::cancel;
@@ -20,16 +21,16 @@ public:
           r.flags = static_cast<int>(flags);
           return r;
         }()} {}
-  Cancel(resource_ptr resource, unsigned flags)
-      : Cancel{resource ? resource->fd() : -1, flags} {
+
+  Cancel(resource_ptr resource, unsigned flags) : Cancel{resource ? resource->fd() : -1, flags} {
     this->request_.resource = std::move(resource);
   }
 
   auto await_resume() const noexcept -> expected<void> {
     if (this->_user_data.result < 0)
-      return std::unexpected{Error{static_cast<int>(-this->_user_data.result),
-                                   this->_user_data.transferred}};
+      return std::unexpected{decode_io_error(static_cast<int>(-this->_user_data.result),
+                                             this->_user_data.transferred)};
     return {};
   }
 };
-} // namespace faio::io::detail
+}  // namespace faio::io::detail

@@ -23,14 +23,16 @@ using handle_value = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 // 父停止源到子停止源的连接回调，只转发请求，不执行任务销毁。
 struct forward_stop {
   // 借用目标停止源；所属共享状态/作用域保证它活到回调注销。
-  std::stop_source *source;
+  std::stop_source* source;
+
   // 父令牌停止时向目标源发出同样的协作请求。
   void operator()() const noexcept { source->request_stop(); }
 };
 
 // 根协程与唯一结果句柄共同持有的完成状态。
 // 结果发布后不再修改 value/error，ready 和 completion 建立可见性。
-template <class T> struct join_handle_state {
+template <class T>
+struct join_handle_state {
   // 正常完成的结果；void 使用占位值，失败时保持为空。
   std::optional<handle_value<T>> value;
   // 用户 task 抛出的异常，消费结果时重新抛出。
@@ -60,6 +62,7 @@ template <class T> struct join_handle_state {
     if (abandoned.load(std::memory_order_acquire) && error)
       std::terminate();
   }
+
   // 放弃唯一消费权；不会请求停止，也不会立刻销毁运行中的任务。
   void abandon() noexcept {
     // 已经领取结果或观察异常后，句柄析构无需再标记放弃。
@@ -71,6 +74,7 @@ template <class T> struct join_handle_state {
     if (ready.load(std::memory_order_acquire) && error)
       std::terminate();
   }
+
   // 领取一次结果或观察异常；调用前必须已通过 wait/完成事件确认任务完成。
   T take() {
     // 抢占一次性消费权，重复领取时报告逻辑错误。
@@ -91,7 +95,7 @@ template <class T> struct join_handle_state {
 template <class T>
 detached_task observed_coro(task<T> child,
                             std::shared_ptr<join_handle_state<T>> state,
-                            task_tracker *tracker) {
+                            task_tracker* tracker) {
   // 建立当前根任务的任务组，供用户 task 及其派生任务继承。
   ::faio::detail::current_tracker = tracker;
   // 安装子任务独立停止令牌，随后 co_await 的 task 会继承它。
@@ -118,10 +122,12 @@ detached_task observed_coro(task<T> child,
 // 立即启动可观察结果的任务，返回供 JoinHandle 持有的共享状态。
 // 父令牌只转发停止请求；没有 tracker 时任务仍登记到运行时活动根任务计数。
 template <class T>
-std::shared_ptr<join_handle_state<T>>
-start_observed(scheduler_ref scheduler, task<T> child, task_tracker *tracker,
-               std::stop_token parent_stop,
-               task_lifetime_ref lifetime = current_task_lifetime()) {
+std::shared_ptr<join_handle_state<T>> start_observed(
+    scheduler_ref scheduler,
+    task<T> child,
+    task_tracker* tracker,
+    std::stop_token parent_stop,
+    task_lifetime_ref lifetime = current_task_lifetime()) {
   // 分配和登记前拒绝空调度器，避免提交到不存在的运行时。
   if (!scheduler)
     throw std::logic_error("没有可用的运行时");
@@ -130,8 +136,7 @@ start_observed(scheduler_ref scheduler, task<T> child, task_tracker *tracker,
   // 父任务不可取消时跳过回调登记。
   if (parent_stop.stop_possible())
     // 父请求转发到子停止源；父已停止时构造回调会同步转发。
-    state->parent_callback.emplace(parent_stop,
-                                   forward_stop{&state->stop_source});
+    state->parent_callback.emplace(parent_stop, forward_stop{&state->stop_source});
   // 先构造根帧并转移 child 所有权，尚未修改任务计数。
   auto root = observed_coro(std::move(child), state, tracker);
   // 提交前登记外层任务组，根 promise 析构负责归还。
@@ -142,25 +147,30 @@ start_observed(scheduler_ref scheduler, task<T> child, task_tracker *tracker,
   // 把共享状态交给结果句柄，执行中的根帧保留另一份引用。
   return state;
 }
-} // namespace detail
+}  // namespace detail
 
 // 移动独占的任务结果句柄。丢弃句柄不会停止任务；未观察的异常会终止程序，
 // 与无结果后台任务的旧行为一致。普通线程可以 wait/get，worker 必须 co_await。
 // 用户持有的移动独占消费权；共享状态的引用计数只管理状态生命周期。
 // 不能并发操作同一个句柄对象，普通线程等待与协程等待均只能领取一次结果。
-template <class T> class [[nodiscard]] join_handle {
-public:
+template <class T>
+class [[nodiscard]] join_handle {
+ public:
   // 接管启动入口返回的状态引用，构造本身不再启动任务。
   explicit join_handle(std::shared_ptr<detail::join_handle_state<T>> state)
       : state_(std::move(state)) {}
+
   // 移动消费权到新句柄，原句柄变为空。
-  join_handle(join_handle &&) noexcept = default;
+  join_handle(join_handle&&) noexcept = default;
+
   // 禁止复制消费权，避免多个句柄领取同一个结果。
-  join_handle(const join_handle &) = delete;
+  join_handle(const join_handle&) = delete;
+
   // 禁止复制赋值。
-  join_handle &operator=(const join_handle &) = delete;
+  join_handle& operator=(const join_handle&) = delete;
+
   // 先放弃当前消费权，再接管另一句柄；原任务不会因赋值被取消。
-  join_handle &operator=(join_handle &&other) noexcept {
+  join_handle& operator=(join_handle&& other) noexcept {
     // 自移动赋值时保持现有消费权。
     if (this != &other) {
       // 被覆盖的结果视为无人观察，已有未观察异常按规则终止。
@@ -172,6 +182,7 @@ public:
     // 返回赋值后的句柄。
     return *this;
   }
+
   // 析构放弃未领取结果，不等待、不停止运行中的任务。
   ~join_handle() {
     if (state_)
@@ -183,16 +194,19 @@ public:
     // acquire 观察任务完成发布，避免读取未写完的状态。
     return state_ && state_->ready.load(std::memory_order_acquire);
   }
+
   // 对非空句柄发出协作停止请求；不保证任务此时已经结束。
   void request_stop() noexcept {
     if (state_)
       state_->stop_source.request_stop();
   }
+
   // 返回任务停止令牌，空句柄得到不可停止的空令牌。
   std::stop_token stop_token() const noexcept {
     // 取得同一个子停止源的观察端，令牌本身不会消费结果。
     return state_ ? state_->stop_source.get_token() : std::stop_token{};
   }
+
   // 普通线程阻塞到任务完成，不领取结果；worker 上调用会抛逻辑错误。
   void wait() const {
     // 空句柄没有有效结果状态，拒绝等待或转交等待消费权。
@@ -209,6 +223,7 @@ public:
       // 阻塞普通线程等待 ready 改变；该接口不用于 worker。
       state_->ready.wait(false, std::memory_order_acquire);
   }
+
   // 普通线程等待完成并领取一次结果，异常在这里重抛。
   T get() {
     // 先建立完成可见性，再读取非原子的结果/异常槽位。
@@ -223,27 +238,33 @@ public:
     std::shared_ptr<detail::join_handle_state<T>> state;
     // 嵌入事件等待者，其节点直接保存在当前 awaiter/父协程帧内。
     ::faio::detail::completion_event::awaiter completion;
+
     // 先接管状态，再从该状态创建 completion awaiter；成员顺序不能颠倒。
     explicit awaiter(std::shared_ptr<detail::join_handle_state<T>> s)
         : state(std::move(s)), completion(state->completion.wait()) {}
+
     // 仅在登记前移动 awaiter，转移消费权和未登记的事件节点。
-    awaiter(awaiter &&) = default;
+    awaiter(awaiter&&) = default;
+
     // 禁止复制等待者及消费权。
-    awaiter(const awaiter &) = delete;
+    awaiter(const awaiter&) = delete;
+
     // 未完成消费时析构遵守句柄放弃规则；已消费时 abandon 无操作。
     ~awaiter() {
       if (state)
         state->abandon();
     }
+
     // 挂起前检查：任务已完成则立即继续取结果。
     bool await_ready() const noexcept { return completion.await_ready(); }
+
     // 挂起时：登记完成事件，由事件处理登记与通知竞态。
-    bool await_suspend(std::coroutine_handle<> h) {
-      return completion.await_suspend(h);
-    }
+    bool await_suspend(std::coroutine_handle<> h) { return completion.await_suspend(h); }
+
     // 恢复时：领取一次结果或重抛任务异常。
     T await_resume() { return state->take(); }
   };
+
   // 右值等待时把状态从句柄转移到 awaiter，原句柄不再持有消费权。
   awaiter operator co_await() && {
     // 空句柄没有有效结果状态，拒绝等待或转交等待消费权。
@@ -252,6 +273,7 @@ public:
     // 原句柄置空，等待者成为唯一结果消费者。
     return awaiter{std::exchange(state_, {})};
   }
+
   // lvalue 等待也转移结果消费权；等待后原句柄变为空，避免二次读取。
   // 左值等待也消费句柄；等待后不能再用原句柄 get 或 request_stop。
   awaiter operator co_await() & {
@@ -262,10 +284,9 @@ public:
     return awaiter{std::exchange(state_, {})};
   }
 
-private:
+ private:
   // 任务共享状态的引用；句柄独占结果消费权，但状态还由根帧持有。
   std::shared_ptr<detail::join_handle_state<T>> state_;
 };
-
-} // namespace faio
+}  // namespace faio
 #endif

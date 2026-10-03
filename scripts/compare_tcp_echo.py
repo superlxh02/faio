@@ -7,7 +7,6 @@
 import argparse
 import contextlib
 import csv
-import fcntl
 import hashlib
 import io
 import json
@@ -23,6 +22,10 @@ import subprocess
 import tarfile
 import time
 from datetime import datetime, timezone
+if os.name == 'nt':
+    import msvcrt
+else:
+    import fcntl
 
 
 @contextlib.contextmanager
@@ -30,12 +33,25 @@ def benchmark_lock(repo):
     """与协程/HTTP suite 共用锁；两个负载同时运行会使对照结果失效。"""
     filename = repo / 'build/benchmark.lock'
     filename.parent.mkdir(parents=True, exist_ok=True)
-    with filename.open('w') as lock:
+    with filename.open('a+b') as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
+            if os.name == 'nt':
+                lock.seek(0)
+                if not lock.read(1):
+                    lock.write(b'0')
+                    lock.flush()
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
             raise RuntimeError('另一个 benchmark 正在运行，请等它结束') from error
-        yield
+        try:
+            yield
+        finally:
+            if os.name == 'nt':
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def invoke(argv, cwd, timeout=600):
@@ -46,11 +62,17 @@ def stop(proc):
     """只结束本次启动的进程组，保留用户现有的其他服务。"""
     if proc is None or proc.poll() is not None:
         return
-    os.killpg(proc.pid, signal.SIGTERM)
+    if os.name == 'nt':
+        proc.terminate()
+    else:
+        os.killpg(proc.pid, signal.SIGTERM)
     try:
         proc.wait(timeout=3)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        if os.name == 'nt':
+            proc.kill()
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
         proc.wait(timeout=3)
 
 
@@ -81,21 +103,34 @@ def measure_suite(args, repo):
     """在持有 suite 锁时构建、顺序运行、保存全部原始指标并汇总。"""
     connections = [int(v) for v in args.connections.split(',')]
     payloads = [int(v) for v in args.payloads.split(',')]
-    build = (args.build or repo / 'build' / (
-        'macos-clang23' if platform.system() == 'Darwin' else 'linux-dual')).resolve()
+    default_build = {'Darwin': 'macos-clang23', 'Windows': 'windows-msvc'}.get(platform.system(), 'linux-clang22-dual')
+    build = (args.build or repo / 'build' / default_build).resolve()
     out = (args.output or repo / 'benchmark/result/tcp_echo' / datetime.now(timezone.utc).strftime(
         '%Y%m%dT%H%M%SZ')).resolve()
     out.mkdir(parents=True, exist_ok=False)
-    compiled = invoke(['cmake', '--build', str(build), '--target', 'faio_tcp_benchmark', 'tcp_echo_load', '-j4'], repo)
+    compiled = invoke(['cmake', '--build', str(build), '--config', 'Release', '--target', 'faio_tcp_benchmark', 'tcp_echo_load', '-j4'], repo)
     (out / 'cpp_build.log').write_text(compiled.stdout + compiled.stderr, encoding='utf-8')
     rust = repo / 'benchmark/tcp/tokio-benchmark'
     rust_target = build / 'tokio-tcp'
-    compiled = invoke(['cargo', 'build', '--release', '--locked', '--target-dir', str(rust_target)], rust)
+    if os.name == 'nt':
+        os.environ.setdefault('CARGO_HOME', str(repo.parent / 'faio-deps/cargo'))
+    cargo_argv = ['cargo', 'build', '--release', '--locked', '--target-dir', str(rust_target)]
+    if args.offline:
+        cargo_argv.append('--offline')
+    compiled = invoke(cargo_argv, rust)
     (out / 'rust_build.log').write_text(compiled.stdout + compiled.stderr, encoding='utf-8')
-    binaries = {'faio': build / 'benchmark/faio_tcp_benchmark', 'tokio': rust_target / 'release/tokio-tcp-benchmark'}
-    client = build / 'benchmark/tcp_echo_load'
-    source_files = sorted((repo / 'include').rglob('*.hpp'))
-    source_files += [repo / 'CMakeLists.txt', repo / 'benchmark/CMakeLists.txt', Path(__file__).resolve(),
+    extension = '.exe' if os.name == 'nt' else ''
+    cpp_dir = build / 'benchmark'
+    if (cpp_dir / 'Release').is_dir():
+        cpp_dir /= 'Release'
+    binaries = {'faio': cpp_dir / ('faio_tcp_benchmark' + extension), 'tokio': rust_target / 'release' / ('tokio-tcp-benchmark' + extension)}
+    client = cpp_dir / ('tcp_echo_load' + extension)
+    source_files = sorted(p for p in (repo / 'include').rglob('*') if p.is_file() and p.suffix in ('.hpp', '.h'))
+    source_files += sorted(p for p in (repo / 'cmake').glob('*') if p.is_file())
+    source_files += [repo / 'CMakeLists.txt', repo / 'CMakePresets.json',
+                     repo / 'scripts/windows-dependencies.json', repo / 'scripts/windows_environment.ps1',
+                     repo / 'scripts/windows-mingw-packages.json',
+                     repo / 'benchmark/CMakeLists.txt', Path(__file__).resolve(),
                      repo / 'benchmark/tcp/faio_tcp_benchmark.cpp', repo / 'benchmark/tcp/tcp_echo_load.cpp',
                      rust / 'Cargo.toml', rust / 'Cargo.lock', rust / 'src/main.rs']
     with tarfile.open(out / 'source_snapshot.tar.gz', 'w:gz') as snapshot:
@@ -117,13 +152,18 @@ def measure_suite(args, repo):
                 'source_sha256': {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest() for p in
                                   source_files},
                 'client_binary_sha256': hashlib.sha256(client.read_bytes()).hexdigest()}
-    for key, argv in [('rustc', ['rustc', '--version']), ('kernel', ['uname', '-a'])]:
+    for key, argv in [('rustc', ['rustc', '--version'])]:
         metadata[key] = invoke(argv, repo).stdout.strip()
+    metadata['kernel'] = platform.version() if os.name == 'nt' else invoke(['uname', '-a'], repo).stdout.strip()
     compiler = next(line.split('=', 1)[1] for line in (build / 'CMakeCache.txt').read_text().splitlines()
                     if line.startswith('CMAKE_CXX_COMPILER:'))
-    metadata['compiler'] = invoke([compiler, '--version'], repo).stdout.strip()
-    metadata['cpu'] = invoke(['sysctl', '-n', 'machdep.cpu.brand_string'] if platform.system() == 'Darwin'
-                             else ['lscpu'], repo).stdout.strip()
+    version = subprocess.run([compiler, '/Bv' if Path(compiler).name.lower() == 'cl.exe' else '--version'], cwd=repo, capture_output=True, text=True)
+    metadata['compiler'] = (version.stdout + version.stderr).strip()
+    if os.name == 'nt':
+        metadata['cpu'] = invoke(['powershell', '-NoProfile', '-Command', '(Get-CimInstance Win32_Processor).Name'], repo).stdout.strip()
+    else:
+        metadata['cpu'] = invoke(['sysctl', '-n', 'machdep.cpu.brand_string'] if platform.system() == 'Darwin'
+                                 else ['lscpu'], repo).stdout.strip()
     (out / 'metadata.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding='utf-8')
     compile_file = build / 'compile_commands.json'
     if compile_file.exists():
@@ -134,7 +174,7 @@ def measure_suite(args, repo):
         exact_commands = invoke(['ninja', '-C', str(build), '-t', 'commands', 'faio_tcp_benchmark', 'tcp_echo_load'],
                                 repo).stdout
         (out / 'cpp_compile_link_commands.txt').write_text(exact_commands, encoding='utf-8')
-        if '-O2' not in exact_commands or any(flag in exact_commands for flag in ['-O3', '-flto', '-fsanitize', '-pg']):
+        if not any(flag in exact_commands for flag in ['-O2', '/O2']) or any(flag in exact_commands for flag in ['-O3', '-flto', '-fsanitize', '-pg', '/GL', '/LTCG']):
             raise RuntimeError(
                 'TCP acceptance requires matching O2 builds without LTO/sanitizer/profiler instrumentation')
     rows, commands = [], []
@@ -171,7 +211,8 @@ def measure_suite(args, repo):
                                     server_env[variable] = str(value)
                                 else:
                                     server_env.pop(variable, None)
-                            proc = subprocess.Popen(server_argv, cwd=repo, env=server_env, start_new_session=True,
+                            proc = subprocess.Popen(server_argv, cwd=repo, env=server_env, start_new_session=os.name != 'nt',
+                                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
                                                     stdout=log, stderr=subprocess.STDOUT)
                             ready(proc, port)
                             if name == 'faio':
@@ -286,6 +327,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, help='Use configured CMake build directory')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--offline', action='store_true', help='Build Tokio from the prepopulated Cargo cache only')
     parser.add_argument('--rounds', type=int, default=3)
     parser.add_argument('--seconds', type=float, default=5)
     parser.add_argument('--warmup', type=float, default=1)
@@ -299,8 +341,8 @@ def main():
     parser.add_argument('--faio-idle-spin-count', type=int, help='Diagnostic: explicit faio bounded idle polling')
     parser.add_argument('--faio-max-io-delay-us', type=int,
                         help='Diagnostic: explicit faio IO drive time budget in microseconds')
-    parser.add_argument('--io-backend', choices=['default', 'epoll', 'uring'], default='default',
-                        help='Explicit faio Linux backend; server logs must confirm the requested choice')
+    parser.add_argument('--io-backend', choices=['default', 'epoll', 'uring', 'iocp'], default='default',
+                        help='Explicit faio IO backend; server logs must confirm the requested choice')
     parser.add_argument('--faio-inline-write', action='store_true',
                         help='Diagnostic only: inline the complete-write loop in the faio connection task')
     args = parser.parse_args()
@@ -310,8 +352,10 @@ def main():
             (args.faio_idle_spin_count is not None and args.faio_idle_spin_count < 0) or
             (args.faio_max_io_delay_us is not None and not 1 <= args.faio_max_io_delay_us <= 1_000_000)):
         parser.error('invalid acceptance thresholds or diagnostic scheduler configuration')
-    if args.io_backend != 'default' and platform.system() != 'Linux':
+    if args.io_backend in ('epoll', 'uring') and platform.system() != 'Linux':
         parser.error('--io-backend=epoll|uring requires Linux')
+    if args.io_backend == 'iocp' and platform.system() != 'Windows':
+        parser.error('--io-backend=iocp requires Windows')
     connections = [int(v) for v in args.connections.split(',')]
     payloads = [int(v) for v in args.payloads.split(',')]
     if (min(args.rounds, args.workers, args.client_threads, *connections, *payloads) < 1 or

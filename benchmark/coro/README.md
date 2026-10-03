@@ -2,7 +2,7 @@
 
 单线程 runtime 与 blocking pool 有独立的 [测试程序](current_thread_benchmark.cpp)
 和 [复现脚本](../../scripts/compare_current_thread_benchmarks.py)，涵盖 current-thread、一个后台 worker、优化前基线和 Tokio
-current-thread。实测数据及比较边界见 [单线程运行时性能](../../docs/单线程运行时性能.md)。本页后续协议继续描述原有多线程横向测试。
+current-thread。单线程运行时的调度实现与多线程模式的差异见 [异步运行时](../../docs/异步运行时.md)。本页后续协议继续描述原有多线程横向测试。
 
 **简体中文** | [English](README_EN.md)
 
@@ -44,10 +44,10 @@ docker run --rm --security-opt seccomp=unconfined \
 
 ## 二、两种计时模式
 
-| 模式    | 输出                                       | 用途与边界                                                                                                             |
-|---------|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| 模式      | 输出                                        | 用途与边界                                                       |
+|---------|-------------------------------------------|-------------------------------------------------------------|
 | batch   | `batch_ns_per_op`、`ops_per_sec`           | 关闭逐操作读时钟，整段墙钟时间除以操作数。仍保留循环、条件分支、结果写入与校验，不宣称是剥离一切辅助代码的理论指令成本 |
-| sampled | `sampled_ns_per_op`、P50/P90/P99/P99.9/max | 每次操作读时钟并写样本；分位数展示操作延迟，整段时间含采样开销                                                         |
+| sampled | `sampled_ns_per_op`、P50/P90/P99/P99.9/max | 每次操作读时钟并写样本；分位数展示操作延迟，整段时间含采样开销                             |
 
 `ns_per_op` 是摊销墙钟成本，并发操作的样本延迟可能显著大于它，不能混为同一指标。每个场景的计时边界如下表。吞吐量由 batch 模式
 `1e9 / batch_ns_per_op` 得到，单位由 `scenarios.csv` 中的 `unit` 决定：一组 32 个任务的吞吐量是“组/秒”，不能当作单任务/秒。
@@ -63,33 +63,33 @@ docker run --rm --security-opt seccomp=unconfined \
 `w1/w4` 表示 1/4 个 worker；`p` 表示生产者/参与者数；`c` 表示容量；`k` 表示许可数。全部 43 个场景也以机器可读形式存入每次输出的
 `scenarios.csv`。
 
-| 场景                               | 组合/数量 | 每条样本的计时边界                                   | 说明                                                                                                                           |
-|------------------------------------|----------:|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| `timer_calibration`                |         1 | 连续两次读时钟                                       | 时钟与采样参考                                                                                                                 |
-| `task_await_ready`                 |         1 | 调用子任务到取回 1                                   | faio 惰性 task 的对称转移 vs 可被内联的 Rust future，属于语言模型参考，不能作为调度器胜负依据                                  |
-| `yield_1`, `yield_4`               |         2 | yield 到当前任务恢复                                 | 单独一个可运行任务；4 worker **不保证**迁移，另报 `migrations`                                                                 |
-| `handoff_rtt_w1/w4`                |         2 | 请求许可释放到回复许可获取                           | 同一 runtime 的两条任务交替；w1 保证同线程两次交接，w4 可能在相同或不同线程执行                                                |
-| `cross_runtime_rtt`                |         1 | 请求释放到回复获取                                   | 两个独立单 worker runtime，保证两端 OS 线程不同；属于两次交接的 RTT，不将 RTT/2 宣称为单向延迟的实测值                         |
-| `external_notification_registered` |         1 | 外部线程释放许可到已登记等待者恢复                   | 等待者已登记才发布 armed 标志，排除提前已有 permit 的快路径；外部助手忙轮询确认，CPU 成本与普通闲置服务不同                    |
-| `spawn_join_1/4`                   |         2 | spawn 一个返回 1 的任务到 JoinHandle 获取结果        | 创建、提交、恢复、结果传递与句柄释放                                                                                           |
-| `join_ready_2`                     |         1 | join 两条任务到收集两条结果                          | Rust 先 spawn 两条任务再 join!，对齐 faio 独立分支模型                                                                         |
-| `join_all_32`                      |         1 | 构造 32 条任务到按顺序收集全部结果                   | 每样本是一组，组数 `floor(count/32)`；两边校验结果和 32                                                                        |
-| `scope_32`                         |         1 | 创建组、提交 32 条任务到全部排空                     | faio scope vs Tokio JoinSet 的成功完成工作流；不主张两者异常/取消/借用语义相同                                                 |
-| `select_spawn_drain_2`             |         1 | 提交两个立即完成任务、选择赢家、排空另一分支         | Rust select! 在两个 JoinHandle 间选择并 await 另一句柄，不能用丢弃普通 future 的 native select! 代替 faio 的协作取消与排空成本 |
-| `external_burst_1/4`               |         2 | host 提交前的时间戳到子任务开始执行                  | faio spawn_detached；Rust 提交后丢弃 JoinHandle；整段计时到全部样本写入、完成信号到达                                          |
-| `internal_burst_1/4`               |         2 | worker 提交前到子任务开始执行                        | worker 内批量 spawn_detached，不保留逐个结果句柄                                                                               |
-| `block_on_entry`                   |         1 | host 提交、worker 执行、host 获得结果                | Rust block_on(spawn(task))；不是 host 上直接 poll 一个 Ready future。操作数最多 10000                                          |
-| `semaphore_ready`                  |         1 | acquire 到 release                                   | 一条任务、一个已有 permit、无争用                                                                                              |
-| `mutex_ready`                      |         1 | lock 到 unlock                                       | 无争用；Rust guard 析构解锁                                                                                                    |
-| `barrier_ready_1`                  |         1 | 一参与者 arrive_and_wait 完成                        | 屏障立即完成路径                                                                                                               |
-| `latch_ready`                      |         1 | 等待已打开 latch 完成                                | Tokio 无原生 latch，使用计数器检查，属于组合参考                                                                               |
-| `mutex_contention_p4_w1/w4`        |         2 | 加锁、持锁 yield、解锁                               | 4 条任务共用一把锁，刻意制造等待队列；总操作数 count                                                                           |
-| `semaphore_contention_k2_p4_w1/w4` |         2 | 获取许可、持许可 yield、释放                         | 4 条任务、2 个 permit；不与无争用 acquire 指标混算                                                                             |
-| `barrier_p4_w1/w4`                 |         2 | 每次到达四方屏障到恢复                               | 每任务 count/4 次，同代参与者必须全部到齐；ns/op 是每次 arrival 摊销成本                                                       |
-| `cv_roundtrip_w1/w4`               |         2 | 修改谓词、通知、等待回复谓词并重新持锁               | faio condition_variable vs Tokio Mutex+Notify 组合；登记通知后解锁、恢复后循环检查谓词，避免丢通知                             |
-| `latch_fanin_32_w1/w4`             |         2 | 建立 latch、32 条任务 count_down、等待打开、排空句柄 | Tokio AtomicUsize+Notify 单等待者组合；每样本一组 32，成功完成语义一致，不等同原生类型                                         |
-| `mpsc_ready_64`, `mpsc_try_64`     |         2 | 一次 send+recv / try_send+try_recv                   | 同一任务容量 64，8 字节负载，没有等待队列；不是生产者消费者切换测试                                                            |
-| `mpsc_p{1,4}_w{1,4}_c{64,1024}`    |         8 | 发送调用前时间戳到消费者获得消息                     | 一个消费者，1/4 个生产者，1/4 worker，容量 64/1024；16 字节消息，两边校验所有 value 之和；延迟含背压、排队、唤醒               |
+| 场景                                 | 组合/数量 | 每条样本的计时边界                            | 说明                                                                                             |
+|------------------------------------|------:|--------------------------------------|------------------------------------------------------------------------------------------------|
+| `timer_calibration`                |     1 | 连续两次读时钟                              | 时钟与采样参考                                                                                        |
+| `task_await_ready`                 |     1 | 调用子任务到取回 1                           | faio 惰性 task 的对称转移 vs 可被内联的 Rust future，属于语言模型参考，不能作为调度器胜负依据                                   |
+| `yield_1`, `yield_4`               |     2 | yield 到当前任务恢复                        | 单独一个可运行任务；4 worker **不保证**迁移，另报 `migrations`                                                   |
+| `handoff_rtt_w1/w4`                |     2 | 请求许可释放到回复许可获取                        | 同一 runtime 的两条任务交替；w1 保证同线程两次交接，w4 可能在相同或不同线程执行                                                |
+| `cross_runtime_rtt`                |     1 | 请求释放到回复获取                            | 两个独立单 worker runtime，保证两端 OS 线程不同；属于两次交接的 RTT，不将 RTT/2 宣称为单向延迟的实测值                             |
+| `external_notification_registered` |     1 | 外部线程释放许可到已登记等待者恢复                    | 等待者已登记才发布 armed 标志，排除提前已有 permit 的快路径；外部助手忙轮询确认，CPU 成本与普通闲置服务不同                                |
+| `spawn_join_1/4`                   |     2 | spawn 一个返回 1 的任务到 JoinHandle 获取结果    | 创建、提交、恢复、结果传递与句柄释放                                                                             |
+| `join_ready_2`                     |     1 | join 两条任务到收集两条结果                     | Rust 先 spawn 两条任务再 join!，对齐 faio 独立分支模型                                                        |
+| `join_all_32`                      |     1 | 构造 32 条任务到按顺序收集全部结果                  | 每样本是一组，组数 `floor(count/32)`；两边校验结果和 32                                                         |
+| `scope_32`                         |     1 | 创建组、提交 32 条任务到全部排空                   | faio scope vs Tokio JoinSet 的成功完成工作流；不主张两者异常/取消/借用语义相同                                         |
+| `select_spawn_drain_2`             |     1 | 提交两个立即完成任务、选择赢家、排空另一分支               | Rust select! 在两个 JoinHandle 间选择并 await 另一句柄，不能用丢弃普通 future 的 native select! 代替 faio 的协作取消与排空成本 |
+| `external_burst_1/4`               |     2 | host 提交前的时间戳到子任务开始执行                 | faio spawn_detached；Rust 提交后丢弃 JoinHandle；整段计时到全部样本写入、完成信号到达                                   |
+| `internal_burst_1/4`               |     2 | worker 提交前到子任务开始执行                   | worker 内批量 spawn_detached，不保留逐个结果句柄                                                            |
+| `block_on_entry`                   |     1 | host 提交、worker 执行、host 获得结果          | Rust block_on(spawn(task))；不是 host 上直接 poll 一个 Ready future。操作数最多 10000                        |
+| `semaphore_ready`                  |     1 | acquire 到 release                    | 一条任务、一个已有 permit、无争用                                                                           |
+| `mutex_ready`                      |     1 | lock 到 unlock                        | 无争用；Rust guard 析构解锁                                                                            |
+| `barrier_ready_1`                  |     1 | 一参与者 arrive_and_wait 完成              | 屏障立即完成路径                                                                                       |
+| `latch_ready`                      |     1 | 等待已打开 latch 完成                       | Tokio 无原生 latch，使用计数器检查，属于组合参考                                                                 |
+| `mutex_contention_p4_w1/w4`        |     2 | 加锁、持锁 yield、解锁                       | 4 条任务共用一把锁，刻意制造等待队列；总操作数 count                                                                 |
+| `semaphore_contention_k2_p4_w1/w4` |     2 | 获取许可、持许可 yield、释放                    | 4 条任务、2 个 permit；不与无争用 acquire 指标混算                                                            |
+| `barrier_p4_w1/w4`                 |     2 | 每次到达四方屏障到恢复                          | 每任务 count/4 次，同代参与者必须全部到齐；ns/op 是每次 arrival 摊销成本                                               |
+| `cv_roundtrip_w1/w4`               |     2 | 修改谓词、通知、等待回复谓词并重新持锁                  | faio condition_variable vs Tokio Mutex+Notify 组合；登记通知后解锁、恢复后循环检查谓词，避免丢通知                       |
+| `latch_fanin_32_w1/w4`             |     2 | 建立 latch、32 条任务 count_down、等待打开、排空句柄 | Tokio AtomicUsize+Notify 单等待者组合；每样本一组 32，成功完成语义一致，不等同原生类型                                      |
+| `mpsc_ready_64`, `mpsc_try_64`     |     2 | 一次 send+recv / try_send+try_recv     | 同一任务容量 64，8 字节负载，没有等待队列；不是生产者消费者切换测试                                                           |
+| `mpsc_p{1,4}_w{1,4}_c{64,1024}`    |     8 | 发送调用前时间戳到消费者获得消息                     | 一个消费者，1/4 个生产者，1/4 worker，容量 64/1024；16 字节消息，两边校验所有 value 之和；延迟含背压、排队、唤醒                       |
 
 切换/条件变量 RTT、登记后外部通知、block_on 使用 `min(count,10000)`，其余多数逐次操作使用 count。32 任务分组使用
 `floor(count/32)`，不足一组的余数不计入该场景。CSV 明确保存实际 `operations`。

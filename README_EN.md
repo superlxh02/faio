@@ -2,11 +2,11 @@
 
 [简体中文](README.md) | **English**
 
-faio is a high-performance, cross-platform asynchronous I/O library built on C++20 coroutines (requiring a C++23 toolchain). It runs on Linux (dual io_uring/epoll backends), macOS (kqueue), and Windows (a native IOCP framework), and provides coroutine tasks and synchronization primitives, single/multi-thread runtimes, TCP/UDP/Unix networking, timers, and native asynchronous file I/O (operations without native support fall back to an isolated bounded service). The library is header-only and licensed under [Apache-2.0](LICENSE).
+faio is a high-performance, cross-platform asynchronous I/O library built on C++20 coroutines (requiring a C++23 toolchain). It runs on Linux (dual io_uring/epoll backends), macOS (kqueue), and Windows (native IOCP/OVERLAPPED), and provides coroutine tasks and synchronization primitives, single/multi-thread runtimes, TCP/UDP networking, Unix-specific network extensions, timers, and native asynchronous file I/O (operations without native support fall back to an isolated bounded service). The library is header-only and licensed under [Apache-2.0](LICENSE).
 
 With faio, asynchronous flows read like synchronous code: a coroutine suspends and yields its worker thread while awaiting I/O, a timer, or a synchronization primitive, and the runtime resumes it on completion. io_uring-capable file operations are submitted as native SQEs and the rest run on an isolated bounded service, so workers never block on I/O—suited to high-concurrency network services, asynchronous task processing, and general coroutine-based concurrent programs.
 
-[Features](#features) · [Highlights](#highlights) · [Examples](#examples) · [Requirements](#requirements) · [Integration](#integration) · [Documentation](#documentation)
+[Features](#features) · [Highlights](#highlights) · [Examples](#examples) · [Requirements](#requirements) · [Third-party dependencies](#third-party-dependencies) · [Building from source](#building-from-source) · [Integration](#integration) · [Documentation](#documentation)
 
 ## Features
 
@@ -132,20 +132,123 @@ int main() {
 
 The default runtime starts on first use; call `faio::runtime::configure()` beforehand to adjust worker count and other parameters. The examples cover [coroutine basics and concurrency](examples/coroutine_basics.cpp), [coroutine synchronization](examples/coroutine_sync.cpp), [TCP echo](examples/tcp_echo_server.cpp), [UDP echo](examples/udp_echo_server.cpp), a [shared TCP counter application](examples/tcp_counter_server.cpp), [blocking work alongside async tasks](examples/blocking_thread_pool.cpp), [TCP echo with current-thread scheduling](examples/tcp_echo_server_single_thread.cpp), and [file and directory operations](examples/file_and_directory.cpp). See the [example guide](examples/README.md) for detailed Chinese explanations and commands; `tcp_counter_server --self-test` runs a finite multi-client scenario.
 
-The default is `multi_thread`; calling `set_mode()` is optional. To drive coroutines on the thread calling `block_on`, configure `faio::config_builder{}.set_mode(faio::runtime::mode::current_thread).build()` before first use; see the [current-thread TCP example](examples/tcp_echo_server_single_thread.cpp). This mode starts no background async worker. Queues, timers and in-flight I/O persist between calls, and submitted async tasks advance while `block_on` runs. `block_on` waits for its task group, without waiting for independently submitted background roots. `spawn_blocking` still uses a separate blocking pool; see the [blocking task example](examples/blocking_thread_pool.cpp) and [scheduling and performance report](docs/单线程运行时性能.md).
+The default is `multi_thread`; calling `set_mode()` is optional. To drive coroutines on the thread calling `block_on`, configure `faio::config_builder{}.set_mode(faio::runtime::mode::current_thread).build()` before first use; see the [current-thread TCP example](examples/tcp_echo_server_single_thread.cpp). This mode starts no background async worker. Queues, timers and in-flight I/O persist between calls, and submitted async tasks advance while `block_on` runs. `block_on` waits for its task group, without waiting for independently submitted background roots. `spawn_blocking` still uses a separate blocking pool; see the [blocking task example](examples/blocking_thread_pool.cpp). The differences between current-thread and multi-thread scheduling are covered in [Async Runtime](docs/异步运行时.md) (Chinese).
 
-Logs are written to stderr at `info` level by default, with timestamps, levels, and thread IDs. See [runtime logging](docs/异步运行时.md#6-诊断日志) for configuration (documentation is currently available in Chinese).
+Logs are written to stderr at `info` level by default, with timestamps, levels, and thread IDs. See [runtime logging](docs/异步运行时.md#7-诊断日志) for configuration (documentation is currently available in Chinese).
 
 ## Requirements
 
 | Item | Requirement |
 | --- | --- |
-| Operating system | Linux io_uring/epoll, macOS kqueue; Windows IOCP framework only |
-| Compiler and standard library | C++23 support including coroutines, `std::expected`, and `std::format`; validation toolchains are Linux Clang 22.1.2 and macOS Homebrew Clang 23 |
-| Build tools | CMake 3.20+, pkg-config; presets use Ninja |
-| Library dependencies | spdlog and threads; Linux dual-backend builds require liburing, epoll-only builds do not |
+| C++ standard | **C++23**: coroutines, `std::expected`, and `std::format`; the `faio::faio` target propagates `cxx_std_23` and CMake compiles a probe for all three at configure time |
+| Compiler — macOS | Homebrew LLVM **Clang ≥ 22** (`brew install llvm`; currently validated with Clang 23 at `/opt/homebrew/opt/llvm`); the system AppleClang standard library is insufficient and rejected at configure time |
+| Compiler — Windows | **MSVC** (validated with MSVC 19.51 from Visual Studio 18), **clang-cl** (validated with LLVM Clang 22.1.0, using the Microsoft STL and MSVC ABI), **MinGW-w64** (validated with MSYS2 UCRT64 GCC 16.2.0-4; native TLS is mandatory, emutls toolchains are rejected at configure time) |
+| Compiler — Linux | **Clang ≥ 22** (validated with Ubuntu Clang 22.1.2 plus libstdc++ 15) or **GCC**; GCC must include the [coroutine constructor exception cleanup fix](https://github.com/gcc-mirror/gcc/commit/5422486d4bc728688dd2c874cb014fadf745b2da)—GCC 15.2.0-16ubuntu1 measurably leaks the coroutine frame when a frame parameter copy or move throws and is not a fully exception-safe toolchain |
+| Build tools | CMake 3.20+; presets use Ninja |
+| Third-party libraries | spdlog (required public link dependency) and threads; liburing (only for the Linux io_uring backend; epoll-only builds do not need it) |
 | Optional dev dependencies | GoogleTest for unit tests; standalone Asio for TCP benchmark comparison |
 | Optional benchmark tools | Rust / Cargo, wrk, Python 3 with numpy / pandas / matplotlib — see [benchmark](benchmark/README.md) |
+
+Platform I/O backends: Linux uses dual io_uring/epoll backends (both are built by default, with io_uring preferred on kernel 5.10+), macOS uses kqueue, and Windows uses native IOCP/OVERLAPPED (targeting Windows 10/11 x64 with `_WIN32_WINNT=0x0A00`).
+
+## Third-party dependencies
+
+faio is header-only; third-party dependencies are needed only at build time, and **CMake never downloads anything during configure**. Provide them in one of the following ways:
+
+| Approach | When to use | How |
+| --- | --- | --- |
+| **vcpkg manifest** | Cross-platform, centrally managed dependencies | The repository ships a `vcpkg.json` manifest (spdlog, gtest, asio, liburing[linux]). Run `vcpkg install`, then configure with `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake` |
+| **System / installed packages** | Default on Linux and macOS | Dependencies installed via apt / brew or built manually are located with `find_package(... CONFIG)`; pass `-DCMAKE_PREFIX_PATH=...` for non-standard prefixes. Corresponds to `FAIO_USE_WORKSPACE_DEPS=OFF` (the default off Windows) |
+| **Pinned source builds** | Default on Windows | `scripts/bootstrap_windows.ps1` downloads and verifies spdlog 1.15.3, GoogleTest 1.17.0, and Asio 1.36.0 with the versions, archive URLs, and SHA256 hashes pinned in `scripts/windows-dependencies.json`, extracting them into a sibling `faio-deps/` directory; CMake compiles them with the current toolchain via `add_subdirectory` (`FAIO_USE_WORKSPACE_DEPS=ON`, the Windows default), so each build directory uses its own compiler and MSVC / MinGW ABIs are never mixed |
+
+Notes:
+
+- liburing is located by `cmake/FindLiburing.cmake`, which also compiles and links a probe for the required APIs and exports the `Liburing::Liburing` imported target.
+- spdlog is a public link dependency of `faio::faio` (`target_link_libraries(faio INTERFACE ... spdlog::spdlog)`); consumers linking `faio::faio` need no extra handling.
+- GoogleTest and Asio are looked up on demand by the test and benchmark subdirectories only.
+- Override the pinned-source cache location with `-DFAIO_DEPENDENCY_ROOT=` (default: the sibling `faio-deps` directory).
+
+## Building from source
+
+The four switches `FAIO_BUILD_EXAMPLES`, `FAIO_BUILD_TESTS`, `FAIO_BUILD_BENCHMARKS`, and `FAIO_INSTALL` all default to `ON`. `CMakePresets.json` provides `windows-msvc`, `windows-clang`, `windows-mingw`, and `windows-clang-asan` on Windows, `linux-clang22-dual` and `linux-clang22-epoll` on Linux, and `macos-clang23` on macOS; configure, build, and test presets share the same name except for the two Linux dual-backend test presets. For custom Debug, Docker, or vcpkg builds, pass options explicitly to `cmake -S . -B <build-directory>`.
+
+### Windows (MSVC / clang-cl / MinGW-w64)
+
+In PowerShell, prepare the pinned dependencies and toolchains first, then build with one of the three compilers:
+
+```powershell
+./scripts/bootstrap_windows.ps1           # first run: pinned deps + MSYS2 UCRT64 MinGW toolchain (-Offline validates the cache)
+. ./scripts/windows_environment.ps1 msvc  # or clang / mingw
+cmake --preset windows-msvc               # or windows-clang / windows-mingw
+cmake --build --preset windows-msvc
+ctest --preset windows-msvc
+./build/windows-msvc/examples/coroutine_basics.exe
+```
+
+The full three-compiler matrix (build, test, per-header installed-package compilation, and a two-translation-unit consumer check) runs via `./scripts/build_windows.ps1 -Offline`, with logs under `build/windows-matrix`.
+
+MinGW notes: the toolchain must use native TLS (MSYS2 GCC 16 and later); CMake assembles a probe and rejects emutls. The [multi-translation-unit TLS defect](https://sourceforge.net/p/mingw-w64/bugs/994/) of MinGW GCC is handled by a compile launcher enabled only for Windows GCC, which localizes one internal initialization alias after each object compiles; it requires Python 3 plus MinGW's nm/objcopy, and GCC LTO is not supported (the project disables LTO in Release anyway). MinGW executables need the same-distribution DLLs from `faio-deps/tools/msys2-ucrt64/ucrt64/bin`, which the environment script adds to the current process PATH.
+
+clang-cl AddressSanitizer validation uses a separate preset, instrumenting faio consumers, spdlog, and GoogleTest consistently:
+
+```powershell
+. ./scripts/windows_environment.ps1 clang
+cmake --preset windows-clang-asan
+cmake --build --preset windows-clang-asan
+ctest --preset windows-clang-asan
+```
+
+### Linux (Clang / GCC)
+
+On a Linux system with Clang 22 and a C++23 standard library installed, install the dependencies from system packages. The following commands use an Ubuntu development environment:
+
+```bash
+sudo apt-get install cmake ninja-build liburing-dev libspdlog-dev
+
+git clone https://github.com/superlxh02/faio.git
+cd faio
+cmake --preset linux-clang22-dual
+cmake --build --preset linux-clang22-dual -j4
+./build/linux-clang22-dual/examples/coroutine_basics
+```
+
+The dual backends share a single build; run the two test presets without recompiling:
+
+```bash
+ctest --preset linux-clang22-dual-epoll
+ctest --preset linux-clang22-dual-uring
+```
+
+Without liburing, use the `linux-clang22-epoll` preset (test preset of the same name). For a full development build (tests and benchmarks), also install GoogleTest and standalone Asio:
+
+```bash
+sudo apt-get install libgtest-dev libasio-dev
+```
+
+See [Requirements](#requirements) for the GCC toolchain version requirement.
+
+**One-command Docker build**: without preparing a local toolchain, compile and test in one shot with Docker (build context is the repository root):
+
+```bash
+docker build -f docker/build.dockerfile -t faio:build .
+docker run --rm --security-opt seccomp=unconfined faio:build \
+  ctest --test-dir build --output-on-failure
+```
+
+`seccomp=unconfined` allows tests and examples to call io_uring; the layered environment image, build arguments (`DEV_IMAGE`, `CMAKE_BUILD_TYPE`, `BUILD_JOBS`), and mount-based development workflow are documented in [docker/README.md](docker/README.md).
+
+### macOS (Homebrew Clang)
+
+```bash
+brew install llvm cmake ninja spdlog googletest
+
+cmake --preset macos-clang23
+cmake --build --preset macos-clang23 -j4
+ctest --preset macos-clang23
+./build/macos-clang23/examples/coroutine_basics
+```
+
+The preset selects `/opt/homebrew/opt/llvm/bin/clang++` and looks up dependencies under `/opt/homebrew`; to build only the library, disable tests and benchmarks and skip GoogleTest / Asio.
 
 ## Integration
 
@@ -186,36 +289,7 @@ find_package(faio CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-Pass `-DCMAKE_PREFIX_PATH=/path/to/faio-install` when configuring the application, and make sure spdlog and threads are available.
-
-### Building examples and tests
-
-On macOS, use the `macos-clang23` configure/build/test presets for Homebrew Clang 23. On Linux with Clang 22, use `linux-clang22-dual` to configure/build and `linux-clang22-dual-epoll` / `linux-clang22-dual-uring` to test; use `linux-clang22-epoll` without liburing. Set `CMAKE_PREFIX_PATH` for dependencies installed outside the system prefix.
-
-GCC must include the [coroutine constructor exception cleanup fix](https://github.com/gcc-mirror/gcc/commit/5422486d4bc728688dd2c874cb014fadf745b2da). GCC 15.2.0-16ubuntu1 leaks the coroutine frame when a frame parameter copy or move throws and does not satisfy the complete exception safety requirement. The existing GCC `linux-dual` / `linux-epoll` presets remain available for compilers containing this fix.
-
-On a Linux system with a C++23 compiler, install dependencies from system packages. The following commands use an Ubuntu development environment:
-
-```bash
-sudo apt-get install g++ cmake ninja-build liburing-dev libspdlog-dev
-
-git clone https://github.com/superlxh02/faio.git
-cd faio
-cmake --preset release -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
-cmake --build --preset release -j4
-./build/examples/coroutine_basics
-```
-
-All three build switches default to `ON`. For a full development build, also install GoogleTest and standalone Asio:
-
-```bash
-sudo apt-get install libgtest-dev libasio-dev
-cmake --preset debug
-cmake --build --preset debug -j4
-ctest --preset debug
-```
-
-`CMakePresets.json` provides `debug`, `release`, and matching vcpkg presets. Set `VCPKG_ROOT` and pick `vcpkg-debug` or `vcpkg-release` when using vcpkg; the manifest covers dependencies for both the library and development builds.
+Pass `-DCMAKE_PREFIX_PATH=/path/to/faio-install` when configuring the application, and make sure spdlog and threads are available. To build this repository's own examples and tests from source, see [Building from source](#building-from-source) above.
 
 ## Documentation
 
@@ -227,7 +301,7 @@ Design and source-code walkthroughs (currently in Chinese):
 | [Coroutine Concurrency](docs/协程并发.md) | spawn / block_on, join_handle, and the completion boundaries of join / select / scope |
 | [Coroutine Synchronization](docs/协程同步.md) | Wait-node protocol, mutex, condition variable, semaphore, latch, barrier, and MPSC |
 | [Async Runtime](docs/异步运行时.md) | Runtime components, coroutine scheduling, I/O driving, startup and shutdown |
-| [Async I/O](docs/异步IO.md) | epoll/kqueue, file services, buffers and algorithms, cancellation and lifecycle |
+| [Async I/O](docs/异步IO.md) | io_uring native completions, epoll/kqueue, the Windows IOCP backend, file services, buffers and algorithms, cancellation and lifecycle |
 | [Network I/O](docs/网络IO.md) | Mixin and CRTP design of the TCP / UDP interfaces with key source walkthroughs |
 | [Timer](docs/定时器.md) | Multi-level timing wheel, sleep, periodic ticks, and I/O timeouts |
 

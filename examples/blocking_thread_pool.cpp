@@ -16,17 +16,13 @@ using namespace std::chrono_literals;
 namespace {
 // 这是普通同步函数，不返回 task。模拟没有异步接口的旧 SDK。
 int legacy_inventory_query(int product_id) {
-  faio::log::logger()->info("阻塞线程池：查询商品 {} 的库存，SDK 将阻塞 400ms",
-                            product_id);
-  std::this_thread::sleep_for(
-      400ms); // 阻塞只发生在 spawn_blocking 的线程池内。
+  faio::log::logger()->info("阻塞线程池：查询商品 {} 的库存，SDK 将阻塞 400ms", product_id);
+  std::this_thread::sleep_for(400ms);  // 阻塞只发生在 spawn_blocking 的线程池内。
   return 12;
 }
 
-faio::task<int> async_price_query(int product_id,
-                                  const std::atomic<bool> &inventory_done) {
-  faio::log::logger()->info("协程 worker：开始异步查询商品 {} 的价格",
-                            product_id);
+faio::task<int> async_price_query(int product_id, const std::atomic<bool>& inventory_done) {
+  faio::log::logger()->info("协程 worker：开始异步查询商品 {} 的价格", product_id);
   // 实际应用中这里可以 co_await TcpStream 的读写。为了离线可运行，用异步
   // 定时器模拟网络等待；它不阻塞线程，也没有理由转交给 spawn_blocking。
   co_await faio::time::sleep(80ms);
@@ -35,18 +31,17 @@ faio::task<int> async_price_query(int product_id,
   co_return 299;
 }
 
-faio::task<void> heartbeat(std::atomic<bool> &inventory_done) {
+faio::task<void> heartbeat(std::atomic<bool>& inventory_done) {
   for (int tick = 1; tick <= 6; ++tick) {
     co_await faio::time::sleep(50ms);
-    faio::log::logger()->info("协程心跳 {}：库存调用已完成 = {}", tick,
-                              inventory_done.load());
+    faio::log::logger()->info("协程心跳 {}：库存调用已完成 = {}", tick, inventory_done.load());
   }
 }
 
 void example_blocking_and_async() {
   // 状态放在 block_on 外，覆盖它所派生任务的生命周期，异常路径也不会悬空。
   std::atomic<bool> inventory_done{false};
-  faio::block_on([](std::atomic<bool> &done) -> faio::task<void> {
+  faio::block_on([](std::atomic<bool>& done) -> faio::task<void> {
     // 三个任务独立启动：只有旧 SDK 的普通阻塞函数交给阻塞线程池。
     // spawn_blocking 按值保存这个普通 lambda；与临时协程 lambda
     // 的生命周期不同。
@@ -62,13 +57,12 @@ void example_blocking_and_async() {
     const int stock = co_await inventory;
     const int unit_price = co_await price;
     co_await ticker;
-    faio::log::logger()->info("商品详情汇合：库存 {}，单价 {}", stock,
-                              unit_price);
+    faio::log::logger()->info("商品详情汇合：库存 {}，单价 {}", stock, unit_price);
   }(inventory_done));
 }
-} // namespace
+}  // namespace
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   try {
     // 后端参数在本文件内处理，示例不依赖其他 example 的工具函数。
     auto builder = faio::config_builder{};
@@ -82,7 +76,7 @@ int main(int argc, char **argv) {
       if (!argument.starts_with(prefix) || argument.size() == prefix.size())
         throw std::invalid_argument("请使用 --io-backend=epoll|uring");
       selection = argument.substr(prefix.size());
-    } else if (const char *environment = std::getenv("FAIO_TEST_IO_BACKEND")) {
+    } else if (const char* environment = std::getenv("FAIO_TEST_IO_BACKEND")) {
       selection = environment;
     }
     if (selection == "epoll")
@@ -94,18 +88,16 @@ int main(int argc, char **argv) {
 #else
     (void)argv;
     if (argc > 1)
-      throw std::invalid_argument(
-          "本平台使用固定 IO 后端，无需选择 Linux 后端");
+      throw std::invalid_argument("本平台使用固定 IO 后端，无需选择 Linux 后端");
 #endif
-    faio::runtime::configure(
-        builder
-            .set_num_workers(1)          // 唯一协程 worker 不执行阻塞 SDK。
-            .set_max_blocking_threads(2) // 独立阻塞池的线程上限。
-            .set_blocking_keep_alive(5s)
-            .build());
+    faio::runtime::configure(builder
+                                 .set_num_workers(1)           // 唯一协程 worker 不执行阻塞 SDK。
+                                 .set_max_blocking_threads(2)  // 独立阻塞池的线程上限。
+                                 .set_blocking_keep_alive(5s)
+                                 .build());
     example_blocking_and_async();
     faio::runtime::shutdown();
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     faio::log::logger()->error("阻塞线程池示例失败：{}", error.what());
     return 1;
   }

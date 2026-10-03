@@ -7,83 +7,93 @@
   },
   "configurePresets": [
     {
-      "name": "linux-base",
+      "name": "windows-base",
+      "description": "Windows 公共模板：Ninja、Release、IOCP，关闭 io_uring；启用相邻 faio-deps 固定源码依赖，每个编译器分别构建 spdlog/GoogleTest，避免混用 ABI。",
       "hidden": true,
       "generator": "Ninja",
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_CXX_COMPILER": "g++"
-      }
-    },
-    {
-      "name": "debug",
-      "displayName": "Linux Debug",
-      "inherits": "linux-base",
-      "binaryDir": "${sourceDir}/build/debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "release",
-      "displayName": "Linux Release",
-      "inherits": "linux-base",
-      "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
+        "FAIO_ENABLE_IO_URING": "OFF",
+        "FAIO_USE_WORKSPACE_DEPS": "ON",
+        "FAIO_DEPENDENCY_ROOT": "${sourceDir}/../faio-deps"
       }
     },
     {
-      "name": "docker-debug",
-      "displayName": "Docker Debug",
-      "inherits": "debug",
-      "binaryDir": "${sourceDir}/build/docker-debug"
-    },
-    {
-      "name": "docker-release",
-      "displayName": "Docker Release",
-      "inherits": "release"
-    },
-    {
-      "name": "vcpkg-debug",
-      "displayName": "Linux Debug with vcpkg",
-      "inherits": "debug",
-      "binaryDir": "${sourceDir}/build/vcpkg-debug",
+      "name": "windows-msvc",
+      "displayName": "windows-msvc",
+      "description": "Windows MSVC：C/C++ 编译器均为 cl；/O2 优化，/DNDEBUG 关闭断言。继承 IOCP 与固定依赖；根配置添加 /W4、/utf-8、/permissive- 和 /Zc:__cplusplus。",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/build/windows-msvc",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG",
+        "CMAKE_C_COMPILER": "cl"
       }
     },
     {
-      "name": "vcpkg-release",
-      "displayName": "Linux Release with vcpkg",
-      "inherits": "release",
-      "binaryDir": "${sourceDir}/build/vcpkg-release",
+      "name": "windows-clang",
+      "displayName": "windows-clang",
+      "description": "Windows clang-cl：C/C++ 编译器均为 clang-cl，使用 Microsoft ABI 和 /O2 /DNDEBUG；继承 IOCP、固定依赖以及根配置的 MSVC 风格警告、UTF-8 与标准一致性参数。",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/build/windows-clang",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG",
+        "CMAKE_C_COMPILER": "clang-cl"
       }
     },
     {
-      "name": "linux-epoll",
-      "displayName": "Linux epoll only, GCC 15+",
-      "inherits": "release",
-      "binaryDir": "${sourceDir}/build/linux-epoll",
+      "name": "windows-mingw",
+      "displayName": "windows-mingw",
+      "description": "Windows MinGW-w64：使用 faio-deps 中 MSYS2 UCRT64 的 gcc/g++，-O2 优化、-DNDEBUG 关闭断言；根配置添加 GNU 警告、检查 native TLS 并启用精确对象适配，不使用 GCC LTO。",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/build/windows-mingw",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/g++.exe",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_C_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/gcc.exe"
+      }
+    },
+    {
+      "name": "windows-clang-asan",
+      "displayName": "Windows Clang AddressSanitizer",
+      "description": "Windows 地址检测：继承 clang-cl Release，FAIO_SANITIZERS=address 启用 ASan 及依赖一致注解；关闭 benchmark 和安装规则，只用于内存安全验证。",
+      "inherits": "windows-clang",
+      "binaryDir": "${sourceDir}/build/windows-clang-asan",
+      "cacheVariables": {
+        "FAIO_SANITIZERS": "address",
+        "FAIO_BUILD_BENCHMARKS": "OFF",
+        "FAIO_INSTALL": "OFF"
+      }
+    },
+    {
+      "name": "linux-clang22-dual",
+      "displayName": "Linux native io_uring and epoll, Clang 22",
+      "description": "Linux/WSL Clang 22 双后端：Ninja、Release、-O2/-DNDEBUG，导出 compile_commands.json；开启 io_uring 并保留 epoll。",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_CXX_COMPILER": "clang++-22",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "FAIO_ENABLE_IO_URING": "ON"
+      },
+      "binaryDir": "${sourceDir}/build/linux-clang22-dual"
+    },
+    {
+      "name": "linux-clang22-epoll",
+      "displayName": "Linux epoll only, Clang 22",
+      "description": "Linux/WSL Clang 22 epoll：继承双后端模板的工具链和优化参数，关闭 io_uring；使用独立构建目录。",
+      "inherits": "linux-clang22-dual",
+      "binaryDir": "${sourceDir}/build/linux-clang22-epoll",
       "cacheVariables": {
         "FAIO_ENABLE_IO_URING": "OFF"
       }
     },
     {
-      "name": "linux-uring",
-      "displayName": "Linux native io_uring and epoll, GCC 15+",
-      "inherits": "release",
-      "binaryDir": "${sourceDir}/build/linux-uring",
-      "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "ON"
-      }
-    },
-    {
       "name": "macos-clang23",
       "displayName": "macOS kqueue, Homebrew Clang 23",
+      "description": "macOS kqueue：使用 Homebrew LLVM 的 clang++；Release 采用 -O2/-DNDEBUG，/opt/homebrew 用于查找依赖，关闭 Linux 专用 io_uring。",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/macos-clang23",
       "cacheVariables": {
@@ -93,168 +103,103 @@
         "CMAKE_PREFIX_PATH": "/opt/homebrew",
         "FAIO_ENABLE_IO_URING": "OFF"
       }
-    },
-    {
-      "name": "linux-dual",
-      "displayName": "Linux native io_uring and epoll, GCC 15+",
-      "inherits": "release",
-      "binaryDir": "${sourceDir}/build/linux-dual",
-      "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "ON"
-      }
-    },
-    {
-      "name": "linux-clang22-dual",
-      "displayName": "Linux native io_uring and epoll, Clang 22",
-      "inherits": "release",
-      "binaryDir": "${sourceDir}/build/linux-clang22-dual",
-      "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "clang++-22",
-        "FAIO_ENABLE_IO_URING": "ON"
-      }
-    },
-    {
-      "name": "linux-clang22-epoll",
-      "displayName": "Linux epoll only, Clang 22",
-      "inherits": "linux-clang22-dual",
-      "binaryDir": "${sourceDir}/build/linux-clang22-epoll",
-      "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "OFF"
-      }
     }
   ],
   "buildPresets": [
     {
-      "name": "debug",
-      "configurePreset": "debug"
+      "name": "windows-msvc",
+      "description": "构建 windows-msvc 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
+      "configurePreset": "windows-msvc",
+      "jobs": 4
     },
     {
-      "name": "release",
-      "configurePreset": "release"
+      "name": "windows-clang",
+      "description": "构建 windows-clang 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
+      "configurePreset": "windows-clang",
+      "jobs": 4
     },
     {
-      "name": "docker-debug",
-      "configurePreset": "docker-debug"
+      "name": "windows-mingw",
+      "description": "构建 windows-mingw 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
+      "configurePreset": "windows-mingw",
+      "jobs": 4
     },
     {
-      "name": "docker-release",
-      "configurePreset": "docker-release"
-    },
-    {
-      "name": "vcpkg-debug",
-      "configurePreset": "vcpkg-debug"
-    },
-    {
-      "name": "vcpkg-release",
-      "configurePreset": "vcpkg-release"
-    },
-    {
-      "name": "linux-epoll",
-      "configurePreset": "linux-epoll"
-    },
-    {
-      "name": "linux-uring",
-      "configurePreset": "linux-uring"
-    },
-    {
-      "name": "macos-clang23",
-      "configurePreset": "macos-clang23"
-    },
-    {
-      "name": "linux-dual",
-      "configurePreset": "linux-dual"
+      "name": "windows-clang-asan",
+      "description": "构建 windows-clang-asan 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
+      "configurePreset": "windows-clang-asan",
+      "jobs": 4
     },
     {
       "name": "linux-clang22-dual",
+      "description": "构建 linux-clang22-dual 配置中已生成的全部目标。",
       "configurePreset": "linux-clang22-dual"
     },
     {
       "name": "linux-clang22-epoll",
+      "description": "构建 linux-clang22-epoll 配置中已生成的全部目标。",
       "configurePreset": "linux-clang22-epoll"
+    },
+    {
+      "name": "macos-clang23",
+      "description": "构建 macos-clang23 配置中已生成的全部目标。",
+      "configurePreset": "macos-clang23"
     }
   ],
   "testPresets": [
     {
-      "name": "debug",
-      "configurePreset": "debug",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "release",
-      "configurePreset": "release",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "docker-debug",
-      "configurePreset": "docker-debug",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "docker-release",
-      "configurePreset": "docker-release",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "vcpkg-debug",
-      "configurePreset": "vcpkg-debug",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "vcpkg-release",
-      "configurePreset": "vcpkg-release",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "linux-epoll",
-      "configurePreset": "linux-epoll",
+      "name": "windows-msvc",
+      "description": "运行 windows-msvc 构建目录的 CTest，失败时输出诊断。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
+      "configurePreset": "windows-msvc",
       "output": {
         "outputOnFailure": true
       },
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
+      "execution": {
+        "timeout": 120
       }
     },
     {
-      "name": "linux-uring",
-      "configurePreset": "linux-uring",
+      "name": "windows-clang",
+      "description": "运行 windows-clang 构建目录的 CTest，失败时输出诊断。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
+      "configurePreset": "windows-clang",
       "output": {
         "outputOnFailure": true
-      }
-    },
-    {
-      "name": "macos-clang23",
-      "configurePreset": "macos-clang23",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "linux-dual-epoll",
-      "configurePreset": "linux-dual",
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
       },
-      "output": {
-        "outputOnFailure": true
+      "execution": {
+        "timeout": 120
       }
     },
     {
-      "name": "linux-dual-uring",
-      "configurePreset": "linux-dual",
+      "name": "windows-mingw",
+      "description": "运行 windows-mingw 构建目录的 CTest，失败时输出诊断。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
+      "configurePreset": "windows-mingw",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-clang-asan",
+      "description": "运行 windows-clang-asan 构建目录的 CTest，失败时输出诊断。ASAN_OPTIONS=halt_on_error=1 使地址检测错误立即失败。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
+      "configurePreset": "windows-clang-asan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      },
       "environment": {
-        "FAIO_TEST_IO_BACKEND": "uring"
+        "ASAN_OPTIONS": "halt_on_error=1"
+      }
+    },
+    {
+      "name": "linux-clang22-dual-epoll",
+      "description": "运行 linux-clang22-dual 构建目录的 CTest，失败时输出诊断。FAIO_TEST_IO_BACKEND=epoll 明确选择本轮测试后端，不重新编译。",
+      "configurePreset": "linux-clang22-dual",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
       },
       "output": {
         "outputOnFailure": true
@@ -262,6 +207,7 @@
     },
     {
       "name": "linux-clang22-dual-uring",
+      "description": "运行 linux-clang22-dual 构建目录的 CTest，失败时输出诊断。FAIO_TEST_IO_BACKEND=uring 明确选择本轮测试后端，不重新编译。",
       "configurePreset": "linux-clang22-dual",
       "environment": {
         "FAIO_TEST_IO_BACKEND": "uring"
@@ -271,8 +217,9 @@
       }
     },
     {
-      "name": "linux-clang22-dual-epoll",
-      "configurePreset": "linux-clang22-dual",
+      "name": "linux-clang22-epoll",
+      "description": "运行 linux-clang22-epoll 构建目录的 CTest，失败时输出诊断。FAIO_TEST_IO_BACKEND=epoll 明确选择本轮测试后端，不重新编译。",
+      "configurePreset": "linux-clang22-epoll",
       "environment": {
         "FAIO_TEST_IO_BACKEND": "epoll"
       },
@@ -281,11 +228,9 @@
       }
     },
     {
-      "name": "linux-clang22-epoll",
-      "configurePreset": "linux-clang22-epoll",
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
-      },
+      "name": "macos-clang23",
+      "description": "运行 macos-clang23 构建目录的 CTest，失败时输出诊断。",
+      "configurePreset": "macos-clang23",
       "output": {
         "outputOnFailure": true
       }

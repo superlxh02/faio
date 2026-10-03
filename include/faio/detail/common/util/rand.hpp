@@ -4,9 +4,8 @@
 #include <random>
 
 namespace faio::util {
-
 class FastRand {
-public:
+ public:
   FastRand() {
     std::random_device dev;
     one_ = static_cast<uint32_t>(dev());
@@ -14,12 +13,11 @@ public:
   }
 
   auto fastrand_n(uint32_t n) -> uint32_t {
-    auto expected =
-        static_cast<uint64_t>(fastrand()) * static_cast<uint64_t>(n);
+    auto expected = static_cast<uint64_t>(fastrand()) * static_cast<uint64_t>(n);
     return static_cast<uint32_t>(expected >> 32);
   }
 
-private:
+ private:
   auto fastrand() -> uint32_t {
     auto s1 = one_;
     auto s0 = two_;
@@ -30,10 +28,9 @@ private:
     return s0 + s1;
   }
 
-private:
+ private:
   uint32_t one_;
   uint32_t two_;
 };
-
-} // namespace faio::util
-#endif // FAIO_DETAIL_COMMON_UTIL_RAND_HPP
+}  // namespace faio::util
+#endif  // FAIO_DETAIL_COMMON_UTIL_RAND_HPP

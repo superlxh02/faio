@@ -2,6 +2,7 @@
 #include "faio/detail/time.hpp"
 #include "faio/detail/io/awaiter/recv.hpp"
 #include "faio/detail/io/awaiter/send.hpp"
+
 namespace compact_public_time_header_test {
 using Recv = faio::io::detail::Recv;
 using Send = faio::io::detail::Send;
@@ -11,4 +12,4 @@ static_assert(faio::io::detail::io_registrant_operation<WrappedRecv>);
 static_assert(faio::io::detail::io_registrant_operation<WrappedSend>);
 static_assert(std::is_move_constructible_v<WrappedRecv>);
 static_assert(!std::is_copy_constructible_v<WrappedSend>);
-} // namespace compact_public_time_header_test
+}  // namespace compact_public_time_header_test

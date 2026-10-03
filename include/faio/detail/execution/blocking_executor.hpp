@@ -24,17 +24,17 @@ enum class executor_startup { preheated, on_demand };
  * 已接受任务拥有完成责任；close 严格排空并等待线程退出，不能从池内调用。
  */
 class blocking_executor {
-public:
+ public:
   /** @brief 建立有界服务；按启动策略预热或仅在真实任务提交时启动线程。
    * @param limit 固定执行线程上限，运行中任务最多占用该数量的服务线程。
    * @param queue_limit 等待队列容量，不包括已经被线程取出的任务。
    * @param min_threads 有效最低线程要求，必须位于 1 到 limit 之间。
    * @param startup readiness 预热，native 非 opcode 服务按需启动。
    */
-  explicit blocking_executor(
-      std::size_t limit = 4, std::size_t queue_limit = 4096,
-      std::size_t min_threads = 1,
-      executor_startup startup = executor_startup::preheated)
+  explicit blocking_executor(std::size_t limit = 4,
+                             std::size_t queue_limit = 4096,
+                             std::size_t min_threads = 1,
+                             executor_startup startup = executor_startup::preheated)
       : queue_limit_(queue_limit), thread_limit_(limit) {
     // 无工作线程或无队列的服务无法履行接受后完成的契约。
     if (!limit || !queue_limit || !min_threads || min_threads > limit)
@@ -51,8 +51,11 @@ public:
       throw;
     }
   }
-  blocking_executor(const blocking_executor &) = delete;
-  blocking_executor &operator=(const blocking_executor &) = delete;
+
+  blocking_executor(const blocking_executor&) = delete;
+
+  blocking_executor& operator=(const blocking_executor&) = delete;
+
   ~blocking_executor() { close(); }
 
   /** @brief 尝试接受任务；满载返回 EAGAIN，调用方不得在 worker 阻塞等待。 */
@@ -74,7 +77,7 @@ public:
       lock.unlock();
       cv_.notify_one();
       return {};
-    } catch (const std::bad_alloc &) {
+    } catch (const std::bad_alloc&) {
       // 分配失败没有接受任务；调用方可用错误完成等待者。
       return std::unexpected{make_error(ENOMEM)};
     } catch (...) {
@@ -109,16 +112,16 @@ public:
     std::lock_guard lock(mutex_);
     return jobs_.size();
   }
-  [[nodiscard]] std::size_t queue_limit() const noexcept {
-    return queue_limit_;
-  }
+
+  [[nodiscard]] std::size_t queue_limit() const noexcept { return queue_limit_; }
+
   /** @brief 实际已经启动的线程数；原生请求期间按需服务应保持零。 */
   [[nodiscard]] std::size_t started_threads() const noexcept {
     std::lock_guard lock(mutex_);
     return threads_.size();
   }
 
-private:
+ private:
   /** @brief 在构造控制面或队列锁内启动固定线程，失败前没有接受新job。
    * @details
    * 部分创建成功的线程仍由本服务拥有；下一次提交继续补齐，close会join。
@@ -129,6 +132,7 @@ private:
       // jthread 由容器持有并在 close 的锁外 join，禁止分离线程导致服务悬空。
       threads_.emplace_back([this] { run(); });
   }
+
   /** @brief 独立服务线程按 FIFO 领取任务；关闭时排空而非强制中断系统调用。 */
   void run() noexcept {
     for (;;) {
@@ -158,47 +162,43 @@ private:
       }
     }
   }
-  const std::size_t
-      queue_limit_; ///< 构造后固定的等待容量，try_submit 满载明确返回 EAGAIN。
-  const std::size_t
-      thread_limit_;         ///< 固定执行线程上限，按需启动也不超出此配置。
-  mutable std::mutex mutex_; ///< 串行保护任务队列、线程拥有权与 closed 发布。
-  std::condition_variable
-      cv_; ///< 只阻塞独立服务线程，谓词同时观察任务与关闭状态。
-  std::deque<::faio::move_only_function<void()>>
-      jobs_; ///< 已接受尚未领取的拥有型 FIFO 任务。
-  std::vector<std::jthread>
-      threads_;   ///< 构造时预留容量，close 移出锁外统一 join。
-  bool closed_{}; ///< 同锁内一次停止接受，已接受任务仍必须排空。
+
+  const std::size_t queue_limit_;   ///< 构造后固定的等待容量，try_submit 满载明确返回 EAGAIN。
+  const std::size_t thread_limit_;  ///< 固定执行线程上限，按需启动也不超出此配置。
+  mutable std::mutex mutex_;        ///< 串行保护任务队列、线程拥有权与 closed 发布。
+  std::condition_variable cv_;      ///< 只阻塞独立服务线程，谓词同时观察任务与关闭状态。
+  std::deque<::faio::move_only_function<void()>> jobs_;  ///< 已接受尚未领取的拥有型 FIFO 任务。
+  std::vector<std::jthread> threads_;  ///< 构造时预留容量，close 移出锁外统一 join。
+  bool closed_{};                      ///< 同锁内一次停止接受，已接受任务仍必须排空。
 };
 
 /** @brief 携带服务租约的轻量执行器引用；不依赖 worker 或 runtime TLS。 */
 class blocking_executor_ref {
-public:
+ public:
   blocking_executor_ref() = default;
-  explicit blocking_executor_ref(
-      std::shared_ptr<blocking_executor> service) noexcept
+
+  explicit blocking_executor_ref(std::shared_ptr<blocking_executor> service) noexcept
       : service_(std::move(service)) {}
+
   /** @brief 仅借用外部执行器；外部所有者必须覆盖全部已接受任务。 */
-  explicit blocking_executor_ref(blocking_executor &service) noexcept
-      : borrowed_(&service) {}
-  expected<void>
-  try_submit(::faio::move_only_function<void()> job) const noexcept {
-    auto *service = service_ ? service_.get() : borrowed_;
+  explicit blocking_executor_ref(blocking_executor& service) noexcept : borrowed_(&service) {}
+
+  expected<void> try_submit(::faio::move_only_function<void()> job) const noexcept {
+    auto* service = service_ ? service_.get() : borrowed_;
     if (!service)
       return std::unexpected{make_error(ECANCELED)};
     return service->try_submit(std::move(job));
   }
+
   explicit operator bool() const noexcept { return service_ || borrowed_; }
+
   std::size_t started_threads() const noexcept {
-    auto *service = service_ ? service_.get() : borrowed_;
+    auto* service = service_ ? service_.get() : borrowed_;
     return service ? service->started_threads() : 0;
   }
 
-private:
-  std::shared_ptr<blocking_executor>
-      service_; ///< 拥有型服务租约覆盖异步任务生命期。
-  blocking_executor
-      *borrowed_{}; ///< 外部借用仅用于显式外部执行器，其所有者负责保证存活。
+ private:
+  std::shared_ptr<blocking_executor> service_;  ///< 拥有型服务租约覆盖异步任务生命期。
+  blocking_executor* borrowed_{};  ///< 外部借用仅用于显式外部执行器，其所有者负责保证存活。
 };
-} // namespace faio::execution
+}  // namespace faio::execution

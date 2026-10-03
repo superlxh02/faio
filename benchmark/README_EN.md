@@ -314,9 +314,9 @@ Backups are saved with their original relative paths and can be used to trace me
 
 ## Cross-platform TCP echo measurement
 
-Configure `macos-clang23` or `linux-dual`, then run `python3 scripts/compare_tcp_echo.py --build build/<preset>`. Linux
+Configure `macos-clang23` or `linux-clang22-dual`, then run `python3 scripts/compare_tcp_echo.py --build build/<preset>`. Linux
 uses the same dual-backend binary with separate `--io-backend=uring` and `--io-backend=epoll` runs; server logs must
-confirm the selected backend. The `linux-epoll` preset builds without liburing. The same native POSIX client measures
+confirm the selected backend. The `linux-clang22-epoll` preset builds without liburing. The same native POSIX client measures
 both services using identical echo framing, TCP_NODELAY, 64 KiB receive buffers, server workers, and payloads
 (64/1024/16384 bytes). Connection establishment and warmup are excluded; every response is byte-checked. Three
 alternating rounds retain throughput, actual p50/p95/p99/p99.9 RTT, raw CSV, logs, commands, build flags, environment, a

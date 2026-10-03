@@ -33,10 +33,8 @@ TEST(BackendSelection, OldKernelUsesEpollAndRejectsExplicitUring) {
   using faio::runtime::io_backend;
   EXPECT_EQ(resolve_io_backend(std::nullopt, {4, 19}), io_backend::IO_EPOLL);
   EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 9}), io_backend::IO_EPOLL);
-  EXPECT_EQ(resolve_io_backend(io_backend::IO_EPOLL, {5, 4}),
-            io_backend::IO_EPOLL);
-  EXPECT_THROW((void)resolve_io_backend(io_backend::IO_URING, {5, 9}),
-               std::invalid_argument);
+  EXPECT_EQ(resolve_io_backend(io_backend::IO_EPOLL, {5, 4}), io_backend::IO_EPOLL);
+  EXPECT_THROW((void)resolve_io_backend(io_backend::IO_URING, {5, 9}), std::invalid_argument);
 }
 
 TEST(BackendSelection, NativeBuildDefaultsToUringOnSupportedKernel) {
@@ -46,20 +44,17 @@ TEST(BackendSelection, NativeBuildDefaultsToUringOnSupportedKernel) {
   EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 10}), io_backend::IO_URING);
   EXPECT_EQ(resolve_io_backend(std::nullopt, {6, 0}), io_backend::IO_URING);
   EXPECT_EQ(resolve_io_backend(std::nullopt, {7, 0}), io_backend::IO_URING);
-  EXPECT_EQ(resolve_io_backend(io_backend::IO_URING, {5, 10}),
-            io_backend::IO_URING);
+  EXPECT_EQ(resolve_io_backend(io_backend::IO_URING, {5, 10}), io_backend::IO_URING);
 #else
   EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 10}), io_backend::IO_EPOLL);
   EXPECT_EQ(resolve_io_backend(std::nullopt, {7, 0}), io_backend::IO_EPOLL);
-  EXPECT_THROW((void)resolve_io_backend(io_backend::IO_URING, {7, 0}),
-               std::invalid_argument);
+  EXPECT_THROW((void)resolve_io_backend(io_backend::IO_URING, {7, 0}), std::invalid_argument);
   // OFF构建需要在真正创建engine时拒绝明确uring选择，不能只验证纯选择函数。
   faio::io::engine_config unavailable{};
   unavailable.requested_backend = io_backend::IO_URING;
   EXPECT_THROW((void)faio::io::io_engine{unavailable}, std::invalid_argument);
 #endif
-  EXPECT_EQ(resolve_io_backend(io_backend::IO_EPOLL, {7, 0}),
-            io_backend::IO_EPOLL);
+  EXPECT_EQ(resolve_io_backend(io_backend::IO_EPOLL, {7, 0}), io_backend::IO_EPOLL);
 }
 
 #if FAIO_HAS_IO_URING
@@ -68,34 +63,29 @@ TEST(BackendSelection, NativeBuildDefaultsToUringOnSupportedKernel) {
  * @details 独立查询内核 probe，与明确创建的 uring domain 能力对照；旧内核
  * 缺少 opcode 时双方应一致，不用伪造的版本字符串代替实际内核能力。
  */
-TEST(BackendSelection,
-     NativeFilesystemOpcodeCapabilitiesMatchActualKernelProbe) {
+TEST(BackendSelection, NativeFilesystemOpcodeCapabilitiesMatchActualKernelProbe) {
   using faio::io::detail::operation_kind;
   if (faio_test::requested_backend() == faio::runtime::io_backend::IO_EPOLL)
-    GTEST_SKIP()
-        << "原生 opcode probe 由 uring 矩阵验证；epoll 不要求原生队列权限";
-  if (faio::io::detail::resolve_io_backend(faio_test::requested_backend()) !=
-      faio::runtime::io_backend::IO_URING)
+    GTEST_SKIP() << "原生 opcode probe 由 uring 矩阵验证；epoll 不要求原生队列权限";
+  if (faio::io::detail::resolve_io_backend(faio_test::requested_backend())
+      != faio::runtime::io_backend::IO_URING)
     GTEST_SKIP() << "当前内核默认使用 epoll，无 uring probe 要求";
-  std::unique_ptr<io_uring_probe, decltype(&::io_uring_free_probe)> probe{
-      ::io_uring_get_probe(), &::io_uring_free_probe};
+  std::unique_ptr<io_uring_probe, decltype(&::io_uring_free_probe)> probe{::io_uring_get_probe(),
+                                                                          &::io_uring_free_probe};
   ASSERT_NE(probe, nullptr);
   auto config = faio_test::engine_config();
   config.requested_backend = faio::runtime::io_backend::IO_URING;
   faio::io::io_engine engine{config};
-  const std::array mapping{
-      std::pair{operation_kind::statx, IORING_OP_STATX},
-      std::pair{operation_kind::mkdirat, IORING_OP_MKDIRAT},
-      std::pair{operation_kind::unlinkat, IORING_OP_UNLINKAT},
-      std::pair{operation_kind::renameat, IORING_OP_RENAMEAT},
-      std::pair{operation_kind::linkat, IORING_OP_LINKAT},
-      std::pair{operation_kind::symlinkat, IORING_OP_SYMLINKAT},
-      std::pair{operation_kind::ftruncate, IORING_OP_FTRUNCATE}};
-  for (const auto &[kind, opcode] : mapping) {
-    const bool kernel_supported =
-        ::io_uring_opcode_supported(probe.get(), opcode);
-    EXPECT_EQ(engine.context().domain()->supports_native(kind),
-              kernel_supported)
+  const std::array mapping{std::pair{operation_kind::statx, IORING_OP_STATX},
+                           std::pair{operation_kind::mkdirat, IORING_OP_MKDIRAT},
+                           std::pair{operation_kind::unlinkat, IORING_OP_UNLINKAT},
+                           std::pair{operation_kind::renameat, IORING_OP_RENAMEAT},
+                           std::pair{operation_kind::linkat, IORING_OP_LINKAT},
+                           std::pair{operation_kind::symlinkat, IORING_OP_SYMLINKAT},
+                           std::pair{operation_kind::ftruncate, IORING_OP_FTRUNCATE}};
+  for (const auto& [kind, opcode] : mapping) {
+    const bool kernel_supported = ::io_uring_opcode_supported(probe.get(), opcode);
+    EXPECT_EQ(engine.context().domain()->supports_native(kind), kernel_supported)
         << "filesystem opcode=" << static_cast<unsigned>(opcode);
   }
 }

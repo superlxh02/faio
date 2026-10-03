@@ -11,11 +11,10 @@ faio::task<void> increment_after_yield(std::atomic<int>& completed) {
   co_await faio::this_coro::yield();
   completed.fetch_add(1, std::memory_order_relaxed);
 }
-} // namespace
+}  // namespace
 
 TEST(DefaultRuntimeTest, DrainsExternalSubmissionsAndRejectsLateTasks) {
-  EXPECT_THROW(faio::runtime::configure(
-                   faio_test::config_builder().set_num_workers(0).build()),
+  EXPECT_THROW(faio::runtime::configure(faio_test::config_builder().set_num_workers(0).build()),
                std::invalid_argument);
   faio::runtime::configure(faio_test::config_builder().set_num_workers(2).build());
   std::atomic<int> completed{0};
@@ -26,7 +25,8 @@ TEST(DefaultRuntimeTest, DrainsExternalSubmissionsAndRejectsLateTasks) {
         faio::spawn_detached(increment_after_yield(completed));
     });
   }
-  for (auto& thread : submitters) thread.join();
+  for (auto& thread : submitters)
+    thread.join();
   faio::runtime::shutdown();
   EXPECT_EQ(completed.load(std::memory_order_relaxed), 400);
   EXPECT_THROW((void)faio::spawn(increment_after_yield(completed)), std::logic_error);

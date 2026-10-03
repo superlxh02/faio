@@ -1,0 +1,22 @@
+# WSL 直接由 bash 读取此脚本；Windows core.autocrlf=true 时仍须保留 LF。
+scripts/validate_wsl_linux.sh text eol=lf
+
+# 项目 CMake 配置统一 LF，避免 Windows checkout 引入混合换行及无意义格式差异。
+CMakeLists.txt text eol=lf
+CMakePresets.json text eol=lf
+cmake/*.cmake text eol=lf
+cmake/*.cmake.in text eol=lf
+
+# Google 风格的格式配置和全部项目 C++ 源码使用统一 LF 换行。
+.clang-format text eol=lf
+*.cpp text eol=lf
+*.cc text eol=lf
+*.cxx text eol=lf
+*.c++ text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.hh text eol=lf
+*.hxx text eol=lf
+
+# 历史 benchmark 的源码快照及原始数据是测量证据，保留原始字节，不自动转换换行。
+benchmark/result/** -text

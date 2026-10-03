@@ -24,8 +24,7 @@
 using namespace std::chrono_literals;
 
 namespace {
-constexpr std::size_t max_request_bytes =
-    1024; // 包括结尾换行，约束单条请求的内存。
+constexpr std::size_t max_request_bytes = 1024;  // 包括结尾换行，约束单条请求的内存。
 constexpr std::size_t max_keys = 256;
 
 struct counter_store {
@@ -38,8 +37,7 @@ faio::task<void> deadline(std::chrono::seconds duration) {
 }
 
 // 解析并执行一条命令，返回完整响应。网络读写留在连接协程中，避免持锁等待 I/O。
-faio::task<std::string> execute_command(counter_store &store,
-                                        std::string request) {
+faio::task<std::string> execute_command(counter_store& store, std::string request) {
   std::istringstream input{request};
   std::string command, key, argument, extra;
   input >> command;
@@ -48,8 +46,7 @@ faio::task<std::string> execute_command(counter_store &store,
       co_return "ERR arguments\n";
     co_return "BYE\n";
   }
-  if (command != "SET" && command != "GET" && command != "INCR" &&
-      command != "DEL")
+  if (command != "SET" && command != "GET" && command != "INCR" && command != "DEL")
     co_return "ERR command\n";
   if (!(input >> key) || key.size() > 32)
     co_return "ERR key\n";
@@ -59,8 +56,8 @@ faio::task<std::string> execute_command(counter_store &store,
     if (!(input >> argument))
       co_return "ERR arguments\n";
     // from_chars 必须消费整个字符串，拒绝 12abc 和超出 int64 范围的输入。
-    const auto [end, error] = std::from_chars(
-        argument.data(), argument.data() + argument.size(), value);
+    const auto [end, error] =
+        std::from_chars(argument.data(), argument.data() + argument.size(), value);
     if (error != std::errc{} || end != argument.data() + argument.size())
       co_return "ERR integer\n";
   }
@@ -72,9 +69,8 @@ faio::task<std::string> execute_command(counter_store &store,
   auto guard = co_await store.mutex.scoped_lock();
   auto found = store.values.find(key);
   if (command == "GET")
-    co_return found == store.values.end()
-        ? "NOT_FOUND\n"
-        : "VALUE " + std::to_string(found->second) + "\n";
+    co_return found == store.values.end() ? "NOT_FOUND\n"
+                                          : "VALUE " + std::to_string(found->second) + "\n";
   if (command == "DEL")
     co_return store.values.erase(key) ? "DELETED\n" : "NOT_FOUND\n";
   if (found == store.values.end()) {
@@ -88,14 +84,14 @@ faio::task<std::string> execute_command(counter_store &store,
   }
   if (found->second == std::numeric_limits<std::int64_t>::max())
     co_return "ERR overflow\n";
-  ++found->second; // 不存在的键从 0 开始递增。
+  ++found->second;  // 不存在的键从 0 开始递增。
   co_return "VALUE " + std::to_string(found->second) + "\n";
   // guard 析构解锁；响应交给调用者后才进行网络发送。
 }
 
 // 一个连接对应一个协程；请求按连接内顺序处理，多个连接之间并发执行。
 faio::task<void> counter_session(faio::net::TcpStream stream,
-                                 counter_store &store,
+                                 counter_store& store,
                                  std::chrono::seconds request_timeout) {
   try {
     // BufReader 保留多读出来的后续命令。不能绕过 reader 再直接 stream.read，
@@ -105,96 +101,86 @@ faio::task<void> counter_session(faio::net::TcpStream stream,
     for (;;) {
       std::string line;
       // 给整条请求设置期限，而非每收到一个字节就重新计时；慢速发送也有上限。
-      const auto ready = co_await faio::select(
-          faio::io::read_line(reader, line, max_request_bytes),
-          deadline(request_timeout));
+      const auto ready = co_await faio::select(faio::io::read_line(reader, line, max_request_bytes),
+                                               deadline(request_timeout));
       std::string response;
       bool disconnect = false;
       if (ready.index == 1) {
         response = "ERR timeout\n";
         disconnect = true;
       } else {
-        const auto &read = std::get<0>(ready.value);
+        const auto& read = std::get<0>(ready.value);
         if (!read) {
           if (read.error().value() != EMSGSIZE) {
-            faio::log::logger()->warn("计数器连接读取失败：{}",
-                                      read.error().message());
+            faio::log::logger()->warn("计数器连接读取失败：{}", read.error().message());
             co_return;
           }
           response = "ERR too_long\n";
-          disconnect = true; // 不再解析超长请求的残余字节，防止协议错位。
+          disconnect = true;  // 不再解析超长请求的残余字节，防止协议错位。
         } else if (*read == 0) {
-          co_return; // 没有未完成命令的正常 EOF。
+          co_return;  // 没有未完成命令的正常 EOF。
         } else if (line.back() != '\n') {
           response = "ERR incomplete\n";
-          disconnect = true; // 客户端半关闭时留下的不完整命令不能执行。
+          disconnect = true;  // 客户端半关闭时留下的不完整命令不能执行。
         } else {
           line.pop_back();
           if (!line.empty() && line.back() == '\r')
-            line.pop_back(); // 同时支持 LF 和 CRLF。
+            line.pop_back();  // 同时支持 LF 和 CRLF。
           response = co_await execute_command(store, std::move(line));
           disconnect = response == "BYE\n";
         }
       }
       // write_all 处理短写；select 为整个发送设置 5 秒期限，慢客户端不会无限
       // 占用此连接协程。select 返回前排空落选分支，response 的借用仍然有效。
-      const auto sent =
-          co_await faio::select(stream.write_all(response), deadline(5s));
+      const auto sent = co_await faio::select(stream.write_all(response), deadline(5s));
       if (sent.index == 1) {
         faio::log::logger()->warn("计数器响应发送超时，关闭连接");
         co_return;
       }
-      const auto &written = std::get<0>(sent.value);
+      const auto& written = std::get<0>(sent.value);
       if (!written) {
-        faio::log::logger()->warn("计数器响应发送失败：{}",
-                                  written.error().message());
+        faio::log::logger()->warn("计数器响应发送失败：{}", written.error().message());
         co_return;
       }
       if (disconnect)
-        co_return; // 发送 BYE 或协议终止错误后，stream 析构关闭连接。
+        co_return;  // 发送 BYE 或协议终止错误后，stream 析构关闭连接。
     }
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     // 正常服务使用 detached 连接任务；所有异常在连接内处理，不影响其他客户端。
     faio::log::logger()->warn("计数器连接退出：{}", error.what());
   }
 }
 
-faio::task<void> accept_clients(faio::net::TcpListener &listener,
-                                counter_store &store,
+faio::task<void> accept_clients(faio::net::TcpListener& listener,
+                                counter_store& store,
                                 std::size_t client_limit = 0) {
   std::vector<faio::join_handle<void>> sessions;
-  for (std::size_t count = 0; client_limit == 0 || count < client_limit;
-       ++count) {
+  for (std::size_t count = 0; client_limit == 0 || count < client_limit; ++count) {
     auto accept = listener.accept();
     if (client_limit != 0)
-      accept.set_timeout(
-          5s); // 有限演示出错时也能退出，不会永久等待缺席客户端。
+      accept.set_timeout(5s);  // 有限演示出错时也能退出，不会永久等待缺席客户端。
     auto accepted = co_await accept;
     if (!accepted)
-      throw std::runtime_error("计数器 accept 失败：" +
-                               std::string{accepted.error().message()});
-    auto &[stream, peer] = *accepted;
+      throw std::runtime_error("计数器 accept 失败：" + std::string{accepted.error().message()});
+    auto& [stream, peer] = *accepted;
     faio::log::logger()->info("计数器客户端接入：{}", peer.to_string());
     if (client_limit == 0)
       faio::spawn_detached(counter_session(std::move(stream), store, 30s));
     else
-      sessions.push_back(
-          faio::spawn(counter_session(std::move(stream), store, 3s)));
+      sessions.push_back(faio::spawn(counter_session(std::move(stream), store, 3s)));
   }
   // 有限演示要明确等全部连接退出；长期服务直接 detached，不积攒历史句柄。
-  for (auto &session : sessions)
+  for (auto& session : sessions)
     co_await session;
 }
 
-faio::task<void> example_tcp_counter_server(counter_store &store) {
+faio::task<void> example_tcp_counter_server(counter_store& store) {
   const faio::net::address address{faio::net::v4addr{127, 0, 0, 1}, 8081};
   auto bound = faio::net::TcpListener::bind(address);
   if (!bound)
-    throw std::runtime_error("计数器绑定失败：" +
-                             std::string{bound.error().message()});
+    throw std::runtime_error("计数器绑定失败：" + std::string{bound.error().message()});
   auto listener = std::move(*bound);
-  faio::log::logger()->info("TCP 计数器服务监听 {}，用 nc 连接；Ctrl+C 结束",
-                            address.to_string());
+  faio::log::logger()->info("TCP 计数器服务监听 {}，用 nc 连接；Ctrl+C 结束", address.to_string());
   co_await accept_clients(listener, store);
 }
 
@@ -214,8 +200,7 @@ faio::task<void> increment_client(faio::net::address address) {
   for (int i = 0; i < 6; ++i) {
     std::string response;
     auto read = co_await faio::io::read_line(reader, response, 128);
-    if (!read || *read == 0 ||
-        (i < 5 ? !response.starts_with("VALUE ") : response != "BYE\n"))
+    if (!read || *read == 0 || (i < 5 ? !response.starts_with("VALUE ") : response != "BYE\n"))
       throw std::runtime_error("递增客户端收到错误响应");
   }
 }
@@ -235,12 +220,17 @@ faio::task<void> verify_client(faio::net::address address) {
     throw std::runtime_error("流水线请求发送失败");
   faio::io::BufReader reader{stream};
   // 两个并发客户端各自递增五次，最终必须等于 10，不能发生共享状态更新丢失。
-  for (const std::string_view expected :
-       {"OK\n", "VALUE 10\n", "VALUE 12\n", "VALUE 13\n", "DELETED\n",
-        "NOT_FOUND\n", "ERR integer\n", "ERR command\n", "BYE\n"}) {
+  for (const std::string_view expected : {"OK\n",
+                                          "VALUE 10\n",
+                                          "VALUE 12\n",
+                                          "VALUE 13\n",
+                                          "DELETED\n",
+                                          "NOT_FOUND\n",
+                                          "ERR integer\n",
+                                          "ERR command\n",
+                                          "BYE\n"}) {
     std::string response;
-    if (!(co_await faio::io::read_line(reader, response, 128)) ||
-        response != expected)
+    if (!(co_await faio::io::read_line(reader, response, 128)) || response != expected)
       throw std::runtime_error("协议校验失败，实际响应：" + response);
   }
 }
@@ -251,7 +241,7 @@ faio::task<void> client_workflow(faio::net::address address) {
   co_await verify_client(address);
 }
 
-faio::task<void> example_tcp_counter_self_test(counter_store &store) {
+faio::task<void> example_tcp_counter_self_test(counter_store& store) {
   const faio::net::address address{faio::net::v4addr{127, 0, 0, 1}, 0};
   auto bound = faio::net::TcpListener::bind(address);
   if (!bound)
@@ -261,17 +251,15 @@ faio::task<void> example_tcp_counter_self_test(counter_store &store) {
   if (!local)
     throw std::runtime_error("读取演示端口失败");
   // 临时端口避免和手动启动的服务冲突。join 返回之前服务及全部连接已经结束。
-  co_await faio::join(accept_clients(listener, store, 3),
-                      client_workflow(*local));
-  faio::log::logger()->info(
-      "TCP 应用场景通过：并发计数=10，拆分请求、流水线和错误处理正常");
+  co_await faio::join(accept_clients(listener, store, 3), client_workflow(*local));
+  faio::log::logger()->info("TCP 应用场景通过：并发计数=10，拆分请求、流水线和错误处理正常");
 }
-} // namespace
+}  // namespace
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   try {
     bool self_test = false;
-    std::vector<char *> backend_arguments{argv[0]};
+    std::vector<char*> backend_arguments{argv[0]};
     for (int i = 1; i < argc; ++i) {
       if (std::string_view{argv[i]} == "--self-test")
         self_test = true;
@@ -290,7 +278,7 @@ int main(int argc, char **argv) {
       if (!argument.starts_with(prefix) || argument.size() == prefix.size())
         throw std::invalid_argument("请使用 --io-backend=epoll|uring");
       selection = argument.substr(prefix.size());
-    } else if (const char *environment = std::getenv("FAIO_TEST_IO_BACKEND")) {
+    } else if (const char* environment = std::getenv("FAIO_TEST_IO_BACKEND")) {
       selection = environment;
     }
     if (selection == "epoll")
@@ -302,8 +290,7 @@ int main(int argc, char **argv) {
 #else
     (void)backend_arguments;
     if (backend_arguments.size() > 1)
-      throw std::invalid_argument(
-          "本平台使用固定 IO 后端，无需选择 Linux 后端");
+      throw std::invalid_argument("本平台使用固定 IO 后端，无需选择 Linux 后端");
 #endif
     faio::runtime::configure(builder.set_num_workers(4).build());
     // store 位于 block_on 外，保证所有连接（包括异常退出时排空的后台连接）
@@ -314,7 +301,7 @@ int main(int argc, char **argv) {
     else
       faio::block_on(example_tcp_counter_server(store));
     faio::runtime::shutdown();
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     faio::log::logger()->error("TCP 应用失败：{}", error.what());
     return 1;
   }

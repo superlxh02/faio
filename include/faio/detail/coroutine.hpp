@@ -9,4 +9,4 @@
 #include "faio/detail/coroutine/task.hpp"
 #include "faio/detail/coroutine/this_coro.hpp"
 
-#endif // FAIO_DETAIL_COROUTINE_HPP
+#endif  // FAIO_DETAIL_COROUTINE_HPP

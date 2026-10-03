@@ -11,26 +11,31 @@
 namespace faio::sync {
 // 可重复使用的 N 方屏障。最后到达者推进代数并批量唤醒上一代等待者。
 class barrier {
-public:
+ public:
   explicit barrier(std::ptrdiff_t participants)
       : participants_(participants), remaining_(participants) {
     if (participants <= 0)
       throw std::invalid_argument("barrier 参与者必须大于零");
   }
-  barrier(const barrier &) = delete;
-  barrier &operator=(const barrier &) = delete;
+
+  barrier(const barrier&) = delete;
+
+  barrier& operator=(const barrier&) = delete;
+
   struct awaiter {
-    barrier &self;
+    barrier& self;
     detail::wait_node node;
+
     struct cancel_callback {
-      barrier *self;
-      detail::wait_node *node;
+      barrier* self;
+      detail::wait_node* node;
+
       void operator()() const noexcept {
-        detail::wait_node *others{};
+        detail::wait_node* others{};
         {
           std::lock_guard lock(self->mutex_);
           if (!node->queued)
-            return; // 完成者已接管节点，正常通知会负责恢复。
+            return;  // 完成者已接管节点，正常通知会负责恢复。
           self->waiters_.remove(node);
           self->broken_ = true;
           others = self->waiters_.take_all();
@@ -39,14 +44,19 @@ public:
         detail::cancel_all(others);
       }
     };
+
     std::optional<std::stop_callback<cancel_callback>> callback;
-    explicit awaiter(barrier &value) : self(value) {}
-    awaiter(awaiter &&other) noexcept
-        : self(other.self), node(std::move(other.node)) {}
-    awaiter(const awaiter &) = delete;
+
+    explicit awaiter(barrier& value) : self(value) {}
+
+    awaiter(awaiter&& other) noexcept : self(other.self), node(std::move(other.node)) {}
+
+    awaiter(const awaiter&) = delete;
+
     bool await_ready() const noexcept { return false; }
+
     bool await_suspend(std::coroutine_handle<> h) {
-      detail::wait_node *nodes{};
+      detail::wait_node* nodes{};
       bool registered = false;
       {
         std::lock_guard lock(self.mutex_);
@@ -71,19 +81,21 @@ public:
       detail::wake_all(nodes);
       return false;
     }
+
     void await_resume() const {
       if (node.cancelled())
         throw operation_cancelled{};
     }
   };
+
   awaiter arrive_and_wait() noexcept { return awaiter{*this}; }
 
-private:
+ private:
   std::mutex mutex_;
   const std::ptrdiff_t participants_;
   std::ptrdiff_t remaining_;
   bool broken_{};
   detail::wait_queue waiters_;
 };
-} // namespace faio::sync
+}  // namespace faio::sync
 #endif

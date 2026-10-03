@@ -3,4 +3,4 @@
 
 #include "faio/detail/coroutine/task.hpp"
 
-#endif // FAIO_TASK_HPP
+#endif  // FAIO_TASK_HPP

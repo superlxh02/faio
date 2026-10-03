@@ -1,0 +1,76 @@
+# faio 的统一 C++ 排版规则，基于 Google 风格。
+# 当前使用 clang-format 22.1 执行；本文件同时供支持 .clang-format 的编辑器读取。
+# 仅整理源码排版；标准版本、优化等级与平台配置仍由 CMake 管理。
+---
+Language: Cpp
+BasedOnStyle: Google
+Standard: Latest  # 识别现代 C++、concepts、requires 与协程语法。
+
+# 一、缩进与行宽：正文使用 2 空格，续行使用 4 空格，100 列兼顾阅读与表达式长度。
+UseTab: Never
+IndentWidth: 2
+TabWidth: 2
+ContinuationIndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -1  # public/private 比类成员向左缩进 1 格，沿用 Google 风格。
+IndentCaseLabels: true
+NamespaceIndentation: None  # 不因多层 namespace 增加正文缩进。
+IndentPPDirectives: None  # #if/#include 保持在行首，便于阅读平台分支。
+
+# 二、括号与短语句：左花括号跟随声明；控制流程展开，简短类内访问器可保留一行。
+BreakBeforeBraces: Attach
+SpaceBeforeParens: ControlStatements  # if/for 后留空格，函数名与括号之间不留空格。
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: Inline
+AllowShortCaseLabelsOnASingleLine: false
+
+# 三、声明与表达式：类型旁放置指针/引用符号，长参数列表和初始化列表明确分行。
+DerivePointerAlignment: false
+PointerAlignment: Left  # 使用 T* value，避免各文件从现有代码推导出不同风格。
+ReferenceAlignment: Pointer  # 引用采用 T& value，与指针的排版一致。
+SpaceAfterTemplateKeyword: true
+SpaceBeforeRangeBasedForLoopColon: true
+BinPackArguments: false  # 参数列表放不下时逐项换行，避免续行挤入多个参数。
+BinPackParameters: false
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+BreakBeforeBinaryOperators: NonAssignment  # 多行逻辑/算术表达式的操作符放在续行开头。
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 4
+PackConstructorInitializers: NextLine
+RequiresClausePosition: OwnLine  # 约束单独成行，突出接口的模板要求。
+RequiresExpressionIndentation: OuterScope
+SeparateDefinitionBlocks: Always  # 相邻函数/类型定义间留一行，分开阅读单元。
+LambdaBodyIndentation: Signature
+
+# 四、注释与空行：仅调整缩进，保持中文 Doxygen 的段落和逐行说明，不重新折叠文本。
+ReflowComments: IndentOnly
+AlignTrailingComments:
+  Kind: Always  # 对齐相邻行的尾部说明；不跨空行强制对齐。
+  OverEmptyLines: 0
+FixNamespaceComments: true
+MaxEmptyLinesToKeep: 1
+KeepEmptyLines:
+  AtEndOfFile: false
+  AtStartOfBlock: false
+  AtStartOfFile: false
+
+# 五、保持源码含义：Windows 头文件有先后要求，宏/using 和字面量也保持原顺序与内容。
+SortIncludes: false
+IncludeBlocks: Preserve
+SortUsingDeclarations: Never
+BreakStringLiterals: false  # 不拆分协议数据、日志字符串和 UTF-8 字符串字面量。
+RawStringFormats: []  # 不格式化原始字符串内部的代码、协议样本或其他嵌入内容。
+QualifierAlignment: Leave  # 不移动 const/volatile，避免改变声明含义。
+InsertBraces: false  # 不新增控制流花括号。
+RemoveBracesLLVM: false  # 不删除已有控制流花括号。
+RemoveParentheses: Leave
+RemoveSemicolon: false
+
+# 六、文件排版：普通源码行统一 LF 与末尾换行；原始字符串中的数据仍按原样保留。
+LineEnding: LF
+InsertNewlineAtEOF: true
+...

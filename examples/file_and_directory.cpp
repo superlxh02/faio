@@ -32,8 +32,7 @@ faio::task<void> example_file_and_directory() {
   //    如果 test 已经是普通文件，则返回错误，不能继续把它当作目录使用。
   auto created = co_await faio::fs::create_dir_all(test_directory);
   if (!created)
-    throw std::runtime_error("创建 test 目录失败：" +
-                             std::string{created.error().message()});
+    throw std::runtime_error("创建 test 目录失败：" + std::string{created.error().message()});
   std::cout << "1. 已创建目录：" << test_directory.string() << '\n';
 
   // 原始字符串中的内容就是写入 main.c 的 C 源码。
@@ -51,18 +50,15 @@ int main(void) {
   {
     auto opened = co_await faio::fs::File::create(source_path);
     if (!opened)
-      throw std::runtime_error("创建 main.c 失败：" +
-                               std::string{opened.error().message()});
+      throw std::runtime_error("创建 main.c 失败：" + std::string{opened.error().message()});
     auto file = std::move(*opened);
     auto written = co_await file.write_all(std::span<const char>{source});
     if (!written)
-      throw std::runtime_error("写入 main.c 失败：" +
-                               std::string{written.error().message()});
+      throw std::runtime_error("写入 main.c 失败：" + std::string{written.error().message()});
     // 明确等待关闭，再进行后面的目录操作和读取，便于看清资源的生命周期。
     auto closed = co_await file.close();
     if (!closed)
-      throw std::runtime_error("关闭 main.c 失败：" +
-                               std::string{closed.error().message()});
+      throw std::runtime_error("关闭 main.c 失败：" + std::string{closed.error().message()});
   }
   std::cout << "2. 已写入 C 源码：" << source_path.string() << '\n';
 
@@ -71,31 +67,26 @@ int main(void) {
   {
     auto opened = co_await faio::fs::read_dir(initial_directory);
     if (!opened)
-      throw std::runtime_error("打开运行目录失败：" +
-                               std::string{opened.error().message()});
+      throw std::runtime_error("打开运行目录失败：" + std::string{opened.error().message()});
     auto directory = std::move(*opened);
     std::cout << "3. 运行目录中的条目：\n";
     for (;;) {
       auto entry = co_await directory.next_entry();
       // 外层 expected 表示操作是否成功；内层 optional 为空才表示枚举结束。
       if (!entry)
-        throw std::runtime_error("枚举运行目录失败：" +
-                                 std::string{entry.error().message()});
+        throw std::runtime_error("枚举运行目录失败：" + std::string{entry.error().message()});
       if (!*entry)
         break;
       auto type = co_await (*entry)->file_type();
       if (!type)
-        throw std::runtime_error("获取条目类型失败：" +
-                                 std::string{type.error().message()});
+        throw std::runtime_error("获取条目类型失败：" + std::string{type.error().message()});
       const bool is_directory = *type == std::filesystem::file_type::directory;
-      std::cout << (is_directory ? "  [目录] " : "  [条目] ")
-                << (*entry)->file_name().string() << (is_directory ? "/" : "")
-                << '\n';
+      std::cout << (is_directory ? "  [目录] " : "  [条目] ") << (*entry)->file_name().string()
+                << (is_directory ? "/" : "") << '\n';
     }
     auto closed = co_await directory.close();
     if (!closed)
-      throw std::runtime_error("关闭运行目录失败：" +
-                               std::string{closed.error().message()});
+      throw std::runtime_error("关闭运行目录失败：" + std::string{closed.error().message()});
   }
 
   // 4. 真正改变当前进程的工作目录，后面使用相对路径 "." 和 "main.c"。
@@ -103,47 +94,39 @@ int main(void) {
   //    所以本例按顺序执行，前面的操作都已完成，也没有并发的相对路径任务。
   std::filesystem::current_path(test_directory);
   try {
-    std::cout << "4. 已进入目录：" << std::filesystem::current_path().string()
-              << '\n';
+    std::cout << "4. 已进入目录：" << std::filesystem::current_path().string() << '\n';
 
     // 5. 独立写出 test 内的枚举过程，展示其中所有条目，而不只查找 main.c。
     //    ReadDir 自动跳过 "." 和 ".."；枚举顺序由文件系统决定，无需排序。
     {
       auto opened = co_await faio::fs::read_dir(".");
       if (!opened)
-        throw std::runtime_error("打开 test 目录失败：" +
-                                 std::string{opened.error().message()});
+        throw std::runtime_error("打开 test 目录失败：" + std::string{opened.error().message()});
       auto directory = std::move(*opened);
       std::cout << "5. test 目录中的所有条目：\n";
       for (;;) {
         auto entry = co_await directory.next_entry();
         if (!entry)
-          throw std::runtime_error("枚举 test 目录失败：" +
-                                   std::string{entry.error().message()});
+          throw std::runtime_error("枚举 test 目录失败：" + std::string{entry.error().message()});
         if (!*entry)
           break;
         auto type = co_await (*entry)->file_type();
         if (!type)
-          throw std::runtime_error("获取条目类型失败：" +
-                                   std::string{type.error().message()});
-        const bool is_directory =
-            *type == std::filesystem::file_type::directory;
-        std::cout << (is_directory ? "  [目录] " : "  [条目] ")
-                  << (*entry)->file_name().string() << (is_directory ? "/" : "")
-                  << '\n';
+          throw std::runtime_error("获取条目类型失败：" + std::string{type.error().message()});
+        const bool is_directory = *type == std::filesystem::file_type::directory;
+        std::cout << (is_directory ? "  [目录] " : "  [条目] ") << (*entry)->file_name().string()
+                  << (is_directory ? "/" : "") << '\n';
       }
       auto closed = co_await directory.close();
       if (!closed)
-        throw std::runtime_error("关闭 test 目录失败：" +
-                                 std::string{closed.error().message()});
+        throw std::runtime_error("关闭 test 目录失败：" + std::string{closed.error().message()});
     }
 
     // 6. 现在相对路径 main.c 就是 test/main.c。read_to_string 封装了打开、
     //    循环读取和资源释放；这里限制为 4096 字节，足够容纳本例的小段源码。
     auto contents = co_await faio::fs::read_to_string("main.c", 4096);
     if (!contents)
-      throw std::runtime_error("读取 main.c 失败：" +
-                               std::string{contents.error().message()});
+      throw std::runtime_error("读取 main.c 失败：" + std::string{contents.error().message()});
     if (*contents != source)
       throw std::runtime_error("main.c 读回内容与写入内容不一致");
     std::cout << "6. main.c 的内容：\n" << *contents;
@@ -157,9 +140,9 @@ int main(void) {
   std::filesystem::current_path(initial_directory);
   std::cout << "已恢复运行目录：" << initial_directory.string() << '\n';
 }
-} // namespace
+}  // namespace
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   try {
     // 后端参数完整写在本文件中，与其他 example 没有源码复用关系。
     auto builder = faio::config_builder{};
@@ -173,7 +156,7 @@ int main(int argc, char **argv) {
       if (!argument.starts_with(prefix) || argument.size() == prefix.size())
         throw std::invalid_argument("请使用 --io-backend=epoll|uring");
       selection = argument.substr(prefix.size());
-    } else if (const char *environment = std::getenv("FAIO_TEST_IO_BACKEND")) {
+    } else if (const char* environment = std::getenv("FAIO_TEST_IO_BACKEND")) {
       selection = environment;
     }
     if (selection == "epoll")
@@ -185,13 +168,12 @@ int main(int argc, char **argv) {
 #else
     (void)argv;
     if (argc > 1)
-      throw std::invalid_argument(
-          "本平台使用固定 IO 后端，无需选择 Linux 后端");
+      throw std::invalid_argument("本平台使用固定 IO 后端，无需选择 Linux 后端");
 #endif
     faio::runtime::configure(builder.set_num_workers(2).build());
     faio::block_on(example_file_and_directory());
     faio::runtime::shutdown();
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     faio::log::logger()->error("文件与目录示例失败：{}", error.what());
     return 1;
   }

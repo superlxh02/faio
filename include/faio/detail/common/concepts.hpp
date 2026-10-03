@@ -6,10 +6,9 @@
 #include <sys/socket.h>
 
 namespace faio {
-
 template <typename Addr>
 concept is_socket_address = requires(Addr addr) {
-  { addr.sockaddr() } noexcept -> std::same_as<struct sockaddr *>;
+  { addr.sockaddr() } noexcept -> std::same_as<struct sockaddr*>;
   { addr.length() } noexcept -> std::same_as<socklen_t>;
 };
 
@@ -21,8 +20,6 @@ concept is_awaiter = requires(IOAwaiter awaiter) {
 };
 
 template <typename C>
-concept constructible_to_char_slice =
-    requires(C c) { std::span<const char>{c}; };
-
-} // namespace faio
-#endif // FAIO_DETAIL_COMMON_CONCEPTS_HPP
+concept constructible_to_char_slice = requires(C c) { std::span<const char>{c}; };
+}  // namespace faio
+#endif  // FAIO_DETAIL_COMMON_CONCEPTS_HPP

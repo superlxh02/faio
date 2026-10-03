@@ -10,7 +10,6 @@
 #include <variant>
 
 namespace faio::runtime::detail::timer {
-
 // =========================================================================
 // VariantWheelBuilder：利用 std::variant 构造能存放任意层级时间轮的类型
 // 生成 std::variant<std::monostate, unique_ptr<TimerWheel<0>>,
@@ -22,7 +21,8 @@ static inline constexpr auto variant_wheel_impl(std::index_sequence<N...>) {
   return std::variant<std::monostate, std::unique_ptr<TimerWheel<N>>...>{};
 }
 
-template <std::size_t N> struct VariantWheelBuilder {
+template <std::size_t N>
+struct VariantWheelBuilder {
   using Type = decltype(variant_wheel_impl(std::make_index_sequence<N>{}));
 };
 
@@ -37,19 +37,21 @@ template <std::size_t N> struct VariantWheelBuilder {
 //   - add_task / remove_task / poll 为主要操作接口
 // =========================================================================
 class Timer;
-inline thread_local Timer *current_timer;
+inline thread_local Timer* current_timer;
 
 class Timer {
-public:
+ public:
   // stop_callback 可从其他线程调用；只记录请求，时间轮本身仍由所属 worker
   // 修改。
-  void request_prune() noexcept {
-    _cancel_requests.fetch_add(1, std::memory_order_release);
-  }
-  Timer(const Timer &) = delete;
-  Timer &operator=(const Timer &) = delete;
-  Timer(Timer &&) = delete;
-  Timer &operator=(Timer &&) = delete;
+  void request_prune() noexcept { _cancel_requests.fetch_add(1, std::memory_order_release); }
+
+  Timer(const Timer&) = delete;
+
+  Timer& operator=(const Timer&) = delete;
+
+  Timer(Timer&&) = delete;
+
+  Timer& operator=(Timer&&) = delete;
 
   explicit Timer(bool bind_thread = true) {
     if (bind_thread)
@@ -60,28 +62,26 @@ public:
   ~Timer() {
     if (current_timer == this)
       current_timer = nullptr;
-    faio::log::logger()->debug("Timer: destroyed, entries remaining={}",
-                               _num_entries);
+    faio::log::logger()->debug("Timer: destroyed, entries remaining={}", _num_entries);
   }
 
-public:
+ public:
   /// 添加定时器任务
   /// @param deadline 任务的绝对到期时间
   /// @param handle 任务到期时要恢复的协程句柄
   /// @return 任务的裸指针（用于后续移除操作），调用者不拥有所有权
   auto add_task(std::chrono::steady_clock::time_point deadline,
                 std::coroutine_handle<> handle,
-                std::shared_ptr<std::atomic<unsigned char>> claim = {})
-      -> TimerTask * {
+                std::shared_ptr<std::atomic<unsigned char>> claim = {}) -> TimerTask* {
     auto task = std::make_unique<TimerTask>(deadline, handle, std::move(claim));
-    auto *raw = task.get();
+    auto* raw = task.get();
     add_task_impl(std::move(task));
     return raw;
   }
 
   /// 移除定时器任务
   /// @param task 要移除的任务裸指针
-  void remove_task(TimerTask *task) {
+  void remove_task(TimerTask* task) {
     if (task == nullptr) {
       return;
     }
@@ -97,7 +97,7 @@ public:
 
     // 在根时间轮中递归移除
     std::visit(
-        [&](auto &wheel_ptr) {
+        [&](auto& wheel_ptr) {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
@@ -115,14 +115,15 @@ public:
   /// 轮询处理到期任务
   /// @param sink 所属线程的就绪接收端
   /// @return 本次处理的到期任务数量
-  template <ready_sink sink_type> auto poll(sink_type &sink) -> std::size_t {
+  template <ready_sink sink_type>
+  auto poll(sink_type& sink) -> std::size_t {
     // 没有取消请求时只读取；避免每次空 IO 轮询都对取消计数执行原子 RMW。
     // load 后新到的请求与原 exchange 后新到的请求一样，由后续 poll 领取。
-    if (_cancel_requests.load(std::memory_order_acquire) != 0 &&
-        _cancel_requests.exchange(0, std::memory_order_acq_rel) != 0) {
+    if (_cancel_requests.load(std::memory_order_acquire) != 0
+        && _cancel_requests.exchange(0, std::memory_order_acq_rel) != 0) {
       std::size_t removed = 0;
       std::visit(
-          [&](auto &wheel_ptr) {
+          [&](auto& wheel_ptr) {
             using T = std::decay_t<decltype(wheel_ptr)>;
             if constexpr (!std::is_same_v<T, std::monostate>)
               if (wheel_ptr)
@@ -144,7 +145,7 @@ public:
 
     std::size_t count = 0;
     std::visit(
-        [&](auto &wheel_ptr) {
+        [&](auto& wheel_ptr) {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
@@ -179,7 +180,7 @@ public:
 
     std::size_t expected = std::numeric_limits<std::size_t>::max();
     std::visit(
-        [&](const auto &wheel_ptr) {
+        [&](const auto& wheel_ptr) {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
@@ -210,9 +211,9 @@ public:
     return _num_entries == 0;
   }
 
-private:
+ private:
   /// 内部添加任务的统一实现
-  void add_task_impl(std::unique_ptr<TimerTask> &&task) {
+  void add_task_impl(std::unique_ptr<TimerTask>&& task) {
     // 空轮没有旧任务约束，可以重新建立基准，避免长时间空闲扩大层级。
     if (_num_entries == 0) {
       _start = std::chrono::steady_clock::now();
@@ -228,7 +229,7 @@ private:
 
     // 将任务添加到根时间轮
     std::visit(
-        [&](auto &wheel_ptr) {
+        [&](auto& wheel_ptr) {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
@@ -261,7 +262,7 @@ private:
   /// 利用 variant visit 实现递归升级
   void ensure_capacity_visit(std::size_t interval_ms) {
     std::visit(
-        [&](auto &wheel_ptr) {
+        [&](auto& wheel_ptr) {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
@@ -294,19 +295,17 @@ private:
       (
           [&] {
             constexpr std::size_t LEVEL = Is;
-            constexpr std::size_t VARIANT_IDX = LEVEL + 1; // +1 因为 monostate
+            constexpr std::size_t VARIANT_IDX = LEVEL + 1;  // +1 因为 monostate
             if (current_idx == VARIANT_IDX) {
               if constexpr (LEVEL < MAX_LEVEL) {
-                auto &current_wheel = std::get<VARIANT_IDX>(_root_wheel);
-                auto new_wheel =
-                    current_wheel->level_up(std::move(current_wheel));
+                auto& current_wheel = std::get<VARIANT_IDX>(_root_wheel);
+                auto new_wheel = current_wheel->level_up(std::move(current_wheel));
                 _root_wheel = std::move(new_wheel);
 
                 // 继续检查是否需要再升级
                 ensure_capacity_visit(interval_ms);
               } else {
-                faio::log::logger()->error(
-                    "Timer: cannot level_up beyond MAX_LEVEL={}", MAX_LEVEL);
+                faio::log::logger()->error("Timer: cannot level_up beyond MAX_LEVEL={}", MAX_LEVEL);
               }
             }
           }(),
@@ -323,7 +322,7 @@ private:
     if (idx <= 1) {
       // 对 TimerWheel<0>，仅检查是否为空可以释放
       if (idx == 1) {
-        auto &wheel_ptr = std::get<1>(_root_wheel);
+        auto& wheel_ptr = std::get<1>(_root_wheel);
         if (wheel_ptr && wheel_ptr->empty()) {
           wheel_ptr.reset();
           _root_wheel = std::monostate{};
@@ -346,7 +345,7 @@ private:
             constexpr std::size_t VARIANT_IDX = LEVEL + 1;
             if constexpr (LEVEL >= 1 && LEVEL <= MAX_LEVEL) {
               if (idx == VARIANT_IDX) {
-                auto &wheel_ptr = std::get<VARIANT_IDX>(_root_wheel);
+                auto& wheel_ptr = std::get<VARIANT_IDX>(_root_wheel);
                 if (!wheel_ptr) {
                   return;
                 }
@@ -374,7 +373,7 @@ private:
   ///          但它内部剩余任务的索引仍以原子轮起点为基准，不能减掉部分跨度。
   void advance_start(std::size_t ms) {
     std::visit(
-        [&](auto &wheel_ptr) {
+        [&](auto& wheel_ptr) {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
@@ -388,8 +387,7 @@ private:
                 auto slots_to_rotate = ms >> WheelType::CHILD_SHIFT;
                 if (slots_to_rotate > 0) {
                   wheel_ptr->rotate(slots_to_rotate);
-                  _start += std::chrono::milliseconds(
-                      slots_to_rotate << WheelType::CHILD_SHIFT);
+                  _start += std::chrono::milliseconds(slots_to_rotate << WheelType::CHILD_SHIFT);
                 }
               }
             }
@@ -402,28 +400,24 @@ private:
   [[nodiscard]]
   auto elapsed_ms() const noexcept -> std::size_t {
     auto now = std::chrono::steady_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now - _start);
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - _start);
     return static_cast<std::size_t>(duration.count());
   }
 
   /// 将 duration 转换为毫秒数
-  static auto to_ms(std::chrono::steady_clock::duration dur) noexcept
-      -> std::size_t {
+  static auto to_ms(std::chrono::steady_clock::duration dur) noexcept -> std::size_t {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(dur);
     return static_cast<std::size_t>(std::max(ms.count(), decltype(ms)::rep{0}));
   }
 
-private:
+ private:
   /// 当前根轮第 0 槽的基准时间，始终与该层级的旋转跨度一致。
-  std::chrono::steady_clock::time_point _start{
-      std::chrono::steady_clock::now()};
+  std::chrono::steady_clock::time_point _start{std::chrono::steady_clock::now()};
   /// 当前活跃的定时器任务数
   std::size_t _num_entries{0};
   std::atomic<std::size_t> _cancel_requests{0};
   /// 根时间轮（variant 存储，支持不同层级）
   VariantWheelBuilder<MAX_LEVEL + 1uz>::Type _root_wheel{};
 };
-
-} // namespace faio::runtime::detail::timer
+}  // namespace faio::runtime::detail::timer
 #endif

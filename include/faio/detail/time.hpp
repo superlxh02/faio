@@ -3,4 +3,4 @@
 
 #include "faio/detail/time/time.hpp"
 
-#endif // FAIO_TIME_HPP
+#endif  // FAIO_TIME_HPP

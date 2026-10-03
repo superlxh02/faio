@@ -14,7 +14,7 @@ namespace faio_test {
 #if defined(__linux__)
 /** @brief 读取矩阵配置；空值保持默认选择，非法值在创建服务线程之前失败。 */
 inline std::optional<faio::runtime::io_backend> requested_backend() {
-  const char *raw = std::getenv("FAIO_TEST_IO_BACKEND");
+  const char* raw = std::getenv("FAIO_TEST_IO_BACKEND");
   if (!raw || !*raw)
     return std::nullopt;
   const std::string_view requested{raw};
@@ -22,14 +22,13 @@ inline std::optional<faio::runtime::io_backend> requested_backend() {
     return faio::runtime::io_backend::IO_EPOLL;
   if (requested == "uring")
     return faio::runtime::io_backend::IO_URING;
-  throw std::invalid_argument(
-      "FAIO_TEST_IO_BACKEND must be epoll or uring on Linux");
+  throw std::invalid_argument("FAIO_TEST_IO_BACKEND must be epoll or uring on Linux");
 }
 #endif
 /** @brief 所有测试的 runtime 配置入口；非法或不适用的后端立即失败。 */
 inline faio::ConfigBuilder config_builder() {
   faio::ConfigBuilder builder;
-  const char *raw = std::getenv("FAIO_TEST_IO_BACKEND");
+  const char* raw = std::getenv("FAIO_TEST_IO_BACKEND");
   if (!raw || !*raw)
     return builder;
   const std::string_view requested{raw};
@@ -42,6 +41,7 @@ inline faio::ConfigBuilder config_builder() {
   throw std::invalid_argument(
       "FAIO_TEST_IO_BACKEND must name a backend supported by this platform");
 }
+
 /** @brief 独立 engine 契约和 runtime 使用相同的后端矩阵配置。 */
 inline faio::io::engine_config engine_config() {
   faio::io::engine_config config;
@@ -50,6 +50,7 @@ inline faio::io::engine_config engine_config() {
 #endif
   return config;
 }
+
 /** @brief 阻塞 provider 队列契约明确选择 reactor；原生文件路径另行验证。 */
 inline faio::io::engine_config provider_engine_config() {
   auto config = engine_config();
@@ -58,4 +59,4 @@ inline faio::io::engine_config provider_engine_config() {
 #endif
   return config;
 }
-} // namespace faio_test
+}  // namespace faio_test

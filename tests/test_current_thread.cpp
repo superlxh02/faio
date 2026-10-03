@@ -14,7 +14,6 @@
 using namespace std::chrono_literals;
 
 namespace {
-
 faio::task<int> run_on_caller(std::thread::id caller) {
   if (std::this_thread::get_id() != caller)
     throw std::logic_error("协程未运行在 block_on 调用线程");
@@ -30,17 +29,17 @@ faio::task<void> mark(std::atomic<bool>& done) {
   co_return;
 }
 
-faio::task<void> empty() { co_return; }
+faio::task<void> empty() {
+  co_return;
+}
 
 faio::task<void> wait_for_external(std::atomic<bool>& done) {
-  for (int attempt = 0; attempt < 100 && !done.load(std::memory_order_acquire);
-       ++attempt)
+  for (int attempt = 0; attempt < 100 && !done.load(std::memory_order_acquire); ++attempt)
     co_await faio::time::sleep(1ms);
   if (!done.load(std::memory_order_acquire))
     throw std::logic_error("跨线程提交未被驱动");
 }
-
-} // namespace
+}  // namespace
 
 TEST(CurrentThreadRuntimeTest, DrivesOnCallingThreadAndAcceptsExternalSpawn) {
   faio::runtime::configure(faio_test::config_builder()
@@ -73,11 +72,18 @@ TEST(CurrentThreadRuntimeTest, DrivesOnCallingThreadAndAcceptsExternalSpawn) {
 
 namespace {
 using context = faio::runtime::detail::runtime_context;
+
 auto single_config() {
-  return faio_test::config_builder().set_mode(faio::runtime::mode::current_thread)
-      .set_max_blocking_threads(4).build();
+  return faio_test::config_builder()
+      .set_mode(faio::runtime::mode::current_thread)
+      .set_max_blocking_threads(4)
+      .build();
 }
-faio::task<int> await_value(faio::join_handle<int>& handle) { co_return co_await handle; }
+
+faio::task<int> await_value(faio::join_handle<int>& handle) {
+  co_return co_await handle;
+}
+
 faio::task<int> delayed_value(faio::runtime::detail::io_engine*& engine) {
   engine = faio::runtime::detail::current_io_engine;
   co_await faio::time::sleep(5ms);
@@ -85,44 +91,55 @@ faio::task<int> delayed_value(faio::runtime::detail::io_engine*& engine) {
     throw std::logic_error("I/O engine changed between calls");
   co_return 42;
 }
+
 faio::task<int> receive_byte(int fd, bool& armed) {
   char byte;
   armed = true;
   const auto result = co_await faio::io::detail::Recv{fd, &byte, 1, 0};
   co_return result ? static_cast<int>(result.value()) : -result.error().value();
 }
+
 faio::task<void> unawaited_blocking(std::atomic<bool>& finished) {
   auto handle = faio::spawn_blocking([&] {
     std::this_thread::sleep_for(2ms);
     finished.store(true, std::memory_order_release);
     return 42;
   });
-  co_return; // Group completion still includes this blocking callable.
+  co_return;  // Group completion still includes this blocking callable.
 }
+
 faio::task<int> wait_gate(faio::sync::semaphore& gate) {
   co_await gate.acquire();
   co_return 42;
 }
+
 faio::task<int> record(std::vector<int>& order, int value) {
   order.push_back(value);
   co_return value;
 }
+
 faio::task<void> grow_local_fifo(std::vector<int>& order) {
   std::vector<faio::join_handle<int>> handles;
-  for (int i = 0; i < 1024; ++i) handles.push_back(faio::spawn(record(order, i)));
   for (int i = 0; i < 1024; ++i)
-    if (co_await handles[i] != i) throw std::logic_error("FIFO result");
+    handles.push_back(faio::spawn(record(order, i)));
+  for (int i = 0; i < 1024; ++i)
+    if (co_await handles[i] != i)
+      throw std::logic_error("FIFO result");
 }
+
 faio::task<int> yielding_value() {
-  for (int i = 0; i < 100; ++i) co_await faio::this_coro::yield();
+  for (int i = 0; i < 100; ++i)
+    co_await faio::this_coro::yield();
   co_return 42;
 }
+
 faio::task<void> busy_until_timer(bool& done, std::size_t& turns) {
   while (!done && turns < 1000000) {
     ++turns;
     co_await faio::this_coro::yield();
   }
 }
+
 faio::task<void> timer_under_load(std::size_t& turns) {
   bool done = false;
   auto handle = faio::spawn(busy_until_timer(done, turns));
@@ -130,11 +147,17 @@ faio::task<void> timer_under_load(std::size_t& turns) {
   done = true;
   co_await handle;
 }
-faio::task<void> throwing_task() { throw std::runtime_error("expected"); co_return; }
+
+faio::task<void> throwing_task() {
+  throw std::runtime_error("expected");
+  co_return;
+}
+
 faio::task<void> reenter(context& ctx) {
   EXPECT_THROW(ctx.block_on(empty()), std::logic_error);
   co_return;
 }
+
 faio::task<void> socket_echo(int fd, std::size_t n) {
   char byte;
   for (std::size_t i = 0; i < n; ++i) {
@@ -142,6 +165,7 @@ faio::task<void> socket_echo(int fd, std::size_t n) {
     EXPECT_EQ((co_await faio::io::detail::Send{fd, &byte, 1, MSG_NOSIGNAL}).value(), 1u);
   }
 }
+
 faio::task<void> socket_ping(int fd, int peer_fd) {
   auto peer = faio::spawn(socket_echo(peer_fd, 100));
   char byte = 'x';
@@ -151,15 +175,21 @@ faio::task<void> socket_ping(int fd, int peer_fd) {
   }
   co_await peer;
 }
+
 struct sockets {
   int fds[2]{-1, -1};
+
   sockets() {
     if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0)
       throw std::runtime_error("socketpair");
   }
-  ~sockets() { ::close(fds[0]); ::close(fds[1]); }
+
+  ~sockets() {
+    ::close(fds[0]);
+    ::close(fds[1]);
+  }
 };
-}
+}  // namespace
 
 TEST(CurrentThreadRuntimeTest, DefaultModeIsMultiThreadWithoutSetter) {
   EXPECT_EQ(faio_test::config_builder().build()._mode, faio::runtime::mode::multi_thread);
@@ -248,7 +278,10 @@ TEST(CurrentThreadRuntimeTest, CompletionWithoutCoroutineWakeReleasesDriver) {
 
 TEST(CurrentThreadRuntimeTest, StopDrainsBlockingWorkWithoutAnyAsyncRoot) {
   context ctx{single_config()};
-  auto handle = ctx.submit_blocking([] { std::this_thread::sleep_for(2ms); return 42; });
+  auto handle = ctx.submit_blocking([] {
+    std::this_thread::sleep_for(2ms);
+    return 42;
+  });
   ctx.stop();
   EXPECT_EQ(handle.get(), 42);
   EXPECT_THROW(ctx.block_on(empty()), std::logic_error);
@@ -259,7 +292,8 @@ TEST(CurrentThreadRuntimeTest, LocalFifoGrowsWithoutDroppingOrReorderingTasks) {
   std::vector<int> order;
   ctx.block_on(grow_local_fifo(order));
   ASSERT_EQ(order.size(), 1024u);
-  for (int i = 0; i < 1024; ++i) EXPECT_EQ(order[i], i);
+  for (int i = 0; i < 1024; ++i)
+    EXPECT_EQ(order[i], i);
 }
 
 TEST(CurrentThreadRuntimeTest, ConcurrentDriversSerializeAndRestoreTls) {
@@ -267,12 +301,14 @@ TEST(CurrentThreadRuntimeTest, ConcurrentDriversSerializeAndRestoreTls) {
   std::atomic<int> completed{0};
   auto drive = [&] {
     for (int i = 0; i < 30; ++i) {
-      if (ctx.block_on(yielding_value()) == 42) ++completed;
+      if (ctx.block_on(yielding_value()) == 42)
+        ++completed;
       EXPECT_EQ(faio::runtime::detail::current_io_engine, nullptr);
     }
   };
   std::thread first(drive), second(drive);
-  first.join(); second.join();
+  first.join();
+  second.join();
   EXPECT_EQ(completed.load(), 60);
 }
 
@@ -285,9 +321,13 @@ TEST(CurrentThreadRuntimeTest, ExternalProducersDuringDriveDoNotLoseTasks) {
   };
   std::vector<std::thread> producers;
   for (int p = 0; p < 4; ++p)
-    producers.emplace_back([&] { for (int i = 0; i < 1000; ++i) ctx.submit(increment(finished)); });
+    producers.emplace_back([&] {
+      for (int i = 0; i < 1000; ++i)
+        ctx.submit(increment(finished));
+    });
   ctx.block_on(yielding_value());
-  for (auto& producer : producers) producer.join();
+  for (auto& producer : producers)
+    producer.join();
   ctx.stop();
   EXPECT_EQ(finished.load(), 4000);
 }
@@ -321,13 +361,13 @@ TEST(BlockingPoolTest, BurstReservesIdleWorkersAndReusesRetiredCapacity) {
       released = true;
     }
     cv.notify_all();
-    for (auto& future : futures) future.get();
-    std::this_thread::sleep_for(20ms); // Exercise timeout retirement and reaping.
+    for (auto& future : futures)
+      future.get();
+    std::this_thread::sleep_for(20ms);  // Exercise timeout retirement and reaping.
   }
   pool.close();
   EXPECT_THROW(pool.submit([] {}), std::logic_error);
 }
-
 
 namespace {
 /** @brief 重复短子任务必须共享调用链预算；异常和嵌套也不得重置剩余名额。 */
@@ -343,8 +383,7 @@ faio::task<void> spend_nested_child_budget() {
   co_await spend_child_budget(false);
 }
 
-faio::task<void> observe_budget_peer(const std::size_t &turns,
-                                    std::size_t &observed) {
+faio::task<void> observe_budget_peer(const std::size_t& turns, std::size_t& observed) {
   observed = turns;
   co_return;
 }
@@ -362,7 +401,7 @@ faio::task<std::size_t> child_budget_fairness(budget_child_path path) {
     } else {
       try {
         co_await spend_child_budget(path == budget_child_path::exception);
-      } catch (const std::runtime_error &) {
+      } catch (const std::runtime_error&) {
         // 异常路径继续 burst，已经消费的预算不能因 take_result 重抛而丢失。
       }
     }
@@ -372,7 +411,7 @@ faio::task<std::size_t> child_budget_fairness(budget_child_path path) {
   co_await peer;
   co_return observed_before_join;
 }
-} // namespace
+}  // namespace
 
 TEST(CurrentThreadRuntimeTest, OrdinaryChildTasksPreserveCooperativeFairness) {
   context ctx{single_config()};
@@ -395,20 +434,21 @@ TEST(CurrentThreadRuntimeTest, NestedChildTasksPreserveCooperativeFairness) {
   EXPECT_LT(observed, 256u);
 }
 
-
 namespace {
 /** @brief 转发到真实 runtime 的队列，仅计数显式/条件让出，测试不依赖队列先后或时钟。 */
 struct budget_forwarding_scheduler {
   faio::scheduler_ref target;
   std::atomic<unsigned> enqueued{0};
+
   void enqueue(std::coroutine_handle<> handle) {
     enqueued.fetch_add(1, std::memory_order_relaxed);
     target.schedule(handle);
   }
+
   /** @brief 透明转发让出入口，保持真实 runtime 的 FIFO 选择与新执行链边界。 */
   void enqueue_yield(std::coroutine_handle<> handle) {
     enqueued.fetch_add(1, std::memory_order_relaxed);
-    target.schedule_yield(handle); // 不能把公平让出降成普通 fast 入队。
+    target.schedule_yield(handle);  // 不能把公平让出降成普通 fast 入队。
   }
 };
 
@@ -416,15 +456,14 @@ struct budget_forwarding_scheduler {
 faio::task<bool> budget_refresh_after_real_scheduler_resume() {
   for (unsigned attempt = 0; attempt < 63; ++attempt)
     co_await spend_child_budget(false);
-  co_await faio::this_coro::yield(); // 真正进入 runtime 队列，必须开启新的 poll 预算。
+  co_await faio::this_coro::yield();  // 真正进入 runtime 队列，必须开启新的 poll 预算。
   co_await spend_child_budget(false);
   co_return true;
 }
-} // namespace
+}  // namespace
 
 TEST(CurrentThreadRuntimeTest, ActualSchedulerResumeRefreshesSharedBudgetInBothModes) {
-  for (const auto mode : {faio::runtime::mode::current_thread,
-                          faio::runtime::mode::multi_thread}) {
+  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
     context ctx{faio_test::config_builder().set_mode(mode).set_num_workers(1).build()};
     budget_forwarding_scheduler forwarder{ctx.scheduler()};
     auto operation = budget_refresh_after_real_scheduler_resume();

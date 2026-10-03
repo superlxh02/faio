@@ -45,6 +45,10 @@ def main():
     def applicable(path):
         relative = path.relative_to(faio_root).as_posix()
         invalid = (('/platform/windows_' in relative and system != 'Windows') or
+                   (relative.startswith('detail/fs/windows/') and system != 'Windows') or
+                   (system == 'Windows' and (relative.startswith('detail/net/unix/') or relative in {
+                       'detail/io/domain_posix.hpp', 'detail/io/platform/posix.hpp',
+                       'detail/io/platform/async_fd.hpp'})) or
                    ('/backends/epoll/' in relative and system != 'Linux') or
                    ('/backends/kqueue/' in relative and system not in {'Darwin', 'FreeBSD'}) or
                    ('/backends/uring/' in relative and (system != 'Linux' or not native_uring)) or
@@ -54,7 +58,7 @@ def main():
         return not invalid
 
     headers = sorted(p.relative_to(prefix / 'include').as_posix()
-                     for p in faio_root.rglob('*.hpp') if applicable(p))
+                     for p in faio_root.rglob('*') if p.is_file() and p.suffix in {'.hpp', '.h'} and applicable(p))
     if not headers:
         raise RuntimeError('no installed public headers')
     for index, header in enumerate(headers):
@@ -95,12 +99,15 @@ target_link_libraries(consumer PRIVATE faio::faio)
                 compiler = line.split('=', 1)[1];
                 break
     argv = ['cmake', '-S', str(source), '-B', str(work / 'build'), '-G', 'Ninja',
-            '-DCMAKE_PREFIX_PATH=' + str(prefix) + (';/opt/homebrew' if os.uname().sysname == 'Darwin' else '')]
+            '-DCMAKE_PREFIX_PATH=' + str(prefix) + (';/opt/homebrew' if system == 'Darwin' else ''),
+            # Microsoft STL 的迭代器 ABI/CRT 必须与刚安装的依赖库配置相同。
+            '-DCMAKE_BUILD_TYPE=' + next((line.split('=', 1)[1] for line in cache
+                                         if line.startswith('CMAKE_BUILD_TYPE:')), 'Release')]
     if compiler:
         argv.append('-DCMAKE_CXX_COMPILER=' + compiler)
     run(argv, repo)
     run(['cmake', '--build', str(work / 'build'), '-j4'], repo)
-    run([str(work / 'build/consumer')], repo)
+    run([str(work / 'build' / ('consumer.exe' if system == 'Windows' else 'consumer'))], repo)
     if system == 'Linux':
         run([str(work / 'build/consumer'), 'epoll'], repo)
         if native_uring:

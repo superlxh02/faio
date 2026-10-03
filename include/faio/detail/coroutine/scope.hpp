@@ -15,13 +15,14 @@ namespace detail {
 // 所有子任务只借用该状态；scope 排空子任务后才允许销毁这块存储。
 struct scope_state {
   // 初始化必须提供的两个借用入口；其他成员按各自默认值构造。
-  scope_state(scheduler_ref target, task_tracker *outer) noexcept
+  scope_state(scheduler_ref target, task_tracker* outer) noexcept
       : scheduler(target), tracker(outer) {}
+
   // 借用 scope 所属调度器，用于提交每个子任务，不拥有运行时。
   scheduler_ref scheduler;
   // 借用外层任务计数器，例如 block_on 的任务组；与本 scope 的 remaining
   // 分开计数。
-  ::faio::detail::task_tracker *tracker;
+  ::faio::detail::task_tracker* tracker;
   // 独立借用根任务计数服务，与纯调度引用分开保存。
   task_lifetime_ref lifetime{current_task_lifetime()};
   // 整个 scope 的停止源，向所有通过 scope.spawn 提交的孩子传播停止请求。
@@ -48,6 +49,7 @@ struct scope_state {
     // 向孩子发协作停止请求；这里不直接销毁孩子的协程帧。
     stop.request_stop();
   }
+
   // 归还一个孩子或 body 的计数；最后一个完成者发布整组完成事件。
   void done() {
     // 递减并汇合各完成者的写入；旧值为 1 表示这次递减后整组归零。
@@ -60,7 +62,7 @@ struct scope_state {
 // 将用户孩子包装成调度器拥有的根协程。
 // child 的所有权转入根帧；state 由正在等待排空的 scope 帧保证存活。
 template <class T>
-detached_task scope_child(task<T> child, scope_state *state) {
+detached_task scope_child(task<T> child, scope_state* state) {
   // 建立外层任务组，使孩子继续派生的根任务登记到正确 tracker。
   ::faio::detail::current_tracker = state->tracker;
   // 安装本 scope 的停止令牌，用户 task 在启动时继承它。
@@ -70,7 +72,7 @@ detached_task scope_child(task<T> child, scope_state *state) {
     co_await std::move(child);
   }
   // 区分兄弟失败导致的正常停止与未预期的独立取消。
-  catch (const operation_cancelled &) {
+  catch (const operation_cancelled&) {
     // scope 已发停止时不把取消当作新错误；否则将该取消作为本组失败记录。
     if (!state->stop.stop_requested())
       state->fail(std::current_exception());
@@ -82,25 +84,27 @@ detached_task scope_child(task<T> child, scope_state *state) {
   // 无论成功或已捕获的失败，都归还孩子计数；此后不再访问 state。
   state->done();
 }
-} // namespace detail
+}  // namespace detail
 
 // 提供给 body 的子任务组操作视图，只借用内部状态。
 // 仅通过此对象 spawn 的孩子参与 scope 自身的完成计数。
 class scope_context {
-public:
+ public:
   // 绑定正在执行的 scope 状态；引用不得逃逸到 scope 已完成之后。
-  explicit scope_context(detail::scope_state &state) noexcept
-      : state_(&state) {}
+  explicit scope_context(detail::scope_state& state) noexcept : state_(&state) {}
+
   // 禁止复制操作视图，避免无意扩散这个受作用域限制的借用。
-  scope_context(const scope_context &) = delete;
+  scope_context(const scope_context&) = delete;
+
   // 禁止复制赋值，视图始终对应构造时的 scope。
-  scope_context &operator=(const scope_context &) = delete;
+  scope_context& operator=(const scope_context&) = delete;
 
   // 子任务必须在 scope 结束前完成。失败会请求停止所有兄弟任务，
   // scope 等它们退出后才传播第一个异常，不留下引用已失效的后台任务。
   // 立即提交一个受本 scope 管理的孩子，消费 child 的帧所有权。
   // 提交失败会归还本组计数，并把错误抛给 body。
-  template <class T> void spawn(task<T> child) {
+  template <class T>
+  void spawn(task<T> child) {
     // 先创建惰性根包装；创建失败时尚未增加计数。
     auto root = detail::scope_child(std::move(child), state_);
     // 投递之前登记孩子，防止孩子执行过快导致计数遗漏。
@@ -110,8 +114,7 @@ public:
       state_->tracker->add();
     try {
       // 将根帧交给调度器；正常结束或提交失败时由根帧析构处理运行时登记。
-      start_detached(std::move(root), state_->scheduler, state_->tracker,
-                     state_->lifetime);
+      start_detached(std::move(root), state_->scheduler, state_->tracker, state_->lifetime);
     } catch (...) {
       // 根帧未执行协程体，需在失败分支手动归还本 scope 的孩子计数。
       state_->done();
@@ -119,16 +122,16 @@ public:
       throw;
     }
   }
+
   // 主动请求停止本组孩子；返回不代表孩子已经结束，scope 仍会排空。
   void request_stop() noexcept { state_->stop.request_stop(); }
-  // 取得本组停止令牌，允许 body 的其他操作显式观察停止状态。
-  std::stop_token stop_token() const noexcept {
-    return state_->stop.get_token();
-  }
 
-private:
+  // 取得本组停止令牌，允许 body 的其他操作显式观察停止状态。
+  std::stop_token stop_token() const noexcept { return state_->stop.get_token(); }
+
+ private:
   // 借用 scope 帧中的状态，不分配内存，也不延长其生命周期。
-  detail::scope_state *state_;
+  detail::scope_state* state_;
 };
 
 // body(scope_context&) 返回 task<T>。body 返回后仍等待其启动的所有子任务；
@@ -136,10 +139,9 @@ private:
 // 构造惰性的结构化作用域任务；F 按值保存在 scope 帧中。
 // 只有 co_await/block_on 启动它后才调用 body(context)，排空后返回 body 的结果。
 template <class F>
-auto scope(F body)
-    -> task<typename std::invoke_result_t<F &, scope_context &>::value_type> {
+auto scope(F body) -> task<typename std::invoke_result_t<F&, scope_context&>::value_type> {
   // 从 body 返回的 task 中推导结果类型，支持 void。
-  using T = typename std::invoke_result_t<F &, scope_context &>::value_type;
+  using T = typename std::invoke_result_t<F&, scope_context&>::value_type;
   // 查询本作用域的调度器，所有孩子均提交到该运行时。
   auto scheduler = co_await this_coro::scheduler();
   // 查询外层停止令牌，后续转发到本组独立的停止源。
@@ -160,9 +162,8 @@ auto scope(F body)
     // body 与孩子使用同一 scope 停止源。独立根包装负责继承该 token，
     // 否则 body 会只继承父任务 token，孩子失败无法取消正在等待的 body。
     auto body_task = std::invoke(body, context);
-    join_handle<T> body_handle{
-        detail::start_observed(scheduler, std::move(body_task), state.tracker,
-                               state.stop.get_token(), state.lifetime)};
+    join_handle<T> body_handle{detail::start_observed(
+        scheduler, std::move(body_task), state.tracker, state.stop.get_token(), state.lifetime)};
     if constexpr (std::is_void_v<T>) {
       // JoinHandle 即使已请求停止仍等到 body 真实结束，保持 context 借用安全。
       co_await body_handle;
@@ -190,5 +191,5 @@ auto scope(F body)
   else
     co_return std::move(*result);
 }
-} // namespace faio
+}  // namespace faio
 #endif

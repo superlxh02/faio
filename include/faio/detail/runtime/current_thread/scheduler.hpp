@@ -13,11 +13,10 @@
 #include <vector>
 
 namespace faio::runtime::detail {
-
 // 只有驱动线程访问 local_ 和 incoming_；生产者持有 mutex_ 后才能访问 remote_。
 // 通过交换队列批量接收跨线程任务，避免每次恢复任务都获取互斥锁。
 class current_thread_scheduler {
-public:
+ public:
   void enqueue(std::coroutine_handle<> task) {
     if (on_driver()) {
       enqueue_ready(task);
@@ -57,11 +56,10 @@ public:
   }
 
   bool has_ready() const noexcept {
-    return size_ != 0 || !incoming_.empty() ||
-           remote_pending_.load(std::memory_order_acquire);
+    return size_ != 0 || !incoming_.empty() || remote_pending_.load(std::memory_order_acquire);
   }
 
-  void set_waker(io_engine *engine) {
+  void set_waker(io_engine* engine) {
     std::lock_guard lock(mutex_);
     waker_ = engine;
   }
@@ -76,10 +74,12 @@ public:
     sleeping_.exchange(true, std::memory_order_acq_rel);
     return true;
   }
+
   void finish_sleep() {
     std::lock_guard lock(mutex_);
     sleeping_.store(false, std::memory_order_release);
   }
+
   // 未被等待的阻塞任务可能只更新完成计数，而不向就绪队列加入协程。
   void notify_completion() noexcept {
     if (on_driver() || !sleeping_.exchange(false, std::memory_order_acq_rel))
@@ -88,25 +88,26 @@ public:
     if (waker_)
       waker_->wake_up();
   }
+
   void close() {
     std::lock_guard lock(mutex_);
     closed_ = true;
     waker_ = nullptr;
   }
 
-private:
+ private:
   bool on_driver() noexcept {
-    const auto *binding = ::faio::detail::current_execution_thread;
-    return binding && binding->local_state_for<current_thread_scheduler>(
-                          scheduler_ref{*this});
+    const auto* binding = ::faio::detail::current_execution_thread;
+    return binding && binding->local_state_for<current_thread_scheduler>(scheduler_ref{*this});
   }
+
   void notify_locked() noexcept {
     if (sleeping_.load(std::memory_order_relaxed) && waker_) {
-      sleeping_.store(
-          false, std::memory_order_release); // 合并下一次休眠前的重复唤醒。
+      sleeping_.store(false, std::memory_order_release);  // 合并下一次休眠前的重复唤醒。
       waker_->wake_up();
     }
   }
+
   std::optional<std::coroutine_handle<>> pop_remote() {
     if (incoming_.empty()) {
       if (!remote_pending_.load(std::memory_order_acquire))
@@ -122,19 +123,18 @@ private:
     return task;
   }
 
-  std::vector<std::coroutine_handle<>> local_ =
-      std::vector<std::coroutine_handle<>>(64);
+  std::vector<std::coroutine_handle<>> local_ = std::vector<std::coroutine_handle<>>(64);
   std::size_t head_{};
   std::size_t size_{};
   std::deque<std::coroutine_handle<>> incoming_;
   std::mutex mutex_;
   std::deque<std::coroutine_handle<>> remote_;
   std::atomic<bool> remote_pending_{false};
-  io_engine *waker_{}; // 所有结果发布者退出后才能清空。
+  io_engine* waker_{};  // 所有结果发布者退出后才能清空。
   std::atomic<bool> sleeping_{false};
   bool closed_{};
 };
-static_assert(coroutine_scheduler<current_thread_scheduler>);
 
-} // namespace faio::runtime::detail
+static_assert(coroutine_scheduler<current_thread_scheduler>);
+}  // namespace faio::runtime::detail
 #endif

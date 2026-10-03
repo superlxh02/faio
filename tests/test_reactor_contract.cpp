@@ -28,10 +28,10 @@ using faio::io::detail::readiness_event;
 /** @brief 只用于测试的描述符所有者；资源销毁晚于 reactor.detach。 */
 struct descriptor_pair {
   std::array<int, 2> fds{-1, -1};
+
   explicit descriptor_pair(bool pipe = false) {
-    const auto result = pipe
-                            ? ::pipe(fds.data())
-                            : ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
+    const auto result =
+        pipe ? ::pipe(fds.data()) : ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds.data());
     if (result < 0)
       throw std::system_error(errno, std::generic_category());
     for (const int fd : fds) {
@@ -39,8 +39,11 @@ struct descriptor_pair {
         throw std::system_error(errno, std::generic_category());
     }
   }
-  descriptor_pair(const descriptor_pair &) = delete;
-  descriptor_pair &operator=(const descriptor_pair &) = delete;
+
+  descriptor_pair(const descriptor_pair&) = delete;
+
+  descriptor_pair& operator=(const descriptor_pair&) = delete;
+
   ~descriptor_pair() {
     for (const int fd : fds)
       if (fd >= 0)
@@ -49,21 +52,20 @@ struct descriptor_pair {
 };
 
 /** @brief 等待指定token的指定方向；读/写独立事件不要求合并在同一元素。 */
-bool wait_flag(faio::io::detail::reactor_box &reactor, std::uint64_t key,
-               std::uint32_t flags) {
+bool wait_flag(faio::io::detail::reactor_box& reactor, std::uint64_t key, std::uint32_t flags) {
   std::array<readiness_event, 16> events{};
   for (int attempt = 0; attempt < 5; ++attempt) {
     const int count = reactor.poll(events, 100);
     if (count < 0)
       return false;
     for (int i = 0; i < count; ++i)
-      if (events[static_cast<std::size_t>(i)].key == key &&
-          (events[static_cast<std::size_t>(i)].flags & flags))
+      if (events[static_cast<std::size_t>(i)].key == key
+          && (events[static_cast<std::size_t>(i)].flags & flags))
         return true;
   }
   return false;
 }
-} // namespace
+}  // namespace
 
 TEST(ReactorContract, EmptyOutputIsNonBlockingNoOp) {
   auto reactor = faio::io::detail::make_platform_reactor();
@@ -96,8 +98,7 @@ TEST(ReactorContract, ControlWakeInterruptsWaitingDriver) {
   EXPECT_TRUE(control);
 }
 
-TEST(ReactorContract,
-     StableSocketRegistrationReportsBothDirectionsAndHalfClose) {
+TEST(ReactorContract, StableSocketRegistrationReportsBothDirectionsAndHalfClose) {
   descriptor_pair pair;
   auto reactor = faio::io::detail::make_platform_reactor();
   constexpr std::uint64_t generation = 0x1'0000'0001ULL;
@@ -125,8 +126,7 @@ TEST(ReactorContract, ReadOnlyPipeRegistrationDoesNotRequireWriteFilter) {
   reactor.detach(pair.fds[0]);
 }
 
-TEST(ReactorContract,
-     InvalidDescriptorFailsWithoutPreventingLaterRegistration) {
+TEST(ReactorContract, InvalidDescriptorFailsWithoutPreventingLaterRegistration) {
   auto reactor = faio::io::detail::make_platform_reactor();
   EXPECT_LT(reactor.attach(-1, 1), 0);
   descriptor_pair pair;
@@ -174,15 +174,14 @@ TEST(ReactorContract, SingleEventOutputEventuallyReportsEveryReadyResource) {
   }
   std::set<std::uint64_t> observed;
   std::array<readiness_event, 1> event{};
-  for (std::size_t attempt = 0; attempt < count * 4 && observed.size() < count;
-       ++attempt) {
+  for (std::size_t attempt = 0; attempt < count * 4 && observed.size() < count; ++attempt) {
     ASSERT_GE(reactor.poll(event, 20), 0);
     if (event[0].key && (event[0].flags & faio::io::detail::readable_bit))
       observed.insert(event[0].key);
     event[0] = {};
   }
   EXPECT_EQ(observed.size(), count);
-  for (auto &pair : pairs)
+  for (auto& pair : pairs)
     reactor.detach(pair->fds[0]);
 }
 
@@ -195,8 +194,7 @@ TEST(ReactorContract, HalfCloseRetainsUnreadPayload) {
   ASSERT_EQ(::write(pair.fds[1], bytes.data(), bytes.size()), 4);
   ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);
   EXPECT_TRUE(
-      wait_flag(reactor, 33,
-                faio::io::detail::readable_bit | faio::io::detail::closed_bit));
+      wait_flag(reactor, 33, faio::io::detail::readable_bit | faio::io::detail::closed_bit));
   std::array<char, 4> received{};
   EXPECT_EQ(::read(pair.fds[0], received.data(), received.size()), 4);
   EXPECT_EQ(received, bytes);
@@ -215,13 +213,13 @@ TEST(ReactorContract, LocalWriteShutdownDoesNotInventReadReadiness) {
   constexpr std::uint64_t generation = 47;
   ASSERT_EQ(reactor.attach(pair.fds[0], generation), 0);
   ASSERT_TRUE(wait_flag(reactor, generation, faio::io::detail::writable_bit));
-  ASSERT_EQ(::shutdown(pair.fds[0], SHUT_WR), 0); // 本地读方向仍然开放。
+  ASSERT_EQ(::shutdown(pair.fds[0], SHUT_WR), 0);  // 本地读方向仍然开放。
   std::array<readiness_event, 16> events{};
   for (unsigned attempt = 0; attempt < 4; ++attempt) {
-    const int count = reactor.poll(events, 10); // 每次等待均有明确上限。
+    const int count = reactor.poll(events, 10);  // 每次等待均有明确上限。
     ASSERT_GE(count, 0);
     for (int index = 0; index < count; ++index) {
-      const auto &event = events[static_cast<std::size_t>(index)];
+      const auto& event = events[static_cast<std::size_t>(index)];
       if (event.key != generation)
         continue;
       EXPECT_EQ(event.flags & faio::io::detail::readable_bit, 0u);
@@ -239,9 +237,8 @@ TEST(ReactorContract, LocalWriteShutdownDoesNotInventReadReadiness) {
   ASSERT_TRUE(wait_flag(reactor, generation, faio::io::detail::readable_bit));
   ASSERT_EQ(::recv(pair.fds[0], &received, 1, MSG_DONTWAIT), 1);
   EXPECT_EQ(received, sent);
-  ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0); // peer 写关闭才产生读 EOF。
-  EXPECT_TRUE(
-      wait_flag(reactor, generation, faio::io::detail::read_closed_bit));
+  ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);  // peer 写关闭才产生读 EOF。
+  EXPECT_TRUE(wait_flag(reactor, generation, faio::io::detail::read_closed_bit));
   EXPECT_EQ(::recv(pair.fds[0], &received, 1, MSG_DONTWAIT), 0);
   reactor.detach(pair.fds[0]);
 }

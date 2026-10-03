@@ -2,11 +2,11 @@
 
 **简体中文** | [English](README_EN.md)
 
-faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平台覆盖 Linux（io_uring/epoll 双后端）、macOS（kqueue）与 Windows（原生 IOCP 框架）；功能涵盖协程任务与同步原语、单/多线程运行时、TCP/UDP/Unix 网络、定时器，以及原生异步文件 I/O（无原生支持的操作由独立有界服务回退执行）。库以头文件形式提供，采用 [Apache-2.0](LICENSE) 开源许可证。
+faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平台覆盖 Linux（io_uring/epoll 双后端）、macOS（kqueue）与 Windows（原生 IOCP/OVERLAPPED）；功能涵盖协程任务与同步原语、单/多线程运行时、TCP/UDP 网络、Unix 平台网络扩展、定时器，以及原生异步文件 I/O（无原生支持的操作由独立有界服务回退执行）。库以头文件形式提供，采用 [Apache-2.0](LICENSE) 开源许可证。
 
 在 faio 中，异步流程以同步方式书写：协程等待 I/O、定时器或同步原语时挂起并让出工作线程，完成事件到达后由运行时恢复。uring 支持的文件操作提交原生 SQE，其余由独立有界服务执行，worker 全程不阻塞，适用于高并发网络服务、异步任务处理与通用协程并发程序。
 
-[功能](#功能) · [特点](#特点) · [简单示例](#简单示例) · [环境](#环境) · [集成](#集成) · [文档](#文档)
+[功能](#功能) · [特点](#特点) · [简单示例](#简单示例) · [环境](#环境) · [三方库集成](#三方库集成) · [源码编译](#源码编译) · [集成](#集成) · [文档](#文档)
 
 ## 功能
 
@@ -130,20 +130,123 @@ int main() {
 
 默认运行时在首次使用时启动，可用 `faio::runtime::configure()` 在首次使用前调整线程数等参数。完整示例按学习场景组织：[协程基础与并发](examples/coroutine_basics.cpp)、[协程同步](examples/coroutine_sync.cpp)、[简单 TCP 服务](examples/tcp_echo_server.cpp)、[简单 UDP 服务](examples/udp_echo_server.cpp)、[TCP 共享计数器应用](examples/tcp_counter_server.cpp)、[阻塞线程池](examples/blocking_thread_pool.cpp)、[单线程 TCP 服务](examples/tcp_echo_server_single_thread.cpp) 和 [文件与目录操作](examples/file_and_directory.cpp)。详细中文讲解、协议和运行步骤见 [示例指南](examples/README.md)。
 
-默认使用多线程模式，配置时无需调用 `set_mode()`。若希望由调用 `block_on` 的线程驱动协程，可在首次使用前设置 `faio::config_builder{}.set_mode(faio::runtime::mode::current_thread).build()` 并传给 `faio::runtime::configure()`，完整程序见 [单线程 TCP 示例](examples/tcp_echo_server_single_thread.cpp)。单线程模式不创建后台协程 worker；没有调用 `block_on` 时，提交的异步任务暂不推进，队列、定时器和在途 I/O 会保留到下一次驱动。`block_on` 等待本次任务组完成，独立提交的后台任务不会延长它的等待。`spawn_blocking` 仍使用独立的阻塞线程池，参见 [阻塞任务示例](examples/blocking_thread_pool.cpp)。调度取舍、性能实测和复现方法见 [单线程运行时性能](docs/单线程运行时性能.md)。
+默认使用多线程模式，配置时无需调用 `set_mode()`。若希望由调用 `block_on` 的线程驱动协程，可在首次使用前设置 `faio::config_builder{}.set_mode(faio::runtime::mode::current_thread).build()` 并传给 `faio::runtime::configure()`，完整程序见 [单线程 TCP 示例](examples/tcp_echo_server_single_thread.cpp)。单线程模式不创建后台协程 worker；没有调用 `block_on` 时，提交的异步任务暂不推进，队列、定时器和在途 I/O 会保留到下一次驱动。`block_on` 等待本次任务组完成，独立提交的后台任务不会延长它的等待。`spawn_blocking` 仍使用独立的阻塞线程池，参见 [阻塞任务示例](examples/blocking_thread_pool.cpp)。单线程模式的调度实现与多线程模式的差异见 [异步运行时](docs/异步运行时.md)。
 
-日志默认以 `info` 级别输出到 stderr，包含时间、级别和线程 ID；级别与输出配置见 [运行时日志说明](docs/异步运行时.md#6-诊断日志)。
+日志默认以 `info` 级别输出到 stderr，包含时间、级别和线程 ID；级别与输出配置见 [运行时日志说明](docs/异步运行时.md#7-诊断日志)。
 
 ## 环境
 
 | 项目 | 要求 |
 | --- | --- |
-| 操作系统 | Linux io_uring/epoll、macOS kqueue；Windows仅原生IOCP框架 |
-| 编译器与标准库 | 支持 C++23，包括协程、`std::expected` 和 `std::format`；验证工具链为 Linux Clang 22.1.2、macOS Homebrew Clang 23（/opt/homebrew/opt/llvm） |
+| C++ 标准 | **C++23**：需要协程、`std::expected` 和 `std::format`；`faio::faio` 目标向消费方传递 `cxx_std_23`，CMake 配置期会实际编译检查这三项能力 |
+| 编译器 — macOS | Homebrew LLVM **Clang ≥ 22**（`brew install llvm`，当前验证为 Clang 23，路径 `/opt/homebrew/opt/llvm`）；系统 AppleClang 的标准库不满足要求，配置期会给出明确错误 |
+| 编译器 — Windows | **MSVC**（验证为 Visual Studio 18 的 MSVC 19.51）、**clang-cl**（验证为 LLVM Clang 22.1.0，使用 Microsoft STL 与 MSVC ABI）、**MinGW-w64**（验证为 MSYS2 UCRT64 GCC 16.2.0-4；必须 native TLS，emutls 工具链会在配置期被拒绝） |
+| 编译器 — Linux | **Clang ≥ 22**（验证为 Ubuntu Clang 22.1.2，搭配 libstdc++ 15）或 **GCC**；GCC 必须包含[协程构造异常清理修复](https://github.com/gcc-mirror/gcc/commit/5422486d4bc728688dd2c874cb014fadf745b2da)——GCC 15.2.0-16ubuntu1 在帧内参数复制或移动抛异常时实测泄漏协程帧，不能作为完整异常安全的工具链 |
 | 构建工具 | CMake 3.20+；预设使用 Ninja |
-| 库依赖 | spdlog、线程库；Linux默认双后端需liburing，epoll-only构建不需要 |
-| 可选开发依赖 | 单元测试使用 GoogleTest；TCP 性能对照使用 standalone Asio |
+| 三方库 | spdlog（必需的公开链接依赖）、线程库；liburing（仅 Linux io_uring 后端需要，epoll-only 构建不需要） |
+| 可选开发依赖 | 单元测试使用 GoogleTest；TCP 性能对照 benchmark 使用 standalone Asio |
 | 可选性能工具 | Rust / Cargo、wrk、Python 3 及 numpy / pandas / matplotlib，详见 [benchmark](benchmark/README.md) |
+
+平台 I/O 后端：Linux 为 io_uring/epoll 双后端（默认构建两者，运行 Linux 5.10 及更新内核时默认 io_uring），macOS 为 kqueue，Windows 为原生 IOCP/OVERLAPPED（构建目标 Windows 10/11 x64，导出 `_WIN32_WINNT=0x0A00`）。
+
+## 三方库集成
+
+faio 是头文件库，第三方依赖只在构建期需要；**CMake 配置期不联网下载**，依赖必须以下列方式之一预先提供：
+
+| 方式 | 适用场景 | 做法 |
+| --- | --- | --- |
+| **vcpkg 清单** | 跨平台统一管理依赖 | 仓库根目录附带 `vcpkg.json` 清单（spdlog、gtest、asio、liburing[linux]）。`vcpkg install` 后配置时传入 `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake` |
+| **系统包 / 已安装包** | Linux、macOS 默认 | apt / brew 或自行编译安装的依赖经 `find_package(... CONFIG)` 查找；非标准安装前缀用 `-DCMAKE_PREFIX_PATH=...` 指定。对应 `FAIO_USE_WORKSPACE_DEPS=OFF`（非 Windows 默认值） |
+| **固定版本源码** | Windows 默认 | `scripts/bootstrap_windows.ps1` 按 `scripts/windows-dependencies.json` 固定的版本、归档 URL 和 SHA256 下载并校验 spdlog 1.15.3、GoogleTest 1.17.0、Asio 1.36.0，解压到仓库相邻的 `faio-deps/`；CMake 经 `add_subdirectory` 用当前工具链重新编译（`FAIO_USE_WORKSPACE_DEPS=ON`，Windows 默认值），每个构建目录使用自己的编译器，避免混用 MSVC 与 MinGW 的 ABI |
+
+补充说明：
+
+- liburing 由 `cmake/FindLiburing.cmake` 查找，同时检查头文件、库及所需 API 的编译链接能力，并提供 `Liburing::Liburing` 导入目标。
+- spdlog 是 `faio::faio` 的公开链接依赖（`target_link_libraries(faio INTERFACE ... spdlog::spdlog)`），消费方链接 `faio::faio` 后无需手工处理。
+- GoogleTest 与 Asio 分别由测试和 benchmark 子目录按需查找，只构建库本身时不参与配置。
+- 固定源码缓存位置可用 `-DFAIO_DEPENDENCY_ROOT=` 覆盖（默认为仓库相邻的 `faio-deps`）。
+
+## 源码编译
+
+四个构建开关 `FAIO_BUILD_EXAMPLES`、`FAIO_BUILD_TESTS`、`FAIO_BUILD_BENCHMARKS`、`FAIO_INSTALL` 默认均为 `ON`。`CMakePresets.json` 提供 Windows 的 `windows-msvc`、`windows-clang`、`windows-mingw`、`windows-clang-asan`，Linux 的 `linux-clang22-dual`、`linux-clang22-epoll`，以及 macOS 的 `macos-clang23`；除 Linux 双后端测试使用两个专用名称外，configure、build 和 test 均使用同名预设。自定义 Debug、Docker 或 vcpkg 构建可用 `cmake -S . -B <构建目录>` 显式指定参数。
+
+### Windows（MSVC / clang-cl / MinGW-w64）
+
+PowerShell 中先准备固定版本依赖与工具链，再选择编译器构建：
+
+```powershell
+./scripts/bootstrap_windows.ps1           # 首次：下载固定依赖与 MSYS2 UCRT64 MinGW 工具链（-Offline 验证离线缓存）
+. ./scripts/windows_environment.ps1 msvc  # 或 clang / mingw
+cmake --preset windows-msvc               # 或 windows-clang / windows-mingw
+cmake --build --preset windows-msvc
+ctest --preset windows-msvc
+./build/windows-msvc/examples/coroutine_basics.exe
+```
+
+完整三编译器矩阵（构建、测试、安装包头文件独立编译与双翻译单元消费验证）使用 `./scripts/build_windows.ps1 -Offline`，日志保存到 `build/windows-matrix`。
+
+MinGW 要点：工具链必须采用 native TLS（MSYS2 GCC 16 起），CMake 会实际生成汇编验证并拒绝 emutls；MinGW GCC 的[多翻译单元 TLS 缺陷](https://sourceforge.net/p/mingw-w64/bugs/994/)由仅 Windows GCC 启用的编译 launcher 在对象编译成功后精确局部化一个内部初始化 alias，该适配需要 Python 3 与 MinGW 的 nm/objcopy，且不支持 GCC LTO（项目 Release 默认关闭 LTO）。MinGW 可执行程序运行时需要 `faio-deps/tools/msys2-ucrt64/ucrt64/bin` 的同发行版 DLL，环境脚本已将该目录加入当前进程 PATH。
+
+clang-cl 的 AddressSanitizer 验证使用独立预设，对 faio 消费目标、spdlog 和 GoogleTest 一起启用检测：
+
+```powershell
+. ./scripts/windows_environment.ps1 clang
+cmake --preset windows-clang-asan
+cmake --build --preset windows-clang-asan
+ctest --preset windows-clang-asan
+```
+
+### Linux（Clang / GCC）
+
+在已安装 Clang 22 及 C++23 标准库的 Linux 环境中，使用系统包安装依赖。以下命令以 Ubuntu 开发环境为例：
+
+```bash
+sudo apt-get install cmake ninja-build liburing-dev libspdlog-dev
+
+git clone https://github.com/superlxh02/faio.git
+cd faio
+cmake --preset linux-clang22-dual
+cmake --build --preset linux-clang22-dual -j4
+./build/linux-clang22-dual/examples/coroutine_basics
+```
+
+双后端为同一个构建，分别用两个测试预设运行，无需重新编译：
+
+```bash
+ctest --preset linux-clang22-dual-epoll
+ctest --preset linux-clang22-dual-uring
+```
+
+无需 liburing 时改用 `linux-clang22-epoll` 预设（测试预设同名）。启用完整开发构建（测试与 benchmark）需再安装 GoogleTest 和 standalone Asio：
+
+```bash
+sudo apt-get install libgtest-dev libasio-dev
+```
+
+GCC 工具链的版本要求见[环境](#环境)一节。
+
+**Docker 一键构建**：不准备本地工具链时，可以用 Docker 一次完成编译与测试（构建上下文为仓库根目录）：
+
+```bash
+docker build -f docker/build.dockerfile -t faio:build .
+docker run --rm --security-opt seccomp=unconfined faio:build \
+  ctest --test-dir build --output-on-failure
+```
+
+`seccomp=unconfined` 允许测试和示例调用 io_uring；分层环境镜像、构建参数（`DEV_IMAGE`、`CMAKE_BUILD_TYPE`、`BUILD_JOBS`）与挂载工作目录开发的用法见 [docker/README.md](docker/README.md)。
+
+### macOS（Homebrew Clang）
+
+```bash
+brew install llvm cmake ninja spdlog googletest
+
+cmake --preset macos-clang23
+cmake --build --preset macos-clang23 -j4
+ctest --preset macos-clang23
+./build/macos-clang23/examples/coroutine_basics
+```
+
+预设选择 `/opt/homebrew/opt/llvm/bin/clang++`，并以 `/opt/homebrew` 为依赖查找前缀；只构建库时可关闭测试与 benchmark，不安装 GoogleTest 和 Asio。
 
 ## 集成
 
@@ -184,36 +287,7 @@ find_package(faio CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-配置应用时传入 `-DCMAKE_PREFIX_PATH=/path/to/faio-install`，并确保 spdlog 与线程库可用。
-
-### 构建示例与测试
-
-macOS 使用 `cmake --preset macos-clang23` 选择 Homebrew Clang 23，随后使用同名 build/test preset。Linux Clang 22 双后端使用 `linux-clang22-dual` configure/build preset，分别使用 `linux-clang22-dual-epoll` / `linux-clang22-dual-uring` 测试；无需 liburing 时使用 `linux-clang22-epoll`。非系统依赖安装目录通过 `CMAKE_PREFIX_PATH` 指定。
-
-GCC 工具链需要包含[协程构造异常清理修复](https://github.com/gcc-mirror/gcc/commit/5422486d4bc728688dd2c874cb014fadf745b2da)。GCC 15.2.0-16ubuntu1 在帧内参数复制或移动抛异常时实测泄漏协程帧，不能作为完整异常安全的工具链。原 `linux-dual` / `linux-epoll` GCC 预设仍可用于包含此修复的编译器。
-
-在具备 C++23 编译器的 Linux 环境中，使用系统包安装依赖。以下命令以 Ubuntu 开发环境为例：
-
-```bash
-sudo apt-get install g++ cmake ninja-build liburing-dev libspdlog-dev
-
-git clone https://github.com/superlxh02/faio.git
-cd faio
-cmake --preset release -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
-cmake --build --preset release -j4
-./build/examples/coroutine_basics
-```
-
-三个构建开关默认均为 `ON`。启用完整开发构建时，再安装 GoogleTest 和 standalone Asio：
-
-```bash
-sudo apt-get install libgtest-dev libasio-dev
-cmake --preset debug
-cmake --build --preset debug -j4
-ctest --preset debug
-```
-
-`CMakePresets.json` 提供 `debug`、`release` 及对应的 vcpkg 预设。使用 vcpkg 时设置 `VCPKG_ROOT`，再选择 `vcpkg-debug` 或 `vcpkg-release`；清单包含库与开发构建的依赖。
+配置应用时传入 `-DCMAKE_PREFIX_PATH=/path/to/faio-install`，并确保 spdlog 与线程库可用。以源码编译方式构建本仓库的示例与测试见上文[源码编译](#源码编译)。
 
 ## 文档
 
@@ -225,7 +299,7 @@ ctest --preset debug
 | [协程并发](docs/协程并发.md) | spawn / block_on、join_handle、join / select / scope 的完成边界 |
 | [协程同步](docs/协程同步.md) | 等待节点协议、互斥锁、条件变量、信号量、闩、屏障与 MPSC |
 | [异步运行时](docs/异步运行时.md) | 运行时组件、协程调度、I/O 驱动、启动与关闭流程 |
-| [异步 I/O](docs/异步IO.md) | uring 原生完成、epoll/kqueue、文件服务、缓冲与组合 IO、取消及生命周期 |
+| [异步 I/O](docs/异步IO.md) | uring 原生完成、epoll/kqueue、Windows IOCP 后端、文件服务、缓冲与组合 IO、取消及生命周期 |
 | [网络 I/O](docs/网络IO.md) | TCP / UDP 接口的 Mixin 与 CRTP 设计及关键源码 |
 | [定时器](docs/定时器.md) | 多级时间轮、休眠、周期 tick 与 I/O 超时 |
 

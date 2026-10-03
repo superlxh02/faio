@@ -24,54 +24,56 @@ namespace faio::runtime::detail::timer {
 // 每个非底层时间轮的槽位存储一个子时间轮指针。
 // 使用 bitmap (_slot_map) 加速非空槽位查找。
 // =========================================================================
-template <std::size_t LEVEL> class TimerWheel {
-  static_assert(
-      LEVEL >= 1,
-      "LEVEL must be >= 1, use TimerWheel<0> specialization for level 0");
+template <std::size_t LEVEL>
+class TimerWheel {
+  static_assert(LEVEL >= 1, "LEVEL must be >= 1, use TimerWheel<0> specialization for level 0");
 
-public:
-  using child_wheel = TimerWheel<LEVEL - 1>;            // 子时间轮类型
-  using child_wheel_ptr = std::unique_ptr<child_wheel>; // 子时间轮指针
+ public:
+  using child_wheel = TimerWheel<LEVEL - 1>;             // 子时间轮类型
+  using child_wheel_ptr = std::unique_ptr<child_wheel>;  // 子时间轮指针
 
   // 子层级一个完整轮的时间跨度（ms），等于 64^LEVEL
-  static constexpr std::size_t CHILD_SPAN_MS =
-      util::static_pow(SLOT_SIZE, LEVEL);
+  static constexpr std::size_t CHILD_SPAN_MS = util::static_pow(SLOT_SIZE, LEVEL);
   // 当前层级整个时间轮的总跨度（ms），等于 64^(LEVEL+1)
-  static constexpr std::size_t SPAN_MS =
-      util::static_pow(SLOT_SIZE, LEVEL + 1uz);
+  static constexpr std::size_t SPAN_MS = util::static_pow(SLOT_SIZE, LEVEL + 1uz);
   // CHILD_SPAN_MS 的移位量：log2(CHILD_SPAN_MS) = SLOT_SHIFT * LEVEL
   static constexpr std::size_t CHILD_SHIFT = SLOT_SHIFT * LEVEL;
   // CHILD_SPAN_MS 的掩码：CHILD_SPAN_MS - 1
   static constexpr std::size_t CHILD_MASK = CHILD_SPAN_MS - 1uz;
 
-public:
+ public:
   TimerWheel() = default;
 
   /// 由一个已有的子时间轮升级构造
   /// @param child 要放入第0号槽位的子时间轮
-  explicit TimerWheel(child_wheel_ptr &&child) : _slot_map(1ull) {
+  explicit TimerWheel(child_wheel_ptr&& child) : _slot_map(1ull) {
     _wheels_slots[0] = std::move(child);
   }
 
   ~TimerWheel() = default;
 
-  TimerWheel(const TimerWheel &) = delete;
-  TimerWheel &operator=(const TimerWheel &) = delete;
-  TimerWheel(TimerWheel &&) = default;
-  TimerWheel &operator=(TimerWheel &&) = default;
+  TimerWheel(const TimerWheel&) = delete;
 
-public:
+  TimerWheel& operator=(const TimerWheel&) = delete;
+
+  TimerWheel(TimerWheel&&) = default;
+
+  TimerWheel& operator=(TimerWheel&&) = default;
+
+ public:
   /// 添加定时器任务到合适的子时间轮槽位
   /// @param task 待添加的定时器任务
   /// @param interval 距当前位置的时间间隔（ms）
-  void add_task(std::unique_ptr<TimerTask> &&task, std::size_t interval) {
+  void add_task(std::unique_ptr<TimerTask>&& task, std::size_t interval) {
     // 计算任务应该落在哪个槽位（右移代替除法）
     auto slot_idx = interval >> CHILD_SHIFT;
     if (slot_idx >= SLOT_SIZE) {
       faio::log::logger()->error(
           "TimerWheel<{}>::add_task: interval {} exceeds wheel span, "
           "slot_idx={}, clamping to last slot",
-          LEVEL, interval, slot_idx);
+          LEVEL,
+          interval,
+          slot_idx);
       slot_idx = SLOT_SIZE - 1;
     }
 
@@ -104,12 +106,11 @@ public:
   /// 从子时间轮中移除定时器任务
   /// @param task 待移除的任务指针
   /// @param interval 任务所在的时间间隔
-  void remove_task(TimerTask *task, std::size_t interval) {
+  void remove_task(TimerTask* task, std::size_t interval) {
     auto slot_idx = interval >> CHILD_SHIFT;
     if (slot_idx >= SLOT_SIZE || _wheels_slots[slot_idx] == nullptr) {
       faio::log::logger()->warn(
-          "TimerWheel<{}>::remove_task: invalid slot {} or empty child wheel",
-          LEVEL, slot_idx);
+          "TimerWheel<{}>::remove_task: invalid slot {} or empty child wheel", LEVEL, slot_idx);
       return;
     }
 
@@ -128,8 +129,7 @@ public:
   /// @param count 已处理任务计数（累加）
   /// @param remaining_ms 剩余需要处理的毫秒数
   template <ready_sink sink_type>
-  void handle_expired_tasks(sink_type &sink, std::size_t &count,
-                            std::size_t remaining_ms) {
+  void handle_expired_tasks(sink_type& sink, std::size_t& count, std::size_t remaining_ms) {
     if (_slot_map == 0 || remaining_ms == 0) {
       return;
     }
@@ -152,8 +152,7 @@ public:
     // 处理部分到期的槽位（第 full_slots 个槽位可能只有部分到期）
     if (partial_remaining > 0 && full_slots < SLOT_SIZE) {
       if ((_slot_map & (1ull << full_slots)) != 0) {
-        _wheels_slots[full_slots]->handle_expired_tasks(sink, count,
-                                                        partial_remaining);
+        _wheels_slots[full_slots]->handle_expired_tasks(sink, count, partial_remaining);
 
         // 如果子时间轮处理后变空，清理
         if (_wheels_slots[full_slots]->empty()) {
@@ -204,12 +203,10 @@ public:
   /// @param me 当前时间轮的 unique_ptr（所有权转移）
   /// @return 新创建的父时间轮
   [[nodiscard]]
-  auto level_up(std::unique_ptr<TimerWheel> &&me)
-      -> std::unique_ptr<TimerWheel<LEVEL + 1>>
+  auto level_up(std::unique_ptr<TimerWheel>&& me) -> std::unique_ptr<TimerWheel<LEVEL + 1>>
     requires(LEVEL < MAX_LEVEL)
   {
-    faio::log::logger()->trace(
-        "TimerWheel<{}>::level_up: upgrading to level {}", LEVEL, LEVEL + 1);
+    faio::log::logger()->trace("TimerWheel<{}>::level_up: upgrading to level {}", LEVEL, LEVEL + 1);
     return std::make_unique<TimerWheel<LEVEL + 1>>(std::move(me));
   }
 
@@ -224,8 +221,7 @@ public:
     auto child = std::move(_wheels_slots[0]);
     _slot_map &= ~1ull;
     faio::log::logger()->trace(
-        "TimerWheel<{}>::level_down: downgrading to level {}", LEVEL,
-        LEVEL - 1);
+        "TimerWheel<{}>::level_down: downgrading to level {}", LEVEL, LEVEL - 1);
     return child;
   }
 
@@ -249,7 +245,7 @@ public:
     return _slot_map;
   }
 
-private:
+ private:
   /// 子时间轮槽位数组
   std::array<child_wheel_ptr, SLOT_SIZE> _wheels_slots{};
   /// 位图：第 i 位为 1 表示 _wheels_slots[i] 非空
@@ -261,28 +257,33 @@ private:
 // 每个槽位存储一个 TimerTask 单链表，直接承载定时器任务。
 // SLOT_SIZE = 64 个槽位，每个槽位代表 1ms 的时间粒度。
 // =========================================================================
-template <> class TimerWheel<0uz> {
-public:
-  using father_wheel = TimerWheel<1uz>;                   // 父时间轮类型
-  using father_wheel_ptr = std::unique_ptr<father_wheel>; // 父时间轮指针
+template <>
+class TimerWheel<0uz> {
+ public:
+  using father_wheel = TimerWheel<1uz>;                    // 父时间轮类型
+  using father_wheel_ptr = std::unique_ptr<father_wheel>;  // 父时间轮指针
 
   // 最底层时间轮的时间跨度（ms），每个槽 1ms，共 SLOT_SIZE 个槽
-  static constexpr std::size_t SPAN_MS = SLOT_SIZE; // 时间跨度为 64 毫秒。
+  static constexpr std::size_t SPAN_MS = SLOT_SIZE;  // 时间跨度为 64 毫秒。
 
-public:
+ public:
   TimerWheel() = default;
+
   ~TimerWheel() = default;
 
-  TimerWheel(const TimerWheel &) = delete;
-  TimerWheel &operator=(const TimerWheel &) = delete;
-  TimerWheel(TimerWheel &&) = default;
-  TimerWheel &operator=(TimerWheel &&) = default;
+  TimerWheel(const TimerWheel&) = delete;
 
-public:
+  TimerWheel& operator=(const TimerWheel&) = delete;
+
+  TimerWheel(TimerWheel&&) = default;
+
+  TimerWheel& operator=(TimerWheel&&) = default;
+
+ public:
   /// 向指定时间间隔的槽位添加定时器任务
   /// @param task 待添加的定时器任务（unique_ptr，所有权转移）
   /// @param interval 从当前位置开始的时间间隔（ms），必须 < SLOT_SIZE
-  void add_task(std::unique_ptr<TimerTask> &&task, std::size_t interval) {
+  void add_task(std::unique_ptr<TimerTask>&& task, std::size_t interval) {
     auto slot_idx = interval & SLOT_MASK;
     // 将任务链入该槽位的链表头部
     task->_next = std::move(_task_slots[slot_idx]);
@@ -294,7 +295,7 @@ public:
   std::size_t prune_cancelled() {
     std::size_t removed = 0;
     for (std::size_t i = 0; i < SLOT_SIZE; ++i) {
-      auto *link = &_task_slots[i];
+      auto* link = &_task_slots[i];
       while (*link) {
         if ((*link)->cancelled()) {
           *link = std::move((*link)->_next);
@@ -312,10 +313,10 @@ public:
   /// 从指定槽位中移除定时器任务
   /// @param task 待移除的任务指针（裸指针，用于查找匹配）
   /// @param interval 任务所在的时间间隔
-  void remove_task(TimerTask *task, std::size_t interval) {
+  void remove_task(TimerTask* task, std::size_t interval) {
     auto slot_idx = interval & SLOT_MASK;
-    TimerTask *prev = nullptr;
-    TimerTask *current = _task_slots[slot_idx].get();
+    TimerTask* prev = nullptr;
+    TimerTask* current = _task_slots[slot_idx].get();
 
     while (current != nullptr) {
       if (current == task) {
@@ -335,9 +336,10 @@ public:
       prev = current;
       current = current->_next.get();
     }
-    faio::log::logger()->warn("TimerWheel<0>::remove_task: task not found in "
-                              "slot {}",
-                              slot_idx);
+    faio::log::logger()->warn(
+        "TimerWheel<0>::remove_task: task not found in "
+        "slot {}",
+        slot_idx);
   }
 
   /// 处理到期任务：扫描 [0, remaining_ms) 范围内所有槽位，执行到期任务
@@ -345,8 +347,7 @@ public:
   /// @param count 已处理任务计数器（输出参数，累加）
   /// @param remaining_ms 剩余需要处理的毫秒数
   template <ready_sink sink_type>
-  void handle_expired_tasks(sink_type &sink, std::size_t &count,
-                            std::size_t remaining_ms) {
+  void handle_expired_tasks(sink_type& sink, std::size_t& count, std::size_t remaining_ms) {
     // 计算实际需要扫描的槽位数
     auto slots_to_scan = std::min(remaining_ms, SLOT_SIZE);
 
@@ -416,7 +417,7 @@ public:
   /// @param me 当前时间轮的 unique_ptr（所有权转移）
   /// @return 新创建的父时间轮（level-1）
   [[nodiscard]]
-  auto level_up(std::unique_ptr<TimerWheel> &&me) -> father_wheel_ptr {
+  auto level_up(std::unique_ptr<TimerWheel>&& me) -> father_wheel_ptr {
     faio::log::logger()->trace("TimerWheel<0>::level_up: upgrading to level 1");
     return std::make_unique<father_wheel>(std::move(me));
   }
@@ -427,12 +428,11 @@ public:
     return false;
   }
 
-private:
+ private:
   /// 任务槽位数组，每个槽位是一个 TimerTask 链表头
   std::array<std::unique_ptr<TimerTask>, SLOT_SIZE> _task_slots{};
   /// 位图：第 i 位为 1 表示 _task_slots[i] 非空
   std::uint64_t _slot_map{0};
 };
-
-} // namespace faio::runtime::detail::timer
+}  // namespace faio::runtime::detail::timer
 #endif

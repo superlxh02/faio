@@ -27,8 +27,8 @@ using address = detail::SocketAddr;
 using v4addr = detail::Ipv4Addr;
 using v6addr = detail::Ipv6Addr;
 using TcpListener = detail::TcpListener;
-using TcpStream = detail ::TcpStream;
+using TcpStream = detail::TcpStream;
 using UdpDatagram = detail::UdpDatagram;
-} // namespace faio::net
+}  // namespace faio::net
 
-#endif // FAIO_DETAIL_NET_HPP
+#endif  // FAIO_DETAIL_NET_HPP

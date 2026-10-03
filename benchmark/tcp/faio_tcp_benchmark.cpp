@@ -6,7 +6,6 @@
 #include <string>
 
 namespace {
-
 struct TcpBenchmarkConfig {
   std::string host = "0.0.0.0";
   uint16_t port = 18081;
@@ -14,8 +13,8 @@ struct TcpBenchmarkConfig {
   bool inline_echo_write = false;
 };
 
-auto handle_connection(faio::net::TcpStream stream, bool echo,
-                       bool inline_echo_write) -> faio::task<void> {
+auto handle_connection(faio::net::TcpStream stream, bool echo, bool inline_echo_write)
+    -> faio::task<void> {
   // 公平比较：两种实现都关闭 Nagle，并使用相同的 64 KiB 接收缓冲。
   (void)stream.set_nodelay(true);
   std::array<char, 65536> buf{};
@@ -33,8 +32,7 @@ auto handle_connection(faio::net::TcpStream stream, bool echo,
   while (true) {
     auto read_res = co_await stream.read(buf);
     if (!read_res) {
-      faio::log::logger()->debug("tcp read failed: {}",
-                                 read_res.error().message());
+      faio::log::logger()->debug("tcp read failed: {}", read_res.error().message());
       break;
     }
 
@@ -49,16 +47,15 @@ auto handle_connection(faio::net::TcpStream stream, bool echo,
       if (inline_echo_write) {
         std::size_t offset = 0;
         while (offset < len) {
-          auto written = co_await stream.write(
-              std::span<const char>(buf.data() + offset, len - offset));
+          auto written =
+              co_await stream.write(std::span<const char>(buf.data() + offset, len - offset));
           if (!written || *written == 0)
             co_return;
           offset += *written;
         }
         continue;
       }
-      auto written =
-          co_await stream.write_all(std::span<const char>(buf.data(), len));
+      auto written = co_await stream.write_all(std::span<const char>(buf.data(), len));
       if (!written)
         co_return;
       continue;
@@ -73,11 +70,10 @@ auto handle_connection(faio::net::TcpStream stream, bool echo,
         break;
       }
 
-      auto write_res = co_await stream.write_all(
-          std::span<const char>(response.data(), response.size()));
+      auto write_res =
+          co_await stream.write_all(std::span<const char>(response.data(), response.size()));
       if (!write_res) {
-        faio::log::logger()->debug("tcp write failed: {}",
-                                   write_res.error().message());
+        faio::log::logger()->debug("tcp write failed: {}", write_res.error().message());
         co_return;
       }
       request_buffer.erase(0, end + 4);
@@ -87,47 +83,41 @@ auto handle_connection(faio::net::TcpStream stream, bool echo,
   co_return;
 }
 
-auto run_server(const TcpBenchmarkConfig &config) -> faio::task<int> {
-  const auto capabilities =
-      faio::io::io_context::current().domain()->capabilities();
-  faio::log::logger()->info(
-      "faio tcp benchmark IO backend: {} (native files={})",
-      capabilities.backend, capabilities.native_filesystem);
+auto run_server(const TcpBenchmarkConfig& config) -> faio::task<int> {
+  const auto capabilities = faio::io::io_context::current().domain()->capabilities();
+  faio::log::logger()->info("faio tcp benchmark IO backend: {} (native files={})",
+                            capabilities.backend,
+                            capabilities.native_filesystem);
   faio::log::logger()->flush();
   auto addr_res = faio::net::address::parse(config.host, config.port);
   if (!addr_res) {
-    faio::log::logger()->error("parse address failed: {}",
-                               addr_res.error().message());
+    faio::log::logger()->error("parse address failed: {}", addr_res.error().message());
     co_return 1;
   }
 
   auto listener_res = faio::net::TcpListener::bind(addr_res.value());
   if (!listener_res) {
-    faio::log::logger()->error("bind failed: {}",
-                               listener_res.error().message());
+    faio::log::logger()->error("bind failed: {}", listener_res.error().message());
     co_return 1;
   }
 
   auto listener = std::move(listener_res.value());
-  faio::log::logger()->info("faio tcp benchmark listening on {}:{}",
-                            config.host, config.port);
+  faio::log::logger()->info("faio tcp benchmark listening on {}:{}", config.host, config.port);
 
   while (true) {
     auto accept_res = co_await listener.accept();
     if (!accept_res) {
-      faio::log::logger()->error("accept failed: {}",
-                                 accept_res.error().message());
+      faio::log::logger()->error("accept failed: {}", accept_res.error().message());
       co_return 1;
     }
     auto [stream, _peer] = std::move(accept_res.value());
-    faio::spawn_detached(handle_connection(std::move(stream), config.echo,
-                                           config.inline_echo_write));
+    faio::spawn_detached(
+        handle_connection(std::move(stream), config.echo, config.inline_echo_write));
   }
 }
+}  // namespace
 
-} // namespace
-
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   faio::log::logger()->set_level(spdlog::level::info);
 
   TcpBenchmarkConfig config;
@@ -137,17 +127,17 @@ int main(int argc, char **argv) {
   if (argc > 2) {
     config.port = static_cast<uint16_t>(std::strtoul(argv[2], nullptr, 10));
   }
-  config.echo = argc > 4 && (std::string_view(argv[4]) == "echo" ||
-                             std::string_view(argv[4]) == "echo_inline");
-  config.inline_echo_write =
-      argc > 4 && std::string_view(argv[4]) == "echo_inline";
+  config.echo =
+      argc > 4
+      && (std::string_view(argv[4]) == "echo" || std::string_view(argv[4]) == "echo_inline");
+  config.inline_echo_write = argc > 4 && std::string_view(argv[4]) == "echo_inline";
   // 压测线程数由脚本统一传入，避免各语言默认线程数不同。
   const auto workers = argc > 3 ? std::strtoul(argv[3], nullptr, 10) : 4;
   auto builder = faio::ConfigBuilder{}.set_num_workers(workers);
   // 显式诊断配置由统一比较脚本记录；正式验收不传入这些环境变量。
-  if (const auto *value = std::getenv("FAIO_BENCH_IO_INTERVAL"))
+  if (const auto* value = std::getenv("FAIO_BENCH_IO_INTERVAL"))
     builder.set_io_interval(static_cast<uint32_t>(std::stoul(value)));
-  if (const auto *value = std::getenv("FAIO_BENCH_IDLE_SPIN_COUNT"))
+  if (const auto* value = std::getenv("FAIO_BENCH_IDLE_SPIN_COUNT"))
     builder.set_idle_spin_count(static_cast<uint32_t>(std::stoul(value)));
   // 第六个参数只控制本次服务后端，比较脚本会验证实际选择的名称。
   if (argc > 5) {
@@ -159,16 +149,18 @@ int main(int argc, char **argv) {
       builder.set_io_backend(faio::runtime::io_backend::IO_URING);
     else
       throw std::invalid_argument("expected --io-backend=epoll|uring");
+#elif defined(_WIN32)
+    if (selected != "--io-backend=iocp")
+      throw std::invalid_argument("expected --io-backend=iocp");
 #else
     (void)selected;
-    throw std::invalid_argument(
-        "explicit Linux IO backend is unavailable on this platform");
+    throw std::invalid_argument("explicit Linux IO backend is unavailable on this platform");
 #endif
   }
   auto runtime_config = builder.build();
   // 持续就绪任务下的诊断时间预算；未显式设置时保留运行时默认值。
   // 原始参数、环境和源码均由比较脚本留存，不能将扫描结果冒充默认配置验收。
-  if (const auto *value = std::getenv("FAIO_BENCH_MAX_IO_DELAY_US"))
+  if (const auto* value = std::getenv("FAIO_BENCH_MAX_IO_DELAY_US"))
     runtime_config._max_io_delay = std::chrono::microseconds(std::stoll(value));
   faio::runtime::configure(runtime_config);
   return faio::block_on(run_server(config));

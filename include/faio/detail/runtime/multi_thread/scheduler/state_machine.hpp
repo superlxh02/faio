@@ -10,12 +10,12 @@
 #include <vector>
 
 namespace faio::runtime::detail {
-
 // worker_counters —— 线程计数器
 // 使用两个独立原子变量跟踪工作/搜索线程；顺序一致性用于入睡与通知握手。
 class worker_counters {
-public:
+ public:
   explicit worker_counters() = default;
+
   explicit worker_counters(std::size_t num_workers) : working_(num_workers) {}
 
   // 获取当前搜索线程数
@@ -34,8 +34,7 @@ public:
   bool try_inc_searching(std::size_t limit) noexcept {
     auto searching = searching_.load(std::memory_order_seq_cst);
     while (searching < limit) {
-      if (searching_.compare_exchange_weak(searching, searching + 1,
-                                           std::memory_order_seq_cst))
+      if (searching_.compare_exchange_weak(searching, searching + 1, std::memory_order_seq_cst))
         return true;
     }
     return false;
@@ -70,15 +69,15 @@ public:
     return false;
   }
 
-private:
-  std::atomic<std::size_t> working_{0};   // 工作线程数
-  std::atomic<std::size_t> searching_{0}; // 搜索线程数
+ private:
+  std::atomic<std::size_t> working_{0};    // 工作线程数
+  std::atomic<std::size_t> searching_{0};  // 搜索线程数
 };
 
 // scheduler_state_machine —— 状态机
 // 协调线程池中线程的状态，维护休眠线程集合，并限制搜索线程数量以实现负载均衡。
 class scheduler_state_machine {
-public:
+ public:
   explicit scheduler_state_machine(std::size_t num_workers)
       : counters_(num_workers), num_workers_(num_workers) {
     // 所有休眠记录最多等于线程数，启动时预留，避免运行期间分配。
@@ -163,26 +162,23 @@ public:
   [[nodiscard]]
   bool contains(std::size_t worker_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return std::find(sleepers_.begin(), sleepers_.end(), worker_id) !=
-           sleepers_.end();
+    return std::find(sleepers_.begin(), sleepers_.end(), worker_id) != sleepers_.end();
   }
 
-private:
+ private:
   // 判断是否需要唤醒线程：
   // 当没有搜索线程且存在空闲线程时，应该唤醒一个休眠线程。
   [[nodiscard]]
   bool should_wakeup() const {
-    return counters_.num_searching() == 0 &&
-           counters_.num_working() < num_workers_;
+    return counters_.num_searching() == 0 && counters_.num_working() < num_workers_;
   }
 
-private:
-  worker_counters counters_{};          // 线程计数器
-  std::size_t num_workers_;             // 线程池大小
-  std::vector<std::size_t> sleepers_{}; // 休眠线程列表
-  mutable std::mutex mutex_{};          // 保护休眠列表的互斥锁
+ private:
+  worker_counters counters_{};           // 线程计数器
+  std::size_t num_workers_;              // 线程池大小
+  std::vector<std::size_t> sleepers_{};  // 休眠线程列表
+  mutable std::mutex mutex_{};           // 保护休眠列表的互斥锁
 };
-
-} // namespace faio::runtime::detail
+}  // namespace faio::runtime::detail
 
 #endif
