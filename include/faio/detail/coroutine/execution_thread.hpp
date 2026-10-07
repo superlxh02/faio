@@ -12,6 +12,7 @@ class blocking_pool;
 }
 
 namespace faio::detail {
+class external_work_host;
 // 没有工作线程编号时的统一哨兵；编号不是任务的永久属性。
 inline constexpr std::size_t no_worker_id = std::numeric_limits<std::size_t>::max();
 
@@ -25,13 +26,14 @@ class execution_thread_binding {
                            task_lifetime_ref lifetime,
                            local_state_type& local_state,
                            std::size_t worker_id,
-                           ::faio::runtime::detail::blocking_pool* blocking = nullptr) noexcept
+                           ::faio::runtime::detail::blocking_pool* blocking = nullptr,
+                           external_work_host* external_host = nullptr) noexcept
       : scheduler_(scheduler),
         lifetime_(lifetime),
         local_state_(std::addressof(local_state)),
         local_type_(&type_tag<local_state_type>),
         worker_id_(worker_id),
-        blocking_(blocking) {}
+        blocking_(blocking), external_host_(external_host) {}
 
   // 查询当前线程的通用调度入口，不暴露 worker 或 shared。
   scheduler_ref scheduler() const noexcept { return scheduler_; }
@@ -43,6 +45,7 @@ class execution_thread_binding {
   std::size_t worker_id() const noexcept { return worker_id_; }
 
   ::faio::runtime::detail::blocking_pool* blocking() const noexcept { return blocking_; }
+  external_work_host* external_host() const noexcept { return external_host_; }
 
   // 同时校验调度域身份和本地状态类型，避免对任意后端执行盲目转换。
   template <class local_state_type>
@@ -62,10 +65,37 @@ class execution_thread_binding {
   const void* local_type_;      // 与本地状态真实类型匹配的静态标识。
   std::size_t worker_id_;       // 当前线程编号；无编号使用 no_worker_id。
   ::faio::runtime::detail::blocking_pool* blocking_{};
+  external_work_host* external_host_{};
 };
 
 // 调度相关的唯一 TLS 入口；任务 tracker 和 stop_token 仍随每次任务恢复切换。
 inline thread_local const execution_thread_binding* current_execution_thread{};
+
+struct submission_binding {
+  scheduler_ref scheduler;
+  task_lifetime_ref lifetime;
+  ::faio::runtime::detail::blocking_pool* blocking{};
+  external_work_host* external_host{};
+};
+inline thread_local const submission_binding* current_submission_binding{};
+
+// Ordinary blocking-pool threads can submit descendants without becoming
+// scheduler workers. This does not change blocking API or worker-id checks.
+class scoped_submission_binding {
+ public:
+  scoped_submission_binding(scheduler_ref scheduler, task_lifetime_ref lifetime,
+                            ::faio::runtime::detail::blocking_pool& blocking,
+                            external_work_host* host) noexcept
+      : binding_{scheduler, lifetime, &blocking, host}, previous_(current_submission_binding) {
+    current_submission_binding = &binding_;
+  }
+  scoped_submission_binding(const scoped_submission_binding&) = delete;
+  scoped_submission_binding& operator=(const scoped_submission_binding&) = delete;
+  ~scoped_submission_binding() { current_submission_binding = previous_; }
+ private:
+  submission_binding binding_;
+  const submission_binding* previous_;
+};
 
 // 线程进入/退出时成对安装绑定；支持嵌套安装后恢复原绑定，不分配内存。
 class execution_thread_guard {
@@ -90,12 +120,14 @@ class execution_thread_guard {
 
 // 读取当前调度器；普通外部线程返回空引用，不访问默认运行时单例。
 inline scheduler_ref current_scheduler() noexcept {
-  return current_execution_thread ? current_execution_thread->scheduler() : scheduler_ref{};
+  return current_execution_thread ? current_execution_thread->scheduler()
+       : current_submission_binding ? current_submission_binding->scheduler : scheduler_ref{};
 }
 
 // 读取可选的根任务生命周期服务，供 worker 内派生任务继承。
 inline task_lifetime_ref current_task_lifetime() noexcept {
-  return current_execution_thread ? current_execution_thread->lifetime() : task_lifetime_ref{};
+  return current_execution_thread ? current_execution_thread->lifetime()
+       : current_submission_binding ? current_submission_binding->lifetime : task_lifetime_ref{};
 }
 
 // 动态读取线程编号，任务挂起前保存的编号不能代表恢复后的线程。
@@ -109,7 +141,12 @@ inline bool on_runtime_worker() noexcept {
 }
 
 inline ::faio::runtime::detail::blocking_pool* current_blocking_pool() noexcept {
-  return current_execution_thread ? current_execution_thread->blocking() : nullptr;
+  return current_execution_thread ? current_execution_thread->blocking()
+       : current_submission_binding ? current_submission_binding->blocking : nullptr;
+}
+inline external_work_host* current_external_host() noexcept {
+  return current_execution_thread ? current_execution_thread->external_host()
+       : current_submission_binding ? current_submission_binding->external_host : nullptr;
 }
 }  // namespace faio::detail
 #endif  // FAIO_DETAIL_COROUTINE_EXECUTION_THREAD_HPP

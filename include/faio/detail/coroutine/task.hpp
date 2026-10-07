@@ -100,7 +100,8 @@ struct task_promise_base {
   // 等待表达式转换时：构造会主动重新排队的让出操作。
   auto await_transform(this_coro::yield_t) noexcept {
     // 将恢复需要的调度器、任务组和令牌一并保存在 awaiter 中。
-    return yield_awaiter{context.scheduler, context.scope, &context.stop_token};
+    return scoped_awaiter<yield_awaiter>{
+        yield_awaiter{context.scheduler, context.scope, &context.stop_token}, &context};
   }
 
   // 等待表达式转换时：构造使用本轮实际恢复共享预算的条件让出操作。
@@ -297,13 +298,16 @@ class [[nodiscard]] task {
         callee.promise().context.scope = ::faio::detail::current_tracker;
         // 从根包装安装的 TLS 继承停止令牌。
         callee.promise().context.stop_token = ::faio::detail::current_stop_token;
+        callee.promise().context.cancellation_policy = ::faio::detail::current_cancellation_policy;
+        callee.promise().context.external_scope = ::faio::detail::current_external_scope;
+        callee.promise().context.cancellation_owner = ::faio::detail::current_cancellation_owner;
       }
       // 父上下文没有调度器时，才回退到当前 worker 登记的调度器。
       if (!callee.promise().context.scheduler)
         // 填入所属运行时的借用句柄，供后续让出或等待恢复使用。
         callee.promise().context.scheduler = ::faio::detail::current_scheduler();
       // 进入子协程前安装令牌，子协程的第一个等待操作即可观察停止。
-      ::faio::detail::current_stop_token = callee.promise().context.stop_token;
+      ::faio::detail::restore_task_context(callee.promise().context);
       // 直接返回子句柄形成对称转移，父协程在子任务结束前保持挂起。
       return callee;
     }

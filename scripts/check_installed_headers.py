@@ -16,7 +16,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', required=True, type=Path)
     parser.add_argument('--compiler', help='Override consumer C++ compiler')
+    parser.add_argument('--jobs', type=int, default=4, help='Parallel consumer build jobs')
     args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error('--jobs must be >= 1')
     repo = Path(__file__).resolve().parents[1]
     build = args.build.resolve()
     work = build / 'installed-consumer'
@@ -31,9 +34,15 @@ def main():
     run(['cmake', '--install', str(build), '--prefix', str(prefix)], repo)
     # 验证本平台全部适用的安装头；平台专用后端不在别的平台直接导入。
     faio_root = prefix / 'include/faio'
-    unexpected = sorted(p.name for p in faio_root.iterdir() if p.name not in {'faio.hpp', 'log.hpp', 'detail'})
+    unexpected = sorted(p.name for p in faio_root.iterdir() if p.name not in {'faio.hpp', 'log.hpp', 'detail', 'experimental'})
     if unexpected:
         raise RuntimeError(f'§5 entry-point layout violation: {unexpected}')
+    experimental_root = faio_root / 'experimental'
+    if experimental_root.exists():
+        expected_experimental = {'runtime_options.h', 'runtime.h', 'reflection.h', 'async_main.h', 'execution.h'}
+        actual_experimental = {p.name for p in experimental_root.iterdir()}
+        if actual_experimental != expected_experimental:
+            raise RuntimeError(f'Experimental public header layout violation: {sorted(actual_experimental)}')
     cache = (build / 'CMakeCache.txt').read_text().splitlines()
     native_uring = any(line == 'FAIO_ENABLE_IO_URING:BOOL=ON' for line in cache)
     legacy_uring = faio_root / 'detail/io/uring'
@@ -41,9 +50,15 @@ def main():
         raise RuntimeError('Legacy io/uring must not be installed; all implementations belong to io/backends')
     system = platform.system()
     excluded = []
+    experimental_deferred = []
 
     def applicable(path):
         relative = path.relative_to(faio_root).as_posix()
+        # These C++26 capabilities are verified separately by
+        # tests/experimental/installed_consumer.cmake; this script stays C++23.
+        if relative.startswith(('experimental/', 'detail/experimental/')):
+            experimental_deferred.append(relative)
+            return False
         invalid = (('/platform/windows_' in relative and system != 'Windows') or
                    (relative.startswith('detail/fs/windows/') and system != 'Windows') or
                    (system == 'Windows' and (relative.startswith('detail/net/unix/') or relative in {
@@ -106,7 +121,7 @@ target_link_libraries(consumer PRIVATE faio::faio)
     if compiler:
         argv.append('-DCMAKE_CXX_COMPILER=' + compiler)
     run(argv, repo)
-    run(['cmake', '--build', str(work / 'build'), '-j4'], repo)
+    run(['cmake', '--build', str(work / 'build'), '--parallel', str(args.jobs)], repo)
     run([str(work / 'build' / ('consumer.exe' if system == 'Windows' else 'consumer'))], repo)
     if system == 'Linux':
         run([str(work / 'build/consumer'), 'epoll'], repo)
@@ -114,6 +129,7 @@ target_link_libraries(consumer PRIVATE faio::faio)
             run([str(work / 'build/consumer'), 'uring'], repo)
     (work / 'verified_headers.txt').write_text('\n'.join(headers) + '\n', encoding='utf-8')
     (work / 'excluded_platform_headers.txt').write_text('\n'.join(excluded) + '\n', encoding='utf-8')
+    (work / 'deferred_experimental_headers.txt').write_text('\n'.join(experimental_deferred) + '\n', encoding='utf-8')
     print(
         f'PASS: {len(headers)} self-contained applicable headers, installed package, two translation units; native_uring={native_uring}')
 

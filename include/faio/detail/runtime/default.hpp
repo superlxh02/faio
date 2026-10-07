@@ -57,6 +57,8 @@ class default_runtime_service {
       std::unique_lock lock(mutex_);
       if (stopped_)
         return;
+      if (context_)
+        context_->external_host().begin_quiescing();
       stopped_ = true;
       previous = std::move(context_);
     }
@@ -78,6 +80,11 @@ inline default_runtime_service& default_service() {
   (void)::faio::log::logger();
   static default_runtime_service service;
   return service;
+}
+
+template <class F>
+decltype(auto) with_default_runtime(F&& action) {
+  return default_service().with_context(std::forward<F>(action));
 }
 }  // namespace faio::runtime::detail
 

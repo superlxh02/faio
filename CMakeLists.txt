@@ -203,6 +203,10 @@ endif()
 # 六、安装与 CMake 包导出
 # =============================================================================
 
+# Optional components add C++26 to their own targets only. The OFF path does
+# not inspect stdexec, require GCC 16.1, or change the base C++23 interface.
+include(cmake/FaioExperimental.cmake)
+
 if(FAIO_INSTALL)
     include(CMakePackageConfigHelpers)
     set(FAIO_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/cmake/faio")
@@ -248,4 +252,12 @@ if(FAIO_BUILD_BENCHMARKS)
 endif()
 if(FAIO_BUILD_TESTS)
     add_subdirectory(tests)
+endif()
+if(FAIO_ENABLE_EXPERIMENTAL)
+    if(FAIO_BUILD_EXAMPLES)
+        add_subdirectory(examples/experimental)
+    endif()
+    if(FAIO_BUILD_TESTS)
+        add_subdirectory(tests/experimental)
+    endif()
 endif()

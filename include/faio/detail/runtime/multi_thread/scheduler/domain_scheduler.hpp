@@ -215,6 +215,13 @@ class domain_scheduler {
       registration.waker.wake_up();
   }
 
+  void wake_worker(std::size_t worker) noexcept {
+    if (state_machine_.notify_worker(worker)) {
+      std::lock_guard lock(registrations_mutex_);
+      registrations_[worker].waker.wake_up();
+    }
+  }
+
   // 最后一个搜索者入睡前查全局及可窃取工作，避免已有工作无人搜索。
   void wake_up_if_work_pending() noexcept {
     if (!global_queue_.empty()) {

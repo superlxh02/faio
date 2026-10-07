@@ -52,9 +52,9 @@ class local_scheduler {
   }
 
   // 获取下一任务；周期性检查全局队列，防止连续本地工作饿死外部提交。
-  std::optional<std::coroutine_handle<>> next_task(std::uint32_t tick) {
+  std::optional<std::coroutine_handle<>> next_task(std::uint32_t tick, bool force_global = false) {
     last_task_from_fast_ = false;  // 全局/批量/无任务等路径默认不是连续私有来源。
-    if (tick % global_queue_interval_ == 0) {
+    if (force_global || tick % global_queue_interval_ == 0) {
       if (auto task = domain_.global_queue().try_pop())
         return task;             // 全局公平选择获得完整新额度。
       return next_local_task();  // 全局无任务时仍精确区分本地FIFO与fast。
@@ -130,8 +130,8 @@ class local_scheduler {
   }
 
   // I/O 返回或二次检查发现任务后撤销休眠，恢复与共享计数一致的搜索状态。
-  bool finish_sleep() {
-    if (has_ready_task()) {
+  bool finish_sleep(bool external_ready = false) {
+    if (external_ready || has_ready_task()) {
       searching_ =
           !domain_.cancel_sleep(worker_id_);  // 先移除自身休眠记录，恢复真实工作/搜索计数。
       // IO 自然返回或登记后早期重查都走这里；通知候选不能再包含尚未注销的自身。

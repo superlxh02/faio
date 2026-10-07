@@ -20,6 +20,7 @@ With faio, asynchronous flows read like synchronous code: a coroutine suspends a
 | Time operations | Sleep, deadlines, I/O timeouts, periodic timers |
 | Synchronization primitives | Mutex, semaphore, condition variable, latch, barrier, bounded MPSC queue |
 | Logging | spdlog with runtime level adjustment and sink configuration |
+| Experimental features | C++26 reflection-annotated async entry with compile-time runtime configuration, and stdexec Sender/Receiver interoperability (Linux + GCC 16.1 only, behind a separate build switch; the base library is unaffected) |
 
 ## Highlights
 
@@ -129,6 +130,43 @@ int main() {
     faio::block_on(server(8080));
 }
 ```
+
+### Experimental: annotated entry and Sender interop
+
+```cpp
+#include <faio/experimental/execution.h>
+#include <faio/experimental/async_main.h>
+#include <faio/faio.hpp>
+#include <exec/task.hpp>
+#include <chrono>
+
+faio::task<int> native_job() {
+    co_await faio::time::sleep(std::chrono::milliseconds{1});
+    co_return 42;
+}
+
+exec::task<int> workflow(faio::experimental::runtime_ref runtime) {
+    // exec::task does not propagate faio queries; carry the runtime explicitly
+    co_await stdexec::schedule(runtime.get_multi_thread_scheduler());
+    co_return co_await runtime.as_sender(native_job());
+}
+
+// Annotations declare the entry and runtime configuration;
+// the library generates the real main, no hand-written block_on needed
+[[=faio::experimental::main(async_main)]]
+[[=faio::experimental::runtime_options{
+    .mode = faio::runtime::mode::multi_thread,
+    .workers = 4,
+    .io_backend = faio::runtime::io_backend::IO_EPOLL}]]
+faio::task<int> async_main(int, char**) {
+    auto runtime = faio::experimental::this_runtime();
+    auto result = runtime.spawn_sender(workflow(runtime)); // submit the sender graph, get an awaitable handle
+    const auto values = co_await std::move(result);
+    co_return values && std::get<0>(*values) == 42 ? 0 : 1;
+}
+```
+
+The experimental features require Linux + GCC 16.1 + C++26, built with `FAIO_ENABLE_EXPERIMENTAL` and the `linux-gcc16.1-experimental-*` presets; see [Experimental Features](docs/实验性特性.md) (Chinese) for the architecture and source walkthrough, and [examples/experimental](examples/experimental/) for complete programs.
 
 The default runtime starts on first use; call `faio::runtime::configure()` beforehand to adjust worker count and other parameters. The examples cover [coroutine basics and concurrency](examples/coroutine_basics.cpp), [coroutine synchronization](examples/coroutine_sync.cpp), [TCP echo](examples/tcp_echo_server.cpp), [UDP echo](examples/udp_echo_server.cpp), a [shared TCP counter application](examples/tcp_counter_server.cpp), [blocking work alongside async tasks](examples/blocking_thread_pool.cpp), [TCP echo with current-thread scheduling](examples/tcp_echo_server_single_thread.cpp), and [file and directory operations](examples/file_and_directory.cpp). See the [example guide](examples/README.md) for detailed Chinese explanations and commands; `tcp_counter_server --self-test` runs a finite multi-client scenario.
 
@@ -304,6 +342,7 @@ Design and source-code walkthroughs (currently in Chinese):
 | [Async I/O](docs/异步IO.md) | io_uring native completions, epoll/kqueue, the Windows IOCP backend, file services, buffers and algorithms, cancellation and lifecycle |
 | [Network I/O](docs/网络IO.md) | Mixin and CRTP design of the TCP / UDP interfaces with key source walkthroughs |
 | [Timer](docs/定时器.md) | Multi-level timing wheel, sleep, periodic ticks, and I/O timeouts |
+| [Experimental Features](docs/实验性特性.md) | Annotated async entry, compile-time runtime configuration, and the stdexec Sender/Receiver adaptation |
 
 Benchmark methodology and reproduction steps are documented in the [benchmark README](benchmark/README.md).
 

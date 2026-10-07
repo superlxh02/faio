@@ -170,13 +170,54 @@ while (!buffer.empty()) {
 
 `establish_reservation` 与 `reservation` 的区别在于：首个操作还没有租约，需要在提交路径的域锁内原子地完成"取得+登记"；后续操作只是承接。这样省掉一次独立的 reserve 锁，且所有失败出口都由 RAII guard 安全 unreserve。
 
+### 1.3 平台适配层
+
+Linux、macOS、Windows 的原生网络 API 在句柄类型、错误域与长度语义上各不相同。网络层把三平台差异收拢在 [platform.hpp](../include/faio/detail/net/common/platform.hpp) 的一组内联函数和 `Socket` 的创建/配置分支中，Mixin 与基类不直接写 `#ifdef`。
+
+`socket_would_block`（platform.hpp:33）是 would-block 的统一判定，也是所有 try 接口和 `accept_many`/`recv_many` 批次循环的出口条件：
+
+```cpp
+inline auto socket_would_block(const Error& error) noexcept -> bool {
+#if defined(_WIN32)
+  if (error.domain() == error_domain::winsock)
+    return error.value() == WSAEWOULDBLOCK;
+#endif
+  return error.value() == EAGAIN || error.value() == EWOULDBLOCK;
+}
+```
+
+Winsock 与 errno 是两个独立错误域，相同数值在不同域中含义不同，因此 Windows 分支先判定 `error.domain()` 再比较 `WSAEWOULDBLOCK`；非 winsock 域（例如 `try_io` 中显式用户 syscall 带回的 errno 错误）仍走 EAGAIN/EWOULDBLOCK 判定。组合逻辑只用这一个函数判断"现在没货"，平台差异不向上泄漏。
+
+`socket_address_family`（platform.hpp:71）回答"这个 socket 属于哪个地址族"：POSIX 用 `getsockname` 读 `ss_family`；Windows 的未绑定 socket 没有本地地址可报，改用 `getsockopt(SO_PROTOCOL_INFOW)` 读 `WSAPROTOCOL_INFOW::iAddressFamily`，绑定前也能回答，import 校验与 `set_ttl` 的家族选择合同因此保持完整。`Socket::validate_family` 用它阻止把 Unix handle 当 IP handle 导入。
+
+显式同步收发 `socket_recv`/`socket_send`/`socket_sendto`（platform.hpp:93/:107/:125）处理 Windows 的 `int` 长度语义：stream 收发把长度裁到 `INT_MAX` 前缀、允许短 IO；数据报不能拆分，`sendto` 超限时直接返回 `WSAEMSGSIZE` 而非截断；"空指针+零长度"用栈上空字节兜底，绕过 Winsock 对 `nullptr` buffer 的拒绝；flags 中的 `MSG_DONTWAIT` 位被剥离——Windows 没有此标志，非阻塞由句柄属性表达。
+
+`Socket::create`（common/socket.hpp:251）把三平台创建 flags 的差异收在一处：
+
+```cpp
+#if defined(_WIN32)
+    // WSA_FLAG_OVERLAPPED 是 IOCP 的必要创建条件；禁止截断 SOCKET 为 int。
+    const auto descriptor = static_cast<native_socket_type>(
+        ::WSASocketW(domain, type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC), protocol,
+                     nullptr, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT));
+#elif defined(__linux__)
+    const int descriptor = ::socket(domain, type | SOCK_NONBLOCK | SOCK_CLOEXEC, protocol);
+#else
+    const int descriptor = ::socket(domain, type, protocol);
+#endif
+```
+
+Windows 必须用 `WSASocketW` 创建：`WSA_FLAG_OVERLAPPED` 是该 socket 随后能注册进 IOCP 的前提；`WSA_FLAG_NO_HANDLE_INHERIT` 承担 POSIX `SOCK_CLOEXEC` 的角色；`type` 中的 POSIX 专用位被剥掉，非阻塞属性推迟到 `Socket::prepare` 阶段用 `ioctlsocket(FIONBIO)` 设置。Linux 在创建时一次给齐 `SOCK_NONBLOCK|SOCK_CLOEXEC` 两个标志；macOS/BSD 没有这两个创建标志，全部留到 `prepare` 的 `fcntl`。三平台在此之后汇合到同一条 guard → prepare → adopt 的所有权接力（见 4.1）。
+
+配置选项同样按平台能力收敛：`set_linger` 的上限在 Windows 改为 `USHRT_MAX`（Winsock 的 `linger` 两字段是 `u_short`，超限拒绝而非静默截断，sockopt.hpp:135）；`set_recv_packet_info_v4/v6` 在 `IP_PKTINFO`（Linux）/`IP_RECVDSTADDR`（BSD）/`IPV6_PKTINFO`（Windows 的 IPv6）之间按可用性选择，都不可用时返回 `ENOTSUP`（sockopt.hpp:338/:349）。
+
 ## 2. 执行与所有权
 
 网络基础操作构造时只保存参数，在 `co_await` 挂起阶段提交。统一引擎管理资源、操作代际、取消、缓冲区租约和完成交付。
 
 io_uring 是原生 proactor：网络收发、连接和接受请求直接提交给内核，驱动器消费完成事件。epoll/kqueue 使用 readiness adapter：先执行非阻塞 syscall，成功即发布结果；遇到 `EAGAIN`/`EWOULDBLOCK` 登记对应方向，收到 readiness 后继续尝试并产生相同的完成结果。readiness 路径的非阻塞 connect 完成还需要检查 `SO_ERROR` 和已建立的对端状态。`ready` 是独立的就绪观察，io_uring 的观察使用 poll 请求，不消费 socket 数据。
 
-Recv/Send 等待者在调用时捕获资源强租约和紧凑 scalar 参数；右值等待者仍按值拥有，命名左值等待者保持借用。readiness 即时完成无需构造消息头、地址、路径或 iovec 容器；EAGAIN 及原生提交前生成完整、全字段初始化的稳定请求。截止时间、取消、关闭、方向租约与 would-block 代际均进入同一状态机。
+Recv/Send 等待者在调用时捕获资源强租约和紧凑 scalar 参数；右值等待者仍按值拥有，命名左值等待者保持借用。readiness 即时完成无需构造消息头、地址、路径或 iovec 容器；只有遇 EAGAIN 需要登记、或转向原生提交时，才生成完整、全字段初始化的稳定请求。截止时间、取消、关闭、方向租约与 would-block 代际均进入同一状态机。
 
 原生数据路径为：raw awaiter 保存请求 → `io_uring_prep_*` 填写 SQE → 提交请求 → 等待原始 CQE → 回写结果并恢复或直接继续协程。SQE 可以按批次刷新；请求若在 awaiter 的挂起阶段已经取得 CQE，则直接继续，不额外进入调度队列。通用层只持有稳定请求、原生借用内存、取消与截止时间状态，不执行预先的 read/write syscall，不把原生网络操作交给应用线程池，也不先等待 epoll/kqueue readiness。批量提交和 SQ 容量不足的有界排队仍属于同一原生提交管线。
 
@@ -192,7 +233,7 @@ Recv/Send 等待者在调用时捕获资源强租约和紧凑 scalar 参数；�
 | `async_io(Interest, F)` | 用户提供的非阻塞 syscall 与独立就绪观察组合；未知 callable 不自动转换为原生 opcode |
 | `lookup_host` 的非数字主机名 | 没有对应内核 DNS opcode，使用独立 resolver 服务执行 `getaddrinfo` |
 
-Windows 的 TCP/UDP 数据路径直接提交 WSARecv/WSASend 及其消息、地址变体，连接与接受使用 ConnectEx/AcceptEx。IOCP 批量完成进入相同的稳定槽和挂起握手；CancelIoEx 成功仍必须排空原完成包。ready 使用非消费 WSAPoll，存在观察者时完成端口等待上限为 1ms。零拷贝发送接口保留等价的 OVERLAPPED 发送语义，`zero_copy` 能力为 false。实现边界见 [异步IO](异步IO.md)。
+Windows 的 TCP/UDP 数据路径直接提交 WSARecv/WSASend 及其消息、地址变体，连接与接受使用 ConnectEx/AcceptEx。后两个扩展 API 的语义与 POSIX 不同，网络层的接入点体现在 IOCP 后端完成路径的收尾上：AcceptEx 把新连接落在一个**事先创建**的 accepted socket 上而非 listener 的新 fd，完成后必须为它补两步初始化——`SO_UPDATE_ACCEPT_CONTEXT` 让 accepted socket 继承 listener 的 socket 上下文，再 `ioctlsocket(FIONBIO)` 恢复非阻塞属性，之后才能用 `getpeername` 取出对端地址交付给 accept awaiter（iocp/backend.hpp:693-709）。ConnectEx 同理，stream socket 完成后需 `SO_UPDATE_CONNECT_CONTEXT` 才能获得完整的连接态语义，后端只对 `SOCK_STREAM` 补这一步（iocp/backend.hpp:711-718）。网络层的 accept/connect awaiter 因此与 Unix 形态一致：返回的 stream 已经完成准备并注册进目标 domain；这些 Winsock 特有的收尾与稳定池、完成包排空、取消仲裁一起属于 IOCP 后端职责，见[异步IO](异步IO.md)第 8 章。IOCP 批量完成进入相同的稳定槽和挂起握手；CancelIoEx 成功仍必须排空原完成包。ready 使用非消费 WSAPoll，存在观察者时完成端口等待上限为 1ms。零拷贝发送接口保留等价的 OVERLAPPED 发送语义，`zero_copy` 能力为 false。
 
 带有效 context 的资源创建时确定 I/O domain。runtime 外使用空 context 创建的兼容对象，在首次异步操作时一次发布最终归属；并发首次操作跟随同一个绑定赢家。协程转到其他 worker、socket 被 move 或拆分，都保持已有的 I/O 归属，不重复注册 fd。accept 的结果按照 `accept_options` 选择首次归属，默认在同一 runtime 的活跃 domain 中均衡分配。注册事件使用资源身份，操作使用带代际的 token；关闭后的迟到事件不会作用于复用后的同号 fd。
 
@@ -385,7 +426,7 @@ struct ImplSocketOptions {
 };
 ```
 
-值得注意的契约细节：参数校验（如 `linger` 的范围、buffer size 必须为正、TTL 1–255）在进入 syscall 前完成，非法值返回 `EINVAL` 而不是依赖内核截断；平台缺失的能力（如无 `SO_REUSEPORT` 的系统）返回 `ENOTSUP` 而非静默成功；`set_ttl` 先查询 socket 地址族再选择 `IP_TTL`/`IPV6_UNICAST_HOPS`；`take_error` 读取并清除挂起的 `SO_ERROR`，无错误时返回 `nullopt`。
+值得注意的契约细节：参数校验（如 `linger` 的范围——POSIX 为 `INT_MAX`、Windows 因 `u_short` 字段收紧到 `USHRT_MAX`、buffer size 必须为正、TTL 1–255）在进入 syscall 前完成，非法值返回 `EINVAL` 而不是依赖内核截断；平台缺失的能力（如无 `SO_REUSEPORT` 的系统）返回 `ENOTSUP` 而非静默成功；组播成员/接口/loop/TTL 选项同样按家族拆分为 v4/v6 两组接口，packet-info 辅助数据在 `IP_PKTINFO`/`IP_RECVDSTADDR`/`IPV6_PKTINFO` 间按平台可用性选择（见 1.3）；`set_ttl` 先查询 socket 地址族再选择 `IP_TTL`/`IPV6_UNICAST_HOPS`；`take_error` 读取并清除挂起的 `SO_ERROR`，无错误时返回 `nullopt`。
 
 配置包括 `reuseaddr`、`reuseport`、`nodelay`、`keepalive`、`linger`、收发 buffer size、IPv6 only、IP TTL/hop limit 及对应 setter。OS 可能调整实际 buffer size，查询返回内核值。`linger(nullopt)` 关闭 linger，零秒为 abortive close，正秒保持 OS 关闭等待语义。io_uring 关闭提交原生 CLOSE 请求并等待 CQE；epoll/kqueue 可能阻塞的关闭使用 cleanup lane，不占用协程 worker。
 
@@ -585,7 +626,9 @@ static auto accept_many_impl(std::shared_ptr<io::detail::resource_state> resourc
 
 批次的方向 reservation 覆盖"首条挂起 + 后续即时领取"全程，其他 accept 任务无法在两条连接之间插队取走积压连接。后续项的实现按后端分叉：io_uring 且内核支持 `IORING_ACCEPT_DONTWAIT` 时提交带 `no_wait` 的原生 ACCEPT SQE，等真实 CQE 返回 `EAGAIN` 结束本批；原生但内核缺少该标志（Linux 6.10 以前）时只返回已完成的首条——**不改用同步 accept 冒充批次，也不为填满 maximum 阻塞等待**；epoll/kqueue 走 `try_accept_impl` 的非阻塞 accept 排空已有连接。每条新连接独立走 `adopt_accepted` 应用相同归属策略。
 
-io_uring 批次的后续接受使用带 `IORING_ACCEPT_DONTWAIT` 的原生 ACCEPT SQE，直到 CQE 返回 `EAGAIN` 或到达 maximum。该标志自 Linux 6.10 提供，`capabilities().native_accept_nowait` 报告实际后端的缓存能力；缺少此标志的内核返回已经原生完成的首条，不改用同步 accept，也不为填满批次等待新的连接。epoll/kqueue 使用非阻塞 accept syscall 排空已有连接。
+`try_accept_impl`（base_listener.hpp:277）的非阻塞 accept 也有一处平台分叉：Linux 用 `accept4` 直接带 `SOCK_NONBLOCK|SOCK_CLOEXEC`；macOS 用普通 `accept` 后在 `prepare` 中补 flag；Windows 的 listener 保持 `FIONBIO` 非阻塞属性，`accept` 无积压时返回 `WSAEWOULDBLOCK`（base_listener.hpp:288），经 `socket_would_block`（见 1.3）统一识别为批次出口。另外注意它把"在 source gate 临界区内做短 syscall"与"注册 target domain"分成两段——释放 source 锁后才 `adopt_accepted`，避免跨域锁的 ABBA 序。
+
+`IORING_ACCEPT_DONTWAIT` 自 Linux 6.10 提供，`capabilities().native_accept_nowait` 报告实际后端的能力。
 
 监听器提供 `local_addr`、`ready`/`readable`、socket options、`close` 和原生导入导出。`from_native` 会用 `SO_ACCEPTCONN` 校验导入的确实是监听 socket，非监听 fd 返回 `InvalidSocketType`。
 
@@ -937,13 +980,97 @@ static auto send_many_impl(std::shared_ptr<io::detail::resource_state> resource,
 
 `faio::net::unix::address`/`UnixAddr` 支持 pathname 和 unnamed。`abstract(name)` 为 Linux 显式扩展，macOS 返回 `ENOTSUP`。pathname 拒绝内嵌 NUL 和超长路径。socket 析构不删除文件系统路径，由创建者明确管理路径清理。
 
-`UnixStream`/`UnixListener` 复用字节流、就绪、try、split、native 与关闭协议——它们与 TCP 类型共享同一套 `BaseStream`/`BaseListener` 实现，只是模板参数换成 `UnixAddr`（见 1.1）。`UnixStream::pair(ctx)` 创建非阻塞全双工 socketpair；`peer_credentials()` 提供 UID/GID，Linux 同时返回 PID，macOS 的 PID 为 `nullopt`。
+### 6.1 Unix socket：pair、身份与导入校验
 
-`UnixDatagram` 提供 `bind`、`unbound`、`pair`、connected/unconnected 收发、peek、消息辅助数据、shutdown、native 和有界 batch。`UnixSocket::stream/datagram` 允许创建后配置/绑定，再转换为 listener、stream 或 datagram。
+`UnixStream`/`UnixListener` 复用字节流、就绪、try、split、native 与关闭协议——它们与 TCP 类型共享同一套 `BaseStream`/`BaseListener` 实现，只是模板参数换成 `UnixAddr`（见 1.1）。`UnixDatagram` 提供 `bind`、`unbound`、`pair`、connected/unconnected 收发、peek、消息辅助数据、shutdown、native 和有界 batch。`UnixSocket::stream/datagram` 允许创建后配置/绑定，再转换为 listener、stream 或 datagram。
 
-`faio::net::unix::pipe::pair(ctx)` 返回 `pair<Sender, Receiver>`。发送端提供 `write`/`write_all`/`writable`，接收端提供 `read`/`read_exact`/`readable`，均有 borrowed/owned buffer 及 native import/export。`open(ctx, path)` 提交统一 OPEN 请求：io_uring 使用原生 OPENAT SQE/CQE，epoll/kqueue 使用文件服务打开 nonblocking FIFO；发送端没有接收端时返回内核 `ENXIO`。
+`UnixStream::pair(ctx)`（unix/socket.hpp:49）是 socketpair 创建的样板，与 `Socket::create` 同源的所有权接力在**两个 fd**上各走一遍：
 
-pipe 的原生导入会验证 FIFO/匿名管道类型和访问方向，不接受可能阻塞 reactor 的普通文件。pipe 不使用 socket recv/send。写端全部关闭后，接收端排空已有内容再读到 EOF；读取端已关闭时写返回 `EPIPE`。macOS 使用 fd 的 `F_SETNOSIGPIPE`，Linux 使用系统调用线程的局部信号保护；库不修改进程全局 SIGPIPE handler。大于 `PIPE_BUF` 的多写者数据不承诺原子性。
+```cpp
+int descriptors[2];
+if (::socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) < 0)
+  return std::unexpected{make_error(errno)};
+owned_native_socket first{descriptors[0]}, second{descriptors[1]};
+if (auto prepared = Socket::prepare(first.get()); !prepared)
+  return std::unexpected{prepared.error()};
+if (auto prepared = Socket::prepare(second.get()); !prepared)
+  return std::unexpected{prepared.error()};
+auto a = Socket::adopt_checked(first.get(), context);
+if (!a)
+  return std::unexpected{a.error()};
+(void)first.release();
+auto b = Socket::adopt_checked(second.get(), context);
+// ...
+```
+
+`socketpair(2)` 不带 nonblocking/CLOEXEC 创建标志，两个 fd 先各自由 `owned_native_socket` guard 接住，prepare、adopt 任何一步失败都随 guard 析构成对归还，不会出现"一端已注册、另一端泄漏"。`UnixDatagram::pair`（unix/socket.hpp:108）结构相同，仅 `SOCK_DGRAM` 不同。
+
+`peer_credentials()`（unix/socket.hpp:71）在 `with_resource` 临界区内查询对端内核身份：
+
+```cpp
+#if defined(__linux__)
+  struct ucred credentials{};
+  socklen_t size = sizeof(credentials);
+  if (::getsockopt(fd(), SOL_SOCKET, SO_PEERCRED, &credentials, &size) < 0)
+    return std::unexpected{make_error(errno)};
+  return PeerCredentials{credentials.uid, credentials.gid, credentials.pid};
+#else
+  uid_t uid{};
+  gid_t gid{};
+  if (::getpeereid(fd(), &uid, &gid) < 0)
+    return std::unexpected{make_error(errno)};
+  return PeerCredentials{uid, gid, std::nullopt};
+#endif
+```
+
+Linux 的 `SO_PEERCRED` 返回 `ucred{pid, uid, gid}` 三元组；BSD/macOS 的 `getpeereid` 只提供 uid/gid，因此 `PeerCredentials::pid` 是 `optional`，macOS 上恒为 `nullopt`——跨平台代码必须处理"PID 不可得"而不是拿到一个无意义的零值。查询在资源控制临界区内执行，与关闭串行，不会读到已被复用的 fd 的对端身份。
+
+`UnixSocket::from_native`（unix/socket.hpp:197）对导入的 fd 做两道校验：`SO_TYPE` 必须是 `SOCK_STREAM` 或 `SOCK_DGRAM`，`getsockname` 的 `ss_family` 必须是 `AF_UNIX`，任一不符返回 `InvalidSocketType`——拒绝把 IP socket 或普通文件伪装成 Unix socket 注入网络层，校验通过后才进入 prepare → adopt 的常规接力。
+
+### 6.2 pipe：FIFO 的异步 open
+
+`faio::net::unix::pipe::pair(ctx)` 返回 `pair<Sender, Receiver>`。发送端提供 `write`/`write_all`/`writable`，接收端提供 `read`/`read_exact`/`readable`，均有 borrowed/owned buffer 及 native import/export。
+
+FIFO 的 `open` 本身就是进程间同步点：阻塞模式下 `O_RDONLY` 打开要等到写端出现，`O_WRONLY` 打开要等到读端出现——任何阻塞语义都不能进 reactor 线程。pipe 的 `open(ctx, path)` 因此分两层解决：`O_NONBLOCK` 消除等待语义（代价是写端无读端时立即返回内核 `ENXIO`），统一 OPEN awaiter 消除打开动作本身在协程线程上的执行。`Sender::open`（pipe.hpp:120）：
+
+```cpp
+static auto open(io::io_context context, std::string path) -> task<expected<Sender>> {
+  if (path.find('\0') != std::string::npos)
+    co_return std::unexpected{make_error(EINVAL)};
+  // raw awaiter 拥有路径副本，直接提交统一请求；已有 native opcode 不经过线程池。
+  auto descriptor =
+      co_await io::open(path.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC).with_context(context);
+  if (!descriptor)
+    co_return std::unexpected{descriptor.error()};
+  // CQE 成功后立即接管 fd；导入校验或注册失败时只关闭一次。
+  owned_native_fd native{*descriptor};
+  co_return from_native(std::move(context), std::move(native));
+}
+```
+
+三个设计要点：
+
+1. **路径所有权**：`path` 按值进入协程帧，raw awaiter 再持有路径副本——OPENAT SQE 挂起期间不借用调用方的字符串地址，这与 `lookup_host` 的参数按值移入 job 是同一原则。
+2. **后端分叉对网络层透明**：io_uring 有原生 OPENAT opcode，提交 SQE 等 CQE；epoll/kqueue 没有 open 语义，统一引擎把请求交给文件服务执行，网络层不额外创建辅助线程任务。两条路径返回相同的 `expected<int>`。
+3. **取消竞态的 fd 回收**：取消与成功 CQE 竞争时，由通用引擎先回收内核已创建的 fd 再发布取消；只有成功结果到达协程才建立 `owned_native_fd` guard，随后 `from_native` 的校验或注册失败由 guard 关闭一次，绝不双关。
+
+打开后 `from_native` 的两步检查是 FIFO 协议的关键守门（pipe.hpp:24/:39）：`validate` 用 `fstat` 要求 `S_ISFIFO` 并核对访问方向（写端拒绝 `O_RDONLY`，读端拒绝 `O_WRONLY`），**拒绝一切可能阻塞 reactor 的普通文件**；`prepare` 补 `O_NONBLOCK`、`FD_CLOEXEC`，macOS 再补 `F_SETNOSIGPIPE`——BSD 的 pipe 信号可能发给进程，使用 fd 原生选项抑制而非修改进程全局信号 handler。
+
+pipe 的读写走 `io::read`/`io::write` 而非 socket 的 `io::recv`/`io::send`：FIFO 不是 socket，offset 参数固定为 `UINT64_MAX` 表示"流式语义、不使用文件偏移"：
+
+```cpp
+auto write(std::span<const char> buffer) const noexcept {
+  return io::write(
+             resource(), buffer.data(), buffer.size(), std::numeric_limits<std::uint64_t>::max())
+      .empty_success();
+}
+```
+
+io_uring 下这对操作提交原生 READ/WRITE SQE，与 socket 的 RECV/SEND 走同一完成管线；`write_all`/`read_exact` 复用与 stream 完全相同的方向租约承接模式（见 1.2），中途 EOF 报 `UnexpectedEOF`、零进度写报 `WriteZero`。
+
+`pipe::pair`（pipe.hpp:302）创建内核匿名管道：Linux 用 `pipe2(O_NONBLOCK|O_CLOEXEC)` 一次给齐标志，其他平台用 `pipe` 后由 `from_native` 的 prepare 补齐；两端分别经 `Receiver::from_native`/`Sender::from_native` 注册进同一 domain，"不创建额外线程"。
+
+写端全部关闭后，接收端排空已有内容再读到 EOF；读取端已关闭时写返回 `EPIPE`。macOS 使用 fd 的 `F_SETNOSIGPIPE`，Linux 使用系统调用线程的局部信号保护；库不修改进程全局 SIGPIPE handler。大于 `PIPE_BUF` 的多写者数据不承诺原子性。
 
 泛型可非阻塞 fd 的注册与 readiness guard 见 `io::unix::AsyncFd` 和[异步IO](异步IO.md)。普通磁盘文件通过 filesystem provider 选择执行方式：io_uring 对具备原生 opcode 的操作直接提交文件 SQE/CQE，epoll/kqueue 使用独立文件服务；普通文件不通过 readiness reactor 伪装异步。
 

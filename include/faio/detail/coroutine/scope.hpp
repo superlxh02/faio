@@ -15,8 +15,13 @@ namespace detail {
 // 所有子任务只借用该状态；scope 排空子任务后才允许销毁这块存储。
 struct scope_state {
   // 初始化必须提供的两个借用入口；其他成员按各自默认值构造。
-  scope_state(scheduler_ref target, task_tracker* outer) noexcept
-      : scheduler(target), tracker(outer) {}
+  scope_state(scheduler_ref target, task_tracker* outer, std::stop_token parent_stop)
+      : scheduler(target), tracker(outer) {
+    if (cancellation_policy == cancellation_error_policy::normal_if_stop_requested || current_cancellation_owner) {
+      cancellation_owner = std::make_shared<cancellation_state>(parent_stop, current_cancellation_owner);
+      stop = cancellation_owner->source;
+    }
+  }
 
   // 借用 scope 所属调度器，用于提交每个子任务，不拥有运行时。
   scheduler_ref scheduler;
@@ -25,6 +30,9 @@ struct scope_state {
   ::faio::detail::task_tracker* tracker;
   // 独立借用根任务计数服务，与纯调度引用分开保存。
   task_lifetime_ref lifetime{current_task_lifetime()};
+  cancellation_error_policy cancellation_policy{current_cancellation_policy};
+  external_scope_ref external_scope{current_external_scope};
+  std::shared_ptr<cancellation_state> cancellation_owner;
   // 整个 scope 的停止源，向所有通过 scope.spawn 提交的孩子传播停止请求。
   std::stop_source stop;
   // 未完成孩子数加一个 body 哨兵；body 退出时归还哨兵，避免提交途中提前完成。
@@ -67,6 +75,9 @@ detached_task scope_child(task<T> child, scope_state* state) {
   ::faio::detail::current_tracker = state->tracker;
   // 安装本 scope 的停止令牌，用户 task 在启动时继承它。
   ::faio::detail::current_stop_token = state->stop.get_token();
+  current_cancellation_policy = state->cancellation_policy;
+  current_external_scope = state->external_scope;
+  current_cancellation_owner = state->cancellation_owner;
   // 消费并等待孩子完成；子任务结果在此丢弃，scope.spawn 不返回单个孩子结果。
   try {
     co_await std::move(child);
@@ -147,11 +158,11 @@ auto scope(F body) -> task<typename std::invoke_result_t<F&, scope_context&>::va
   // 查询外层停止令牌，后续转发到本组独立的停止源。
   auto parent_stop = co_await this_coro::stop_token();
   // 在 scope 帧内构造共享给孩子的状态，初始 remaining 含 body 哨兵。
-  detail::scope_state state{scheduler, ::faio::detail::current_tracker};
+  detail::scope_state state{scheduler, ::faio::detail::current_tracker, parent_stop};
   // 帧内保存父停止回调；它存活期间维持父停止源到本组停止源的连接。
   std::optional<std::stop_callback<detail::forward_stop>> parent_callback;
   // 不可停止的父任务无需登记回调，减少无取消场景的额外工作。
-  if (parent_stop.stop_possible())
+  if (!state.cancellation_owner && parent_stop.stop_possible())
     // 父令牌已停止时也会同步转发，孩子启动后可立即观察请求。
     parent_callback.emplace(parent_stop, detail::forward_stop{&state.stop});
   // 创建供 body 使用的视图，借用同一个 scope_state。
@@ -163,7 +174,8 @@ auto scope(F body) -> task<typename std::invoke_result_t<F&, scope_context&>::va
     // 否则 body 会只继承父任务 token，孩子失败无法取消正在等待的 body。
     auto body_task = std::invoke(body, context);
     join_handle<T> body_handle{detail::start_observed(
-        scheduler, std::move(body_task), state.tracker, state.stop.get_token(), state.lifetime)};
+        scheduler, std::move(body_task), state.tracker, state.stop.get_token(), state.lifetime,
+        state.cancellation_owner)};
     if constexpr (std::is_void_v<T>) {
       // JoinHandle 即使已请求停止仍等到 body 真实结束，保持 context 借用安全。
       co_await body_handle;

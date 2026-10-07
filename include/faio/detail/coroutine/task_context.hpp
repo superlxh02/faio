@@ -3,8 +3,12 @@
 
 #include "faio/detail/coroutine/execution_thread.hpp"
 #include "faio/detail/coroutine/task_tracker.hpp"
+#include "faio/detail/runtime/common/external_work.hpp"
 #include <cstdint>
 #include <stop_token>
+#include <memory>
+#include <optional>
+#include <utility>
 
 namespace faio {
 // 当前为上下文元数据；具体调度队列尚未按优先级分层。
@@ -16,6 +20,26 @@ namespace detail {
 // 恢复用户代码前重建；挂起后的任务上下文以 promise 中的副本为准。
 // 当前用户协程的协作停止观察端，普通线程或无停止源的任务默认为空。
 inline thread_local std::stop_token current_stop_token{};
+enum class cancellation_error_policy { fatal_if_unobserved, normal_if_stop_requested };
+// This owner holds cancellation wiring only, never a coroutine frame or result.
+// Keeping an ancestor callback alive therefore cannot cycle through child values.
+struct cancellation_state {
+  struct forward {
+    std::stop_source* target;
+    void operator()() const noexcept { target->request_stop(); }
+  };
+  std::shared_ptr<cancellation_state> parent;
+  std::stop_source source;
+  std::optional<std::stop_callback<forward>> link;
+  cancellation_state(std::stop_token token, std::shared_ptr<cancellation_state> owner)
+      : parent(std::move(owner)) {
+    if (token.stop_possible()) link.emplace(token, forward{&source});
+  }
+};
+inline thread_local cancellation_error_policy current_cancellation_policy{
+    cancellation_error_policy::fatal_if_unobserved};
+inline thread_local external_scope_ref current_external_scope{};
+inline thread_local std::shared_ptr<cancellation_state> current_cancellation_owner{};
 
 /// @brief 调度执行作用域共用的协作预算；父子对称转移和连续私有 fast 链不重置。
 inline constexpr std::uint16_t cooperative_budget_limit = 64;
@@ -58,6 +82,9 @@ struct task_context {
   scheduler_ref scheduler{};  // 借用目标调度器，不延长运行时生命周期。
   // 本任务的停止令牌，协程迁移后仍关联同一停止状态。
   std::stop_token stop_token{};  // 从父任务或根任务停止源继承。
+  cancellation_error_policy cancellation_policy{cancellation_error_policy::fatal_if_unobserved};
+  external_scope_ref external_scope{};
+  std::shared_ptr<cancellation_state> cancellation_owner{};
   // 当前优先级元数据；显式设置覆盖父任务，否则继承父任务。
   task_priority priority{task_priority::normal};
   // 记录 with_priority 是否明确设置过，继承上下文时据此保留子任务设置。
@@ -72,8 +99,27 @@ struct task_context {
 inline void restore_task_context(const task_context& context) noexcept {
   current_tracker = context.scope;
   current_stop_token = context.stop_token;
+  current_cancellation_policy = context.cancellation_policy;
+  current_external_scope = context.external_scope;
+  current_cancellation_owner = context.cancellation_owner;
   // 协作预算由真实 scheduler resume 的作用域管理，恢复帧属性时绝不覆盖它。
 }
+
+class scoped_task_context {
+ public:
+  explicit scoped_task_context(const task_context& context) noexcept
+      : previous_{.scope = current_tracker, .stop_token = current_stop_token,
+                  .cancellation_policy = current_cancellation_policy,
+                  .external_scope = current_external_scope,
+                  .cancellation_owner = current_cancellation_owner} {
+    restore_task_context(context);
+  }
+  scoped_task_context(const scoped_task_context&) = delete;
+  scoped_task_context& operator=(const scoped_task_context&) = delete;
+  ~scoped_task_context() { restore_task_context(previous_); }
+ private:
+  task_context previous_;
+};
 }  // namespace detail
 }  // namespace faio
 #endif

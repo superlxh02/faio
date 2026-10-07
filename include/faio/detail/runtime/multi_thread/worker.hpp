@@ -31,7 +31,8 @@ class worker {
                  shared_state.task_lifetime_reference(),
                  scheduler_.local_state(),
                  worker_id,
-                 &shared_state.blocking()),
+                 &shared_state.blocking(),
+                 &shared_state.external_host()),
         thread_guard_(binding_) {
     shared_.register_io(worker_id_, io_engine_.context());
   }
@@ -50,6 +51,8 @@ class worker {
     faio::log::logger()->debug("worker {} started", worker_id_);
     while (!shutdown_) {
       ++tick_;
+      global_check_pending_ = global_check_pending_
+                              || tick_ % shared_.config()._global_queue_interval == 0;
       // 持续有协程工作时仍定期轮询 I/O，避免完成事件长期得不到处理。
       if (tick_ % shared_.config()._io_interval == 0) {
         drive_io();
@@ -57,13 +60,31 @@ class worker {
         if (shutdown_)
           break;
       }
-      if (auto task = scheduler_.next_task(tick_)) {
+      if (prefer_external_ && shared_.external_host().has_ready(worker_id_)) {
+        if (refresh_io_before_execute())
+          break;
+        execute_external();
+        prefer_external_ = false;
+        idle_turns_ = 0;
+        continue;
+      }
+      const auto poll_global = std::exchange(global_check_pending_, false);
+      if (auto task = scheduler_.next_task(tick_, poll_global)) {
         // 持续就绪逐恢复检查 elapsed；空闲驱动保留较早锚点，只会提前触发预算。
         // 驱动仍在选中任务以后中断 fast-chain，并在恢复以前重查关闭状态。
         if (refresh_io_before_execute())
           break;
         idle_turns_ = 0;
         execute(*task);
+        prefer_external_ = true;
+        continue;
+      }
+      if (shared_.external_host().has_ready(worker_id_)) {
+        if (refresh_io_before_execute())
+          break;
+        execute_external();
+        prefer_external_ = false;
+        idle_turns_ = 0;
         continue;
       }
       // 本地队列耗尽时先消费本域完成，避免不断窃取别域任务而推迟自己的IO。
@@ -79,6 +100,7 @@ class worker {
           break;
         idle_turns_ = 0;
         execute(*task);
+        prefer_external_ = true;
         continue;
       }
       // 有界轮询减少短突发反复进入内核等待；名额一直计入共享搜索状态。
@@ -99,13 +121,23 @@ class worker {
     scheduler_.before_execute();
     auto poll_budget =
         scheduler_.begin_execution();  // FIFO/global/steal补64，连续私有fast共用余额。
-    auto* previous_tracker = ::faio::detail::current_tracker;
-    auto previous_stop = ::faio::detail::current_stop_token;
-    ::faio::detail::current_tracker = nullptr;
-    ::faio::detail::current_stop_token = {};
+    ::faio::detail::scoped_task_context context{::faio::detail::task_context{}};
     task.resume();
-    ::faio::detail::current_tracker = previous_tracker;
-    ::faio::detail::current_stop_token = std::move(previous_stop);
+  }
+
+  void execute_external() noexcept {
+    auto dispatch = shared_.external_host().try_pop_external(worker_id_);
+    if (!dispatch)
+      return;
+    scheduler_.before_execute();
+    scheduler_.interrupt_execution_chain();
+    ::faio::detail::cooperative_poll_scope budget;
+    ::faio::detail::scoped_task_context context{{
+        .stop_token = dispatch.root() ? dispatch.root()->stop_token() : std::stop_token{},
+        .external_scope = dispatch.scope()}};
+    auto* node = dispatch.node();
+    auto execute = node->execute;
+    execute(node);  // node 可在 receiver 内销毁；guard 保留独立 root/dispatch 责任。
   }
 
   /** @brief 周期驱动保留真实开始时间锚点，结果沿原批次交付协议返回。 */
@@ -147,14 +179,14 @@ class worker {
     if (shutdown_ || !scheduler_.prepare_sleep())
       return;
     while (!shared_.scheduler().closed()) {
-      if (scheduler_.has_ready_task()) {
-        (void)scheduler_.finish_sleep();
+      if (scheduler_.has_ready_task() || shared_.external_host().has_ready(worker_id_)) {
+        (void)scheduler_.finish_sleep(shared_.external_host().has_ready(worker_id_));
         return;
       }
       io_engine_.wait_and_drive(scheduler_);
       // finish_sleep 先撤销自身休眠记录再通知批次，避免从 sleepers
       // 末尾唤醒自己。
-      if (scheduler_.finish_sleep())
+      if (scheduler_.finish_sleep(shared_.external_host().has_ready(worker_id_)))
         return;
     }
     shutdown_ = true;
@@ -170,6 +202,8 @@ class worker {
       std::chrono::steady_clock::now()};  // 单 worker 私有保守时间锚点，无共享原子或债务状态。
   std::uint32_t tick_{0};                 // 事件循环轮次，用于 I/O 和全局队列公平性。
   bool shutdown_{false};                  // 周期或入睡时刷新，热路径不反复读取关闭原子。
+  bool prefer_external_{true};
+  bool global_check_pending_{};
   std::uint32_t idle_turns_{0};           // 连续空闲轮询次数，有工作时归零。
 };
 }  // namespace faio::runtime::detail

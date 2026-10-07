@@ -158,6 +158,17 @@ class scheduler_state_machine {
     return false;
   }
 
+  // external lane 不可窃取，必须唤醒拥有该 FIFO 的指定 worker。
+  bool notify_worker(std::size_t worker_id) noexcept {
+    std::lock_guard lock(mutex_);
+    const auto it = std::find(sleepers_.begin(), sleepers_.end(), worker_id);
+    if (it == sleepers_.end())
+      return false;
+    sleepers_.erase(it);
+    counters_.wake_up_one(1);
+    return true;
+  }
+
   // 检查线程是否在休眠集合中。
   [[nodiscard]]
   bool contains(std::size_t worker_id) const {

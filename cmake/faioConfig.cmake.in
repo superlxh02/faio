@@ -27,4 +27,23 @@ faio_enable_mingw_tls_workaround()
 
 # 加载公开的 faio::faio 目标，最后按 CMake 约定校验用户请求的包组件。
 include("${CMAKE_CURRENT_LIST_DIR}/faioTargets.cmake")
+
+# Base consumption never loads experimental exports or resolves stdexec.
+set(_faio_load_experimental FALSE)
+foreach(_faio_component IN LISTS faio_FIND_COMPONENTS)
+    if(_faio_component MATCHES "^experimental_(runtime|reflection|execution)$")
+        if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/faioExperimentalConfig.cmake")
+            set(_faio_load_experimental TRUE)
+        else()
+            set(faio_${_faio_component}_FOUND FALSE)
+            set(faio_NOT_FOUND_MESSAGE "faio was installed without experimental components")
+        endif()
+    else()
+        set(faio_${_faio_component}_FOUND FALSE)
+        set(faio_NOT_FOUND_MESSAGE "Unknown faio component: ${_faio_component}")
+    endif()
+endforeach()
+if(_faio_load_experimental)
+    include("${CMAKE_CURRENT_LIST_DIR}/faioExperimentalConfig.cmake")
+endif()
 check_required_components(faio)

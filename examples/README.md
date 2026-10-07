@@ -27,6 +27,12 @@
 [异步 IO](../docs/异步IO.md) 的 Windows IOCP 章节，原生网络契约见
 `tests/test_windows_network.cpp`，接口说明见 [网络 IO](../docs/网络IO.md)。
 
+[experimental/](experimental/) 子目录收录实验性特性的独立示例：`async_main.cpp` 展示注解声明的异步入口，
+`async_main_execution.cpp` 与 `execution_current_thread.cpp`、`execution_multi_thread.cpp` 展示 stdexec Sender/Receiver
+与 faio 协程的互操作，`execution_tcp_server.cpp` 给出完整网络服务形态。这些示例要求 Linux + GCC 16.1 + C++26，
+经 `FAIO_ENABLE_EXPERIMENTAL` 与 `linux-gcc16.1-experimental-*` 预设构建，不参与上面八个示例的跨平台矩阵；
+机制阐述与源码解析见 [实验性特性](../docs/实验性特性.md)。
+
 ## 构建与运行
 
 从仓库根目录构建。macOS 使用项目的 Homebrew Clang preset：

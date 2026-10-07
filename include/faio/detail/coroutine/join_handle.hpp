@@ -49,17 +49,33 @@ struct join_handle_state {
   std::stop_source stop_source;
   // 可选父停止回调，保存在共享状态内以覆盖整个子任务生命周期。
   std::optional<std::stop_callback<forward_stop>> parent_callback{std::nullopt};
+  cancellation_error_policy cancellation_policy{current_cancellation_policy};
+  std::shared_ptr<cancellation_state> cancellation_owner;
+  bool normal_cancelled{};
+
+  void capture_error(std::exception_ptr failure) noexcept {
+    error = std::move(failure);
+    try {
+      if (error)
+        std::rethrow_exception(error);
+    } catch (const operation_cancelled&) {
+      normal_cancelled = cancellation_policy == cancellation_error_policy::normal_if_stop_requested
+                         && stop_source.stop_requested();
+    } catch (...) {
+      normal_cancelled = false;
+    }
+  }
 
   // 在结果/异常写入后发布完成，同时唤醒普通线程与协程等待者。
   void publish() {
     // release 发布 value/error，普通线程 acquire 读取 ready 后可以取结果。
-    ready.store(true, std::memory_order_release);
+    ready.store(true, std::memory_order_seq_cst);
     // 解除外部线程的 atomic::wait 阻塞，不涉及 worker 阻塞等待。
     ready.notify_all();
     // 恢复通过 co_await JoinHandle 登记的协程等待者。
     completion.notify();
     // 若结果已无人领取且任务失败，终止进程，避免静默吞异常。
-    if (abandoned.load(std::memory_order_acquire) && error)
+    if (abandoned.load(std::memory_order_seq_cst) && error && !normal_cancelled)
       std::terminate();
   }
 
@@ -69,9 +85,9 @@ struct join_handle_state {
     if (consumed.load(std::memory_order_acquire))
       return;
     // 让仍在运行的发布方知道结果已无人观察。
-    abandoned.store(true, std::memory_order_release);
+    abandoned.store(true, std::memory_order_seq_cst);
     // 若完成先于放弃，当前线程负责处理已有的未观察异常。
-    if (ready.load(std::memory_order_acquire) && error)
+    if (ready.load(std::memory_order_seq_cst) && error && !normal_cancelled)
       std::terminate();
   }
 
@@ -95,11 +111,15 @@ struct join_handle_state {
 template <class T>
 detached_task observed_coro(task<T> child,
                             std::shared_ptr<join_handle_state<T>> state,
-                            task_tracker* tracker) {
+                            task_tracker* tracker,
+                            external_scope_ref external_scope = current_external_scope) {
   // 建立当前根任务的任务组，供用户 task 及其派生任务继承。
   ::faio::detail::current_tracker = tracker;
   // 安装子任务独立停止令牌，随后 co_await 的 task 会继承它。
   ::faio::detail::current_stop_token = state->stop_source.get_token();
+  current_cancellation_policy = state->cancellation_policy;
+  current_external_scope = external_scope;
+  current_cancellation_owner = state->cancellation_owner;
   try {
     // 编译期选择无结果 task 的存储路径。
     if constexpr (std::is_void_v<T>) {
@@ -113,7 +133,7 @@ detached_task observed_coro(task<T> child,
     }
     // 把用户异常和结果存储异常交给句柄观察，不让根协程直接 terminate。
   } catch (...) {
-    state->error = std::current_exception();
+    state->capture_error(std::current_exception());
   }
   // 发布已写好的结果或异常；根协程随后析构并归还任务计数。
   state->publish();
@@ -127,18 +147,35 @@ std::shared_ptr<join_handle_state<T>> start_observed(
     task<T> child,
     task_tracker* tracker,
     std::stop_token parent_stop,
-    task_lifetime_ref lifetime = current_task_lifetime()) {
+    task_lifetime_ref lifetime = current_task_lifetime(),
+    std::shared_ptr<cancellation_state> parent_owner = current_cancellation_owner) {
   // 分配和登记前拒绝空调度器，避免提交到不存在的运行时。
   if (!scheduler)
     throw std::logic_error("没有可用的运行时");
   // 创建跨根协程与句柄共享的结果对象；这是 spawn 的共享状态分配。
   auto state = std::make_shared<join_handle_state<T>>();
+  const bool matching_stop = parent_stop == current_stop_token
+      || (parent_owner && parent_stop == parent_owner->source.get_token());
+  const bool inherit = !current_scheduler()
+      || (scheduler == current_scheduler() && matching_stop);
+  if (!inherit) {
+    state->cancellation_policy = cancellation_error_policy::fatal_if_unobserved;
+    parent_owner.reset();
+  }
+  if (parent_owner && parent_stop != parent_owner->source.get_token()
+      && parent_stop != current_stop_token)
+    parent_owner.reset();
+  if (state->cancellation_policy == cancellation_error_policy::normal_if_stop_requested || parent_owner) {
+    state->cancellation_owner = std::make_shared<cancellation_state>(parent_stop, std::move(parent_owner));
+    state->stop_source = state->cancellation_owner->source;
+  }
   // 父任务不可取消时跳过回调登记。
-  if (parent_stop.stop_possible())
+  if (!state->cancellation_owner && parent_stop.stop_possible())
     // 父请求转发到子停止源；父已停止时构造回调会同步转发。
     state->parent_callback.emplace(parent_stop, forward_stop{&state->stop_source});
   // 先构造根帧并转移 child 所有权，尚未修改任务计数。
-  auto root = observed_coro(std::move(child), state, tracker);
+  auto root = observed_coro(std::move(child), state, tracker,
+      inherit ? current_external_scope : external_scope_ref{});
   // 提交前登记外层任务组，根 promise 析构负责归还。
   if (tracker)
     tracker->add();

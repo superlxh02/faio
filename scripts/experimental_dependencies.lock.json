@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "stdexec": {
+    "repository": "https://github.com/NVIDIA/stdexec",
+    "tag": "nvhpc-26.05",
+    "commit": "6d7ad689f4d4831c5136e4abe1c601f9a3b64e43"
+  }
+}

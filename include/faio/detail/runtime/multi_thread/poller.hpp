@@ -12,8 +12,9 @@ namespace faio::runtime::detail {
 class runtime_poller {
  public:
   // 创建共享调度域，再启动并等待所有线程完成本地队列注册。
-  explicit runtime_poller(const runtime_config& config)
+  explicit runtime_poller(const runtime_config& config, runtime_context* context = nullptr)
       : shared_(config), workers_started_(static_cast<std::ptrdiff_t>(config._num_workers + 1)) {
+    shared_.external_host().set_context(context);
     start_workers();
   }
 
@@ -28,6 +29,10 @@ class runtime_poller {
   void shutdown(io::shutdown_policy policy = io::shutdown_policy::cancel_all) {
     if (stopped_)
       return;
+    shared_.external_host().begin_quiescing();
+    shared_.external_host().begin_draining();
+    if (policy == io::shutdown_policy::cancel_all)
+      shared_.external_host().request_stop();
     if (policy == io::shutdown_policy::cancel_all)
       shared_.begin_io_shutdown(policy);
     shared_.wait_for_tasks();
@@ -37,6 +42,7 @@ class runtime_poller {
     shared_.drain_io();
     close();
     wait_for_all();
+    shared_.external_host().mark_stopped();
     stopped_ = true;
   }
 

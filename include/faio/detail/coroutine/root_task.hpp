@@ -3,6 +3,7 @@
 
 #include "faio/detail/coroutine/task.hpp"
 #include "faio/detail/coroutine/task_context.hpp"
+#include "faio/detail/common/cancellation.hpp"
 #include <coroutine>
 #include <exception>
 #include <stdexcept>
@@ -20,17 +21,18 @@ class detached_task {
     // 根帧销毁时归还外层 tracker 和运行时计数，提交失败清理也走此入口。
     ~promise_type() {
       // 先归还外层任务组的一票，例如解除 block_on 的排空等待。
-      if (scope)
-        scope->done();
+      auto completion = scope ? scope->done() : task_tracker::completion_guard{};
       // 归还运行时活动根任务计数，使运行时能判断何时可以关闭 worker。
       if (lifetime)
         lifetime.finish_task();
+      external_child.reset();
     }
 
     // 可选外层任务计数器，只借用；计数登记必须与此析构中的 done 配对。
     task_tracker* scope{};
     // 独立的根任务生命周期服务，登记成功后才绑定，析构时归还一票。
     task_lifetime_ref lifetime{};
+    external_child_lease external_child;
 
     // 创建协程时：生成提交前拥有根帧的 detached_task 对象。
     detached_task get_return_object() noexcept {
@@ -79,6 +81,9 @@ class detached_task {
     // 保存外层任务组的归还目标，无外层任务组时为空。
     handle_.promise().scope = scope;
   }
+  void set_external_child(external_child_lease child) noexcept {
+    handle_.promise().external_child = std::move(child);
+  }
 
  private:
   // 提交前独占的根帧句柄；转出后为空，避免对象析构重复清理。
@@ -94,6 +99,10 @@ inline void start_detached(detached_task root,
   // 即使没有运行时，调用者已登记的作用域计数也要由帧析构归还。
   // 先绑定清理目标，后续异常销毁 root 时仍能归还外层计数。
   root.set_completion({}, scope);
+  const auto external_scope = current_external_scope;
+  if (external_scope.valid() && external_scope.host == current_external_host()
+      && scheduler == current_scheduler())
+    root.set_external_child(external_scope.host->acquire_child(external_scope));
   // 空运行时无法提交，root 的析构会清理尚未执行的根帧。
   if (!scheduler)
     throw std::logic_error("没有可用的运行时");
@@ -117,12 +126,25 @@ inline void start_detached(detached_task root,
 // 无结果观察者的根包装，拥有 child，借用 tracker；异常由根 promise
 // 终止规则处理。
 template <class T>
-detached_task spawn_coro(task<T> child, task_tracker* tracker) {
+detached_task spawn_coro(task<T> child, task_tracker* tracker,
+                         std::stop_token stop = current_stop_token,
+                         cancellation_error_policy policy = current_cancellation_policy,
+                         external_scope_ref external_scope = current_external_scope,
+                         std::shared_ptr<cancellation_state> cancellation_owner = current_cancellation_owner) {
   // 没有 join 接收者的后台任务若抛异常，则终止程序，避免静默丢失。
   // 启动用户 task 前安装任务组，内部 spawn 继承这个归属。
   current_tracker = tracker;
+  current_stop_token = stop;
+  current_cancellation_policy = policy;
+  current_external_scope = external_scope;
+  current_cancellation_owner = std::move(cancellation_owner);
   // 消费并等待用户 task；结果在此丢弃，但异常不能静默丢弃。
-  co_await std::move(child);
+  try {
+    co_await std::move(child);
+  } catch (const operation_cancelled&) {
+    if (policy != cancellation_error_policy::normal_if_stop_requested || !stop.stop_requested())
+      throw;
+  }
 }
 
 // 立即提交不需要结果句柄的任务，供 spawn_detached 使用。
@@ -132,7 +154,12 @@ void start_unobserved(scheduler_ref scheduler,
                       task_tracker* tracker = nullptr,
                       task_lifetime_ref lifetime = current_task_lifetime()) {
   // 先构造包装帧，构造失败时尚未增加外层计数。
-  auto root = spawn_coro(std::move(child), tracker);
+  const bool inherit = !current_scheduler() || scheduler == current_scheduler();
+  auto root = spawn_coro(std::move(child), tracker,
+      inherit ? current_stop_token : std::stop_token{},
+      inherit ? current_cancellation_policy : cancellation_error_policy::fatal_if_unobserved,
+      inherit ? current_external_scope : external_scope_ref{},
+      inherit ? current_cancellation_owner : nullptr);
   // 外层任务组登记一票，根 promise 析构负责配对归还。
   if (tracker)
     tracker->add();

@@ -5,6 +5,7 @@
 #include "faio/detail/runtime/common/config.hpp"
 #include "faio/detail/runtime/common/io_services.hpp"
 #include "faio/detail/runtime/common/root_task_counter.hpp"
+#include "faio/detail/runtime/common/external_work.hpp"
 #include "faio/detail/runtime/multi_thread/scheduler/domain_scheduler.hpp"
 #include <cstddef>
 #include <latch>
@@ -20,10 +21,16 @@ class shared {
         io_services_(make_io_services(config)),
         io_contexts_(config._num_workers),
         scheduler_(config._num_workers),
+        external_(config._num_workers),
         blocking_(config._max_blocking_threads,
                   config._blocking_keep_alive,
                   config._blocking_queue_limit),
-        workers_exited_(static_cast<std::ptrdiff_t>(config._num_workers)) {}
+        root_tasks_{external_, {}},
+        workers_exited_(static_cast<std::ptrdiff_t>(config._num_workers)) {
+    external_.set_waker(&scheduler_, +[](void* state, std::size_t worker) noexcept {
+      static_cast<domain_scheduler*>(state)->wake_worker(worker);
+    });
+  }
 
   shared(const shared&) = delete;
 
@@ -69,6 +76,8 @@ class shared {
 
   blocking_pool& blocking() noexcept { return blocking_; }
 
+  ::faio::detail::external_work_host& external_host() noexcept { return external_; }
+
   // 查询纯调度引用，无生命周期计数混入调度器接口。
   scheduler_ref scheduler_reference() noexcept { return scheduler_ref{scheduler_}; }
 
@@ -76,7 +85,9 @@ class shared {
   task_lifetime_ref task_lifetime_reference() noexcept { return task_lifetime_ref{root_tasks_}; }
 
   // 外部关闭流程先等全部根帧销毁，随后才能关闭调度域。
-  void wait_for_tasks() const noexcept { root_tasks_.wait(); }
+  void wait_for_tasks() noexcept {
+    external_.wait_until([&] { return root_tasks_.counter.count() == 0 && external_.quiescent(); });
+  }
 
   // 排空后关闭调度域，唤醒空闲 worker 退出事件循环。
   void close() { scheduler_.close(); }
@@ -85,13 +96,23 @@ class shared {
   void synchronize_worker_exit() { workers_exited_.arrive_and_wait(); }
 
  private:
+  struct lifetime_state {
+    ::faio::detail::external_work_host& host;
+    root_task_counter counter;
+    void register_task() noexcept { counter.register_task(); }
+    void finish_task() noexcept {
+      counter.finish_task();
+      host.notify_completion();
+    }
+  };
   const runtime_config config_;    // runtime 的不可变配置。
   io::engine_config io_services_;  ///< 先构造、最后释放，共享专属文件/DNS/cleanup执行服务。
   std::vector<io::io_context> io_contexts_;  ///< 生命周期覆盖所有 worker 栈对象。
   std::mutex io_mutex_;
   domain_scheduler scheduler_;  // 拥有共享调度状态，不拥有 worker 或 I/O 引擎。
+  ::faio::detail::external_work_host external_;
   blocking_pool blocking_;
-  root_task_counter root_tasks_;  // 等待中的根任务也计入，独立于就绪队列长度。
+  lifetime_state root_tasks_;  // 等待中的根任务也计入，独立于就绪队列长度。
   std::latch workers_exited_;     // 统一退出屏障，确保没有窃取者仍访问本地队列。
 };
 }  // namespace faio::runtime::detail

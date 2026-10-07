@@ -20,6 +20,7 @@ faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平
 | 时间操作 | 休眠、截止时间、I/O 超时、周期性定时器 |
 | 同步原语 | 互斥锁、信号量、条件变量、闩、屏障、有界 MPSC 队列 |
 | 日志 | spdlog，支持运行时级别调整与输出 sink 配置 |
+| 实验性特性 | C++26 反射注解的异步入口与编译期运行时配置、stdexec Sender/Receiver 互操作（仅 Linux + GCC 16.1，独立构建开关，不影响基础库） |
 
 ## 特点
 
@@ -127,6 +128,42 @@ int main() {
     faio::block_on(server(8080));
 }
 ```
+
+### 实验性特性：注解入口与 Sender 互操作
+
+```cpp
+#include <faio/experimental/execution.h>
+#include <faio/experimental/async_main.h>
+#include <faio/faio.hpp>
+#include <exec/task.hpp>
+#include <chrono>
+
+faio::task<int> native_job() {
+    co_await faio::time::sleep(std::chrono::milliseconds{1});
+    co_return 42;
+}
+
+exec::task<int> workflow(faio::experimental::runtime_ref runtime) {
+    // exec::task 不传播 faio 查询，显式携带 runtime
+    co_await stdexec::schedule(runtime.get_multi_thread_scheduler());
+    co_return co_await runtime.as_sender(native_job());
+}
+
+// 注解声明入口与运行时配置，库生成真正的 main，无需手写 block_on
+[[=faio::experimental::main(async_main)]]
+[[=faio::experimental::runtime_options{
+    .mode = faio::runtime::mode::multi_thread,
+    .workers = 4,
+    .io_backend = faio::runtime::io_backend::IO_EPOLL}]]
+faio::task<int> async_main(int, char**) {
+    auto runtime = faio::experimental::this_runtime();
+    auto result = runtime.spawn_sender(workflow(runtime)); // 提交 sender 图，返回可等待句柄
+    const auto values = co_await std::move(result);
+    co_return values && std::get<0>(*values) == 42 ? 0 : 1;
+}
+```
+
+实验性特性要求 Linux + GCC 16.1 + C++26，经 `FAIO_ENABLE_EXPERIMENTAL` 及预设 `linux-gcc16.1-experimental-*` 构建；架构设计与源码解析见 [实验性特性](docs/实验性特性.md)，完整示例见 [examples/experimental](examples/experimental/)。
 
 默认运行时在首次使用时启动，可用 `faio::runtime::configure()` 在首次使用前调整线程数等参数。完整示例按学习场景组织：[协程基础与并发](examples/coroutine_basics.cpp)、[协程同步](examples/coroutine_sync.cpp)、[简单 TCP 服务](examples/tcp_echo_server.cpp)、[简单 UDP 服务](examples/udp_echo_server.cpp)、[TCP 共享计数器应用](examples/tcp_counter_server.cpp)、[阻塞线程池](examples/blocking_thread_pool.cpp)、[单线程 TCP 服务](examples/tcp_echo_server_single_thread.cpp) 和 [文件与目录操作](examples/file_and_directory.cpp)。详细中文讲解、协议和运行步骤见 [示例指南](examples/README.md)。
 
@@ -302,6 +339,7 @@ target_link_libraries(my_app PRIVATE faio::faio)
 | [异步 I/O](docs/异步IO.md) | uring 原生完成、epoll/kqueue、Windows IOCP 后端、文件服务、缓冲与组合 IO、取消及生命周期 |
 | [网络 I/O](docs/网络IO.md) | TCP / UDP 接口的 Mixin 与 CRTP 设计及关键源码 |
 | [定时器](docs/定时器.md) | 多级时间轮、休眠、周期 tick 与 I/O 超时 |
+| [实验性特性](docs/实验性特性.md) | 注解异步入口、编译期运行时配置、stdexec Sender/Receiver 适配的架构与源码解析 |
 
 性能测试与复现方式见 [benchmark README](benchmark/README.md)。
 

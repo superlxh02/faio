@@ -103,6 +103,59 @@
         "CMAKE_PREFIX_PATH": "/opt/homebrew",
         "FAIO_ENABLE_IO_URING": "OFF"
       }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "/opt/gcc-16.1/usr/bin/g++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FAIO_ENABLE_EXPERIMENTAL": "ON",
+        "FAIO_EXPERIMENTAL_REFLECTION": "ON",
+        "FAIO_EXPERIMENTAL_EXECUTION": "ON",
+        "FAIO_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-epoll",
+      "displayName": "linux-gcc16.1-experimental-epoll",
+      "inherits": "linux-gcc16.1-experimental-base",
+      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-epoll",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "OFF",
+        "FAIO_SANITIZERS": ""
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-dual",
+      "displayName": "linux-gcc16.1-experimental-dual",
+      "inherits": "linux-gcc16.1-experimental-base",
+      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-dual",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "ON",
+        "FAIO_SANITIZERS": ""
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-asan",
+      "displayName": "linux-gcc16.1-experimental-asan",
+      "inherits": "linux-gcc16.1-experimental-base",
+      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-asan",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "OFF",
+        "FAIO_SANITIZERS": "address,undefined"
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-tsan",
+      "displayName": "linux-gcc16.1-experimental-tsan",
+      "inherits": "linux-gcc16.1-experimental-base",
+      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-tsan",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "OFF",
+        "FAIO_SANITIZERS": "thread"
+      }
     }
   ],
   "buildPresets": [
@@ -144,6 +197,26 @@
       "name": "macos-clang23",
       "description": "构建 macos-clang23 配置中已生成的全部目标。",
       "configurePreset": "macos-clang23"
+    },
+    {
+      "name": "linux-gcc16.1-experimental-epoll",
+      "configurePreset": "linux-gcc16.1-experimental-epoll",
+      "jobs": 4
+    },
+    {
+      "name": "linux-gcc16.1-experimental-dual",
+      "configurePreset": "linux-gcc16.1-experimental-dual",
+      "jobs": 4
+    },
+    {
+      "name": "linux-gcc16.1-experimental-asan",
+      "configurePreset": "linux-gcc16.1-experimental-asan",
+      "jobs": 4
+    },
+    {
+      "name": "linux-gcc16.1-experimental-tsan",
+      "configurePreset": "linux-gcc16.1-experimental-tsan",
+      "jobs": 4
     }
   ],
   "testPresets": [
@@ -233,6 +306,74 @@
       "configurePreset": "macos-clang23",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-epoll",
+      "configurePreset": "linux-gcc16.1-experimental-epoll",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-dual",
+      "configurePreset": "linux-gcc16.1-experimental-dual",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll"
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-dual-uring",
+      "configurePreset": "linux-gcc16.1-experimental-dual",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "uring"
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-asan",
+      "configurePreset": "linux-gcc16.1-experimental-asan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll",
+        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "linux-gcc16.1-experimental-tsan",
+      "configurePreset": "linux-gcc16.1-experimental-tsan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "epoll",
+        "TSAN_OPTIONS": "halt_on_error=1"
+      },
+      "execution": {
+        "timeout": 120
       }
     }
   ]

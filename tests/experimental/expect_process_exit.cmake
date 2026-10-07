@@ -1,0 +1,15 @@
+execute_process(COMMAND "${FAIO_PROCESS}"
+    RESULT_VARIABLE _faio_exit OUTPUT_VARIABLE _faio_output ERROR_VARIABLE _faio_error)
+if("${_faio_output}\n${_faio_error}" MATCHES
+   "AddressSanitizer:|LeakSanitizer:|ThreadSanitizer:|runtime error:")
+    message(FATAL_ERROR "Sanitizer diagnostic cannot count as an expected process failure: ${_faio_output}\n${_faio_error}")
+endif()
+if(NOT "${_faio_exit}" STREQUAL "${FAIO_EXPECT_EXIT}")
+    message(FATAL_ERROR "Expected process exit ${FAIO_EXPECT_EXIT}; got ${_faio_exit}: ${_faio_output}\n${_faio_error}")
+endif()
+if(DEFINED FAIO_EXPECT_OUTPUT AND NOT "${_faio_output}\n${_faio_error}" MATCHES "${FAIO_EXPECT_OUTPUT}")
+    message(FATAL_ERROR "Missing process diagnostic '${FAIO_EXPECT_OUTPUT}': ${_faio_output}\n${_faio_error}")
+endif()
+if(FAIO_EXPECT_EXIT EQUAL 37 AND NOT _faio_error STREQUAL "")
+    message(FATAL_ERROR "Successful async entry unexpectedly wrote stderr: ${_faio_error}")
+endif()

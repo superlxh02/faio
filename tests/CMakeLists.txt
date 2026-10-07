@@ -9,6 +9,11 @@ enable_testing()
 faio_find_gtest()
 find_package(Threads REQUIRED)
 
+add_executable(faio_external_work_host_tests test_external_work_host.cpp)
+target_link_libraries(faio_external_work_host_tests PRIVATE GTest::gtest_main faio::faio)
+add_test(NAME faio_external_work_host_tests COMMAND faio_external_work_host_tests)
+set_tests_properties(faio_external_work_host_tests PROPERTIES TIMEOUT 60)
+
 # -----------------------------------------------------------------------------
 # Windows 测试矩阵：公共模块原始测试 + 独立 Windows I/O 合同
 # -----------------------------------------------------------------------------
