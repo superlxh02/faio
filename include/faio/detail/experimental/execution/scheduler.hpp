@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/experimental/execution/scheduler.hpp
+ * @brief 实验性的入口注解与发送器接收器适配：调度接口。
+ * @details 实验适配在编译期开关下启用，连接阶段建立稳定操作状态；启动、结果交付与关闭沿受控任务图的租约和排空协议推进。
+ */
 #ifndef FAIO_DETAIL_EXPERIMENTAL_EXECUTION_SCHEDULER_HPP
 #define FAIO_DETAIL_EXPERIMENTAL_EXECUTION_SCHEDULER_HPP
 #include "faio/detail/experimental/runtime_facade.hpp"
@@ -47,16 +52,15 @@ auto resolve_root(external_host& host, root_handle bound, const Environment& env
 
 template <faio::runtime::mode Mode, class Receiver>
 class schedule_operation {
-  using token_type = stdexec::stop_token_of_t<stdexec::env_of_t<Receiver>>;
+  using token_type = stdexec::stop_token_of_t<stdexec::env_of_t<Receiver>>;  ///< 从接收器环境推导的停止令牌类型。
  public:
-  using operation_state_concept = stdexec::operation_state_tag;
+  using operation_state_concept = stdexec::operation_state_tag;  ///< 标记该类型为连接后地址稳定的操作状态。
   schedule_operation(external_host& host, root_handle bound, Receiver receiver)
       : receiver_(std::move(receiver)), token_(stdexec::get_stop_token(stdexec::get_env(receiver_))),
         root_(resolve_root(host, bound, stdexec::get_env(receiver_))),
         owns_root_(!(bound && bound->valid()) && !bound_root_visible(host, stdexec::get_env(receiver_))),
         reservation_(host.reserve(root_, owns_root_)) {
-    // The resolver may use an explicitly bound scheduler even when the receiver
-    // hides its queries. Such a root already belongs to a controlled graph.
+    /// @brief 即使接收器隐藏环境查询，解析器仍可使用显式绑定的调度器；该根任务已归属受控任务图。
     node_.execute = &dispatch;
     node_.owner = this;
     node_.scope = {&host, root_.get()};
@@ -66,15 +70,16 @@ class schedule_operation {
   schedule_operation& operator=(const schedule_operation&) = delete;
   schedule_operation& operator=(schedule_operation&&) = delete;
   ~schedule_operation() {
+    /// @brief 调用方违反操作状态的生命期约束，不能在仍可能回调时释放操作。
     if (started_ && !terminal_)
-      std::terminate(); // caller violated operation-state lifetime
+      std::terminate();
   }
+  /// @brief 把已连接的稳定操作交给其执行协议，之后只能交付一个终态。
   void start() noexcept {
     if (std::exchange(started_, true)) std::terminate();
     auto reservation = std::move(reservation_);
     root_->host().publish(node_);
-    // The independent reservation spans queue publication. Completion may
-    // destroy this operation before publish returns; only locals are used.
+    /// @brief 独立预留租约覆盖队列发布过程；完成回调可在 publish 返回前销毁操作对象，因此发布后仅访问局部变量。
     reservation.start();
   }
  private:
@@ -86,7 +91,9 @@ class schedule_operation {
     }
     return static_cast<bool>(current_root(host));
   }
-  struct ready_node : faio::detail::external_work_node { schedule_operation* owner{}; } node_;
+  struct ready_node : faio::detail::external_work_node {
+    schedule_operation* owner{};  ///< 借用所属对象的稳定地址，回调或等待期间不得迁移或销毁。
+  } node_;  ///< 嵌入对象的稳定等待或分派节点，入队后直到完成交接前不得移动。
   static void dispatch(faio::detail::external_work_node* node) noexcept {
     auto& operation = *static_cast<ready_node*>(node)->owner;
     auto root = operation.root_;
@@ -95,28 +102,28 @@ class schedule_operation {
     operation.terminal_ = true;
     auto receiver = std::move(operation.receiver_);
     if (own) root->terminal();
-    // Everything used after completion is independent of operation storage.
+    /// @brief 完成回调之后所用状态均独立于可能已被销毁的操作存储。
     if constexpr (!stdexec::unstoppable_token<token_type>) {
       if (stopped) { stdexec::set_stopped(std::move(receiver)); return; }
     }
     stdexec::set_value(std::move(receiver));
   }
-  Receiver receiver_;
-  token_type token_;
-  root_handle root_;
-  bool owns_root_;
-  faio::detail::external_reservation reservation_;
-  bool started_{};
-  bool terminal_{};
+  Receiver receiver_;  ///< 结果交付接收器，完成时移出以允许回调销毁当前操作。
+  token_type token_;  ///< 从接收器环境捕获的停止令牌，用于启动与结果交付前的取消检查。
+  root_handle root_;  ///< 当前受控任务图的根状态租约，维持接纳、取消与排空归属。
+  bool owns_root_;  ///< 当前对象是否承担根任务完成责任，移动时成对转交。
+  faio::detail::external_reservation reservation_;  ///< 启动前保留的任务图接纳租约，发布成功后转交执行责任。
+  bool started_{};  ///< 标记操作已启动，防止重复启动或误退还未启动预留。
+  bool terminal_{};  ///< 标记已交付终态，析构据此区分放弃与正常结束。
 };
-} // namespace detail
+}
 
 template <faio::runtime::mode Mode> class schedule_sender;
 
 template <faio::runtime::mode Mode>
 class execution_scheduler {
  public:
-  using scheduler_concept = stdexec::scheduler_tag;
+  using scheduler_concept = stdexec::scheduler_tag;  ///< 标记该类型符合发送器接收器协议中的调度器角色。
   explicit execution_scheduler(faio::runtime::detail::runtime_context& context,
                                detail::root_handle root = {}) noexcept
       : context_(&context), root_(std::move(root)) {}
@@ -133,18 +140,20 @@ class execution_scheduler {
                                                     : stdexec::forward_progress_guarantee::parallel;
   }
   bool operator==(const execution_scheduler& other) const noexcept { return context_ == other.context_; }
+  /// @brief 取得关联运行时上下文的借用引用，不延长运行时生命期。
   auto context() const noexcept -> faio::runtime::detail::runtime_context& { return *context_; }
   auto root() const noexcept -> const detail::root_handle& { return root_; }
  private:
-  faio::runtime::detail::runtime_context* context_;
-  detail::root_handle root_;
+  faio::runtime::detail::runtime_context* context_;  ///< 借用运行时上下文，其生命期必须覆盖本操作。
+  detail::root_handle root_;  ///< 当前受控任务图的根状态租约，维持接纳、取消与排空归属。
 };
 
 template <faio::runtime::mode Mode>
 class schedule_sender {
  public:
-  using sender_concept = stdexec::sender_tag;
+  using sender_concept = stdexec::sender_tag;  ///< 标记该类型符合发送器接收器协议中的发送器角色。
   explicit schedule_sender(execution_scheduler<Mode> scheduler) noexcept : scheduler_(std::move(scheduler)) {}
+  /// @brief 返回接收器环境视图，传播调度归属、停止令牌及原环境查询。
   auto get_env() const noexcept -> execution_scheduler<Mode> { return scheduler_; }
   template <class Self, class Environment = stdexec::env<>>
   static consteval auto get_completion_signatures() noexcept {
@@ -159,7 +168,7 @@ class schedule_sender {
     return {scheduler_.context().external_host(), scheduler_.root(), std::move(receiver)};
   }
  private:
-  execution_scheduler<Mode> scheduler_;
+  execution_scheduler<Mode> scheduler_;  ///< 捕获的目标调度器，跨线程完成时将续体投递回所属运行时。
 };
 template <faio::runtime::mode Mode>
 auto execution_scheduler<Mode>::schedule() const noexcept -> schedule_sender<Mode> { return schedule_sender<Mode>{*this}; }
@@ -191,5 +200,5 @@ auto detail::runtime_owner<Mode>::get_scheduler() noexcept -> execution_schedule
 }
 static_assert(stdexec::scheduler<current_thread_scheduler>);
 static_assert(stdexec::scheduler<multi_thread_scheduler>);
-} // namespace faio::experimental
+}
 #endif

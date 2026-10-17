@@ -14,6 +14,30 @@ target_link_libraries(faio_external_work_host_tests PRIVATE GTest::gtest_main fa
 add_test(NAME faio_external_work_host_tests COMMAND faio_external_work_host_tests)
 set_tests_properties(faio_external_work_host_tests PROPERTIES TIMEOUT 60)
 
+add_executable(faio_static_io_dispatch_tests test_static_io_dispatch.cpp)
+target_link_libraries(faio_static_io_dispatch_tests PRIVATE GTest::gtest_main faio::faio)
+add_test(NAME faio_static_io_dispatch_tests COMMAND faio_static_io_dispatch_tests)
+set_tests_properties(faio_static_io_dispatch_tests PROPERTIES TIMEOUT 30)
+
+add_executable(faio_module_layout_tests
+    test_module_layout.cpp
+    module_io_header_smoke.cpp
+    module_fs_header_smoke.cpp
+    module_net_header_smoke.cpp
+    module_protocol_header_smoke.cpp)
+target_link_libraries(faio_module_layout_tests PRIVATE GTest::gtest_main faio::faio)
+add_test(NAME faio_module_layout_tests COMMAND faio_module_layout_tests)
+set_tests_properties(faio_module_layout_tests PROPERTIES TIMEOUT 30)
+
+foreach(test IN ITEMS file_registry_optimization executor_optimization fs_routing_optimization)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_${test}.cpp")
+        add_executable(faio_${test}_tests test_${test}.cpp)
+        target_link_libraries(faio_${test}_tests PRIVATE GTest::gtest_main faio::faio)
+        add_test(NAME faio_${test}_tests COMMAND faio_${test}_tests)
+        set_tests_properties(faio_${test}_tests PROPERTIES TIMEOUT 60)
+    endif()
+endforeach()
+
 # -----------------------------------------------------------------------------
 # Windows 测试矩阵：公共模块原始测试 + 独立 Windows I/O 合同
 # -----------------------------------------------------------------------------
@@ -113,6 +137,8 @@ set_tests_properties(faio_scheduler_tests PROPERTIES TIMEOUT 60)
 # 后端协议不必包含 faio.hpp，可独立定位 reactor 层错误。
 add_executable(faio_reactor_tests test_reactor_contract.cpp)
 target_link_libraries(faio_reactor_tests PRIVATE GTest::gtest_main faio::faio)
+# 单翻译单元的确定性控制竞态测试；生产 reactor 不包含测试钩子。
+target_compile_definitions(faio_reactor_tests PRIVATE FAIO_REACTOR_CONTROL_TESTS=1)
 add_test(NAME faio_reactor_tests COMMAND faio_reactor_tests)
 set_tests_properties(faio_reactor_tests PROPERTIES TIMEOUT 30)
 
@@ -193,3 +219,9 @@ target_compile_options(faio_worker_io_budget_tests PRIVATE -Wall -Wextra -Wpedan
 target_link_libraries(faio_worker_io_budget_tests PRIVATE GTest::gtest_main faio::faio)
 add_test(NAME faio_worker_io_budget_tests COMMAND faio_worker_io_budget_tests)
 set_tests_properties(faio_worker_io_budget_tests PROPERTIES TIMEOUT 30)
+
+# 只有两个独立单 TU 合同目标需要运行时替身；生产和多 TU 测试保持静态类型。
+foreach(target IN ITEMS faio_engine_tests faio_native_completion_tests)
+    target_compile_definitions(${target} PRIVATE FAIO_TEST_BACKEND_INJECTION=1)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+endforeach()

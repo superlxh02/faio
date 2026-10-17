@@ -18,7 +18,7 @@
 #include <system_error>
 
 #if defined(__linux__) && defined(FAIO_HAS_IO_URING) && FAIO_HAS_IO_URING
-#include "faio/detail/io/backends/uring/backend.hpp"
+#include "faio/detail/io/backend/uring/backend.hpp"
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>

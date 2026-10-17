@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-faio is a high-performance, cross-platform asynchronous I/O library built on C++20 coroutines (requiring a C++23 toolchain). It runs on Linux (dual io_uring/epoll backends), macOS (kqueue), and Windows (native IOCP/OVERLAPPED), and provides coroutine tasks and synchronization primitives, single/multi-thread runtimes, TCP/UDP networking, Unix-specific network extensions, timers, and native asynchronous file I/O (operations without native support fall back to an isolated bounded service). The library is header-only and licensed under [Apache-2.0](LICENSE).
+faio is a high-performance, cross-platform asynchronous I/O library built on C++20 coroutines (requiring a C++23 toolchain). It runs on Linux (a compile-time choice of io_uring or epoll), macOS (kqueue), and Windows (native IOCP/OVERLAPPED), and provides coroutine tasks and synchronization primitives, single/multi-thread runtimes, TCP/UDP networking, Unix-specific network extensions, timers, and native asynchronous file I/O (operations without native support fall back to an isolated bounded service). The library is header-only and licensed under [Apache-2.0](LICENSE).
 
 With faio, asynchronous flows read like synchronous code: a coroutine suspends and yields its worker thread while awaiting I/O, a timer, or a synchronization primitive, and the runtime resumes it on completion. io_uring-capable file operations are submitted as native SQEs and the rest run on an isolated bounded service, so workers never block on I/O—suited to high-concurrency network services, asynchronous task processing, and general coroutine-based concurrent programs.
 
@@ -25,11 +25,12 @@ With faio, asynchronous flows read like synchronous code: a coroutine suspends a
 ## Highlights
 
 - **C++20 stackless coroutines**: `task<T>` is a lazy, move-only coroutine task; nested `co_await` continues into the child through symmetric transfer with no extra stack allocation or scheduling overhead. Results and exceptions propagate along the await chain and are handled with standard `try/catch`.
-- **Proactor model**: the application submits a complete I/O operation, and the backend posts a completion event that resumes the coroutine. io_uring is a native proactor; epoll/kqueue and Windows IOCP are adapted to the same proactor semantics, so application code needs no per-platform branches.
+- **Proactor model**: the application submits a complete I/O operation, and the backend posts a completion event that resumes the coroutine. io_uring and Windows IOCP provide native completions; epoll/kqueue use a readiness adapter to provide the same completion semantics, so application code needs no per-platform branches.
 - **Worker-thread model**: a fixed set of worker threads each runs an independent event loop handling ready coroutines, I/O completions, timer expirations, and cross-thread wakeups. A suspended coroutine yields its thread; blocking work uses spawn_blocking and long computations yield cooperatively.
 - **Work-stealing scheduling**: a two-level structure of per-worker local queues plus a global queue—same-thread submissions enter a local fast slot, cross-thread submissions the global queue; idle workers steal tasks in batches, reducing lock contention while balancing load across cores.
 - **Coroutine-semantics synchronization primitives**: mutex, semaphore, condition variable, latch, barrier, and bounded MPSC queue suspend the coroutine instead of blocking the thread on contention, with resumption delivered back to the original scheduling domain; all waits support stop-token cooperative cancellation.
 - **Coroutinized async network and file I/O**: TCP/UDP and low-level file/socket operations are uniformly `co_await`-able; write one coroutine per connection in a synchronous style, with timeout and cooperative cancellation built in.
+- **An experimental evolution path**: C++26 static reflection turns runtime configuration into entity annotations and declares a `task<int>` as the program entry point; the Sender/Receiver adapter exposes the faio runtime as a standard `stdexec::scheduler` and `faio::task` as a sender, plugging both into P2300 graphs. The experimental layer has its own gate and build targets and compiles nothing when disabled.
 
 ## Examples
 
@@ -133,6 +134,8 @@ int main() {
 
 ### Experimental: annotated entry and Sender interop
 
+The program below writes no `main`, no `block_on`, and builds no separate scheduling facility for stdexec: two annotations declare the entry point and runtime configuration, and an `exec::task` awaits a `faio::task` inside the same task tree.
+
 ```cpp
 #include <faio/experimental/execution.h>
 #include <faio/experimental/async_main.h>
@@ -166,7 +169,12 @@ faio::task<int> async_main(int, char**) {
 }
 ```
 
-The experimental features require Linux + GCC 16.1 + C++26, built with `FAIO_ENABLE_EXPERIMENTAL` and the `linux-gcc16.1-experimental-*` presets; see [Experimental Features](docs/实验性特性.md) (Chinese) for the architecture and source walkthrough, and [examples/experimental](examples/experimental/) for complete programs.
+This layer offers two capabilities, both layered on the existing runtime rather than new thread pools or event loops:
+
+- **Compile-time configuration and async entry**: the `runtime_options` annotation is read through C++26 static reflection, and invalid values (such as `current_thread` with several workers, or an io_uring backend that was not compiled in) fail at **compile time**. The `main` annotation declares a `task<int>(int, char**)` as the program entry; the library generates the real `main` and handles configuration, submission and shutdown.
+- **Sender/Receiver interoperability**: `execution_scheduler` exposes the runtime as a standard `stdexec::scheduler`, `as_sender` wraps `faio::task<T>` as a sender, and `run` / `bind` / `spawn_sender` provide synchronous driving, an independent root, and fire-and-await respectively.
+
+The experimental features have their own platform gate: Linux + GCC 16.1.x + libstdc++ 16 + C++26 only, built with `FAIO_ENABLE_EXPERIMENTAL` and the `linux-gcc16.1-experimental-*` presets. The gate covers only the experimental layer—the base library remains C++23 and cross-platform (Linux / macOS / Windows), and with the switch off the experimental headers compile nothing. See [Experimental Features](docs/实验性特性.md) (Chinese) for the architecture and per-class source walkthrough, and [examples/experimental](examples/experimental/) for complete programs.
 
 The default runtime starts on first use; call `faio::runtime::configure()` beforehand to adjust worker count and other parameters. The examples cover [coroutine basics and concurrency](examples/coroutine_basics.cpp), [coroutine synchronization](examples/coroutine_sync.cpp), [TCP echo](examples/tcp_echo_server.cpp), [UDP echo](examples/udp_echo_server.cpp), a [shared TCP counter application](examples/tcp_counter_server.cpp), [blocking work alongside async tasks](examples/blocking_thread_pool.cpp), [TCP echo with current-thread scheduling](examples/tcp_echo_server_single_thread.cpp), and [file and directory operations](examples/file_and_directory.cpp). See the [example guide](examples/README.md) for detailed Chinese explanations and commands; `tcp_counter_server --self-test` runs a finite multi-client scenario.
 
@@ -187,7 +195,7 @@ Logs are written to stderr at `info` level by default, with timestamps, levels, 
 | Optional dev dependencies | GoogleTest for unit tests; standalone Asio for TCP benchmark comparison |
 | Optional benchmark tools | Rust / Cargo, wrk, Python 3 with numpy / pandas / matplotlib — see [benchmark](benchmark/README.md) |
 
-Platform I/O backends: Linux uses dual io_uring/epoll backends (both are built by default, with io_uring preferred on kernel 5.10+), macOS uses kqueue, and Windows uses native IOCP/OVERLAPPED (targeting Windows 10/11 x64 with `_WIN32_WINNT=0x0A00`).
+Platform I/O backends: Linux uses a compile-time choice of io_uring or epoll (ON fixes io_uring and requires kernel 5.10+; OFF fixes epoll), macOS uses kqueue, and Windows uses native IOCP/OVERLAPPED (targeting Windows 10/11 x64 with `_WIN32_WINNT=0x0A00`).
 
 ## Third-party dependencies
 
@@ -208,7 +216,7 @@ Notes:
 
 ## Building from source
 
-The four switches `FAIO_BUILD_EXAMPLES`, `FAIO_BUILD_TESTS`, `FAIO_BUILD_BENCHMARKS`, and `FAIO_INSTALL` all default to `ON`. `CMakePresets.json` provides `windows-msvc`, `windows-clang`, `windows-mingw`, and `windows-clang-asan` on Windows, `linux-clang22-dual` and `linux-clang22-epoll` on Linux, and `macos-clang23` on macOS; configure, build, and test presets share the same name except for the two Linux dual-backend test presets. For custom Debug, Docker, or vcpkg builds, pass options explicitly to `cmake -S . -B <build-directory>`.
+The four switches `FAIO_BUILD_EXAMPLES`, `FAIO_BUILD_TESTS`, `FAIO_BUILD_BENCHMARKS`, and `FAIO_INSTALL` all default to `ON`. `CMakePresets.json` provides `windows-msvc`, `windows-clang`, `windows-mingw`, and `windows-clang-asan` on Windows, `linux-clang22-uring` and `linux-clang22-epoll` on Linux, and `macos-clang23` on macOS; configure, build, and test presets share the same name for both Linux backend builds. For custom Debug, Docker, or vcpkg builds, pass options explicitly to `cmake -S . -B <build-directory>`.
 
 ### Windows (MSVC / clang-cl / MinGW-w64)
 
@@ -245,16 +253,18 @@ sudo apt-get install cmake ninja-build liburing-dev libspdlog-dev
 
 git clone https://github.com/superlxh02/faio.git
 cd faio
-cmake --preset linux-clang22-dual
-cmake --build --preset linux-clang22-dual -j4
-./build/linux-clang22-dual/examples/coroutine_basics
+cmake --preset linux-clang22-uring
+cmake --build --preset linux-clang22-uring -j4
+./build/linux-clang22-uring/examples/coroutine_basics
 ```
 
-The dual backends share a single build; run the two test presets without recompiling:
+The two static backends require separate builds:
 
 ```bash
-ctest --preset linux-clang22-dual-epoll
-ctest --preset linux-clang22-dual-uring
+ctest --preset linux-clang22-uring
+cmake --preset linux-clang22-epoll
+cmake --build --preset linux-clang22-epoll -j4
+ctest --preset linux-clang22-epoll
 ```
 
 Without liburing, use the `linux-clang22-epoll` preset (test preset of the same name). For a full development build (tests and benchmarks), also install GoogleTest and standalone Asio:
@@ -289,6 +299,20 @@ ctest --preset macos-clang23
 The preset selects `/opt/homebrew/opt/llvm/bin/clang++` and looks up dependencies under `/opt/homebrew`; to build only the library, disable tests and benchmarks and skip GoogleTest / Asio.
 
 ## Integration
+
+### Module entry points and source layout
+
+`<faio/faio.hpp>` includes the full library. Applications can also include individual modules:
+
+| Entry point | Contents |
+| --- | --- |
+| [`<faio/io.hpp>`](include/faio/io.hpp) | Low-level operations, engine, buffers, stream concepts, and composition tools |
+| [`<faio/fs.hpp>`](include/faio/fs.hpp) | Files, directories, metadata, open options, and path operations |
+| [`<faio/net.hpp>`](include/faio/net.hpp) | Addresses, DNS, TCP/UDP, and supported local IPC |
+
+The `detail/io/` root contains only `io.hpp`, `engine.hpp`, and `traits.hpp`. Internally, `traits/` defines concepts, `protocol/` holds neutral data, `base/` provides shared static wrappers, `core/` manages state and lifetimes, `awaiter/` bridges coroutines, and `stream/` provides stream tools. Concrete backends live in `backend/{epoll,kqueue,uring,iocp}/` and are assembled by `backend/factory.hpp`. Native types, system calls, and platform selection belong to `platform/`.
+
+FS root headers select the common interfaces; `fs/core/` holds leases and cursors, `fs/provider/` routes requests, and `fs/platform/` contains native implementations. NET organizes transports under `tcp/`, `udp/`, and `unix_domain/`, shared implementations under `net/base/`, and OS adaptations under `net/platform/`. `unix_domain` names a network feature, while `platform/unix` names platform code. FS and NET use the IO engine; the IO core does not depend on their implementations. See the [async IO](docs/异步IO.md) and [network IO](docs/网络IO.md) guides for the source boundaries.
 
 ### CMake source integration
 
@@ -339,7 +363,7 @@ Design and source-code walkthroughs (currently in Chinese):
 | [Coroutine Concurrency](docs/协程并发.md) | spawn / block_on, join_handle, and the completion boundaries of join / select / scope |
 | [Coroutine Synchronization](docs/协程同步.md) | Wait-node protocol, mutex, condition variable, semaphore, latch, barrier, and MPSC |
 | [Async Runtime](docs/异步运行时.md) | Runtime components, coroutine scheduling, I/O driving, startup and shutdown |
-| [Async I/O](docs/异步IO.md) | io_uring native completions, epoll/kqueue, the Windows IOCP backend, file services, buffers and algorithms, cancellation and lifecycle |
+| [Async I/O](docs/异步IO.md) | Control surfaces and auxiliary types, the unified backend contract, the coroutine bridge, the `io_domain` state machine, the uring/IOCP and epoll/kqueue tracks, and the dual-path file layer |
 | [Network I/O](docs/网络IO.md) | Mixin and CRTP design of the TCP / UDP interfaces with key source walkthroughs |
 | [Timer](docs/定时器.md) | Multi-level timing wheel, sleep, periodic ticks, and I/O timeouts |
 | [Experimental Features](docs/实验性特性.md) | Annotated async entry, compile-time runtime configuration, and the stdexec Sender/Receiver adaptation |

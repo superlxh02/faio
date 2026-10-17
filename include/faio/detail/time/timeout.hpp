@@ -1,5 +1,10 @@
+/**
+ * @file faio/detail/time/timeout.hpp
+ * @brief 异步时间操作：超时竞争与安全排空。
+ * @details 使用单调时钟推进异步等待；停止与到期共享唯一完成仲裁。组合超时在返回前排空已启动的分支，避免协程帧和借用参数提前失效。
+ */
 #pragma once
-#include "faio/detail/io/base/io_registrant.hpp"
+#include "faio/detail/io/awaiter/request.hpp"
 #include <concepts>
 #include <type_traits>
 #include <utility>
@@ -18,4 +23,4 @@ class Timeout : public T {
   explicit Timeout(T&& operation) noexcept(std::is_nothrow_move_constructible_v<T>)
       : T(std::move(operation)) {}
 };
-}  // namespace faio::time::detail
+}

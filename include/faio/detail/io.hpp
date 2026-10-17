@@ -1,4 +1,7 @@
-#ifndef FAIO_DETAIL_IO_HPP
-#define FAIO_DETAIL_IO_HPP
-#include "faio/detail/io/io.hpp"
-#endif  // FAIO_DETAIL_IO_HPP
+/**
+ * @file faio/detail/io.hpp
+ * @brief faio 公共接口：IO 模块入口。
+ * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ */
+#pragma once
+#include "faio/io.hpp"

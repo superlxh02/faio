@@ -1,8 +1,21 @@
 # 网络 IO
 
-faio 是 C++23 纯头文件库，用户统一包含 `<faio/faio.hpp>`。网络对象持有后端中立的资源控制块与 `io_context` 租约；Linux 的 io_uring、epoll 和 macOS 的 kqueue 使用相同的 TCP、UDP、Unix socket 与 pipe 接口。Windows 通过 IOCP 提供 TCP/UDP、IPv4/IPv6、DNS、向量 IO、拆分半边、取消和超时；Unix socket、FIFO 和 POSIX AsyncFd 为 Unix 平台扩展。
+faio 是 C++23 纯头文件库，网络接口可通过 [`<faio/net.hpp>`](../include/faio/net.hpp) 使用；包含 `<faio/faio.hpp>` 可同时使用运行时及其他模块。网络对象持有后端中立的资源控制块与 `io_context` 租约；Linux 的 io_uring、epoll 和 macOS 的 kqueue 使用相同的 TCP、UDP、Unix socket 与 pipe 接口。Windows 通过 IOCP 提供 TCP/UDP、IPv4/IPv6、DNS、向量 IO、拆分半边、取消和超时；Unix socket、FIFO 和 POSIX AsyncFd 为 Unix 平台扩展。
 
 ## 1. 架构总览
+
+当前 `detail/net/` 根目录提供 `address.hpp`、`resolver.hpp`、`accept_options.hpp`、`socket_options.hpp`、`tcp.hpp`、`udp.hpp`、`unix_domain.hpp` 和 `pipe.hpp` 接口。目录职责如下：
+
+| 位置 | 职责 |
+| --- | --- |
+| `tcp/`、`udp/`、`unix_domain/` | 按传输功能组织具体网络对象 |
+| `base/` | TCP 与 Unix domain 共用的 stream/listener/datagram、socket、halves 和读写 Mixin |
+| `traits/` | 地址等编译期接口约束 |
+| `platform/select.hpp` | 选择原生网络适配；公共 Mixin 不承担平台分支 |
+| `platform/unix/` | 共用 POSIX socket/pipe 操作 |
+| `platform/linux/`、`platform/macos/`、`platform/windows/` | 创建、接受、地址布局、凭据和 Winsock 等系统差异；macOS 适配也覆盖当前 FreeBSD 分支 |
+
+`unix_domain/` 表示 AF_UNIX 网络功能，`platform/unix/` 表示 POSIX 平台实现；管道另由 `pipe.hpp` 暴露，`faio::net::unix` 命名空间保持兼容。TCP/UDP 与 Unix domain 共用 `base/`，后端提交、取消和最终完成由 IO 引擎负责；文件游标、文件租约及路径操作由 FS 模块负责。IO 的具体后端统一位于 `detail/io/backend/{epoll,kqueue,uring,iocp}/`，网络层不保存或操作后端完成队列。
 
 网络层位于通用 I/O 引擎之上，按"**包装对象 — Mixin/CRTP — 资源控制块 — io awaiter — 后端协议**"五层组织：
 
@@ -41,7 +54,7 @@ flowchart TD
     A --> P3
 ```
 
-- **包装对象**（`TcpStream`、`UdpSocket` 等）：面向用户的移动独占句柄，只保存资源控制块的 `shared_ptr` 与 `io_context` 租约，不持有 SQE、CQE、epoll_event 或 kevent 等任何后端结构。
+- **包装对象**（`TcpStream`、`UdpSocket` 等）：面向用户的移动独占句柄，通过资源控制块的 `shared_ptr` 保留句柄与 domain 归属租约，不持有 SQE、CQE、epoll_event 或 kevent 等任何后端结构。
 - **资源控制块**（`resource_state`）：fd 所有权、不可变 I/O domain 归属、读写方向执行权、就绪代际与关闭状态。所有异步操作通过它路由到所属 domain。
 - **后端协议**：io_uring 以原生 proactor 方式提交请求；epoll/kqueue 通过 readiness adapter 先尝试非阻塞 syscall，遇 `EAGAIN` 登记就绪兴趣后重试。两条路径产生相同的完成结果。
 
@@ -51,7 +64,7 @@ flowchart TD
 
 网络层不为每种 socket 重复实现读写接口，而是把读、写、数据报收发、socket options 做成一组 **CRTP Mixin**，由后端无关基类继承，再经具体包装类型闭合模板参数。以 TCP stream 为例，继承链完全由三行声明构成。
 
-最底层是 Mixin 本身，例如 [stream_read.hpp](../include/faio/detail/net/common/stream_read.hpp) 中的读接口：
+最底层是 Mixin 本身，例如 [base/stream_read.hpp](../include/faio/detail/net/base/stream_read.hpp) 中的读接口：
 
 ```cpp
 /** @brief TCP/Unix stream 读方向接口，空 buffer 成功但不表示 EOF。 */
@@ -69,7 +82,7 @@ struct ImplStreamRead {
 
 `ImplStreamRead<T>` 不知道也不关心 `T` 是什么类型，只要求 `T` 提供 `resource()`（以及 try 路径需要的 `fd()`）。`static_cast<const T*>(this)` 是经典 CRTP 下转：编译期解析、零开销、无虚表。`read()` 的函数体只有两步——调用统一引擎的 `io::recv` 生成 io awaiter，`empty_success()` 配置空 buffer 语义后按值返回。这印证了网络层的核心原则：**Mixin 方法只做参数转发，不保存状态、不产生后端副作用，真正的提交发生在 awaiter 挂起阶段**。
 
-中间层 [base_stream.hpp](../include/faio/detail/net/tcp/base_stream.hpp) 把 Mixin 组装成字节流基类：
+中间层 [base/stream.hpp](../include/faio/detail/net/base/stream.hpp) 把 Mixin 组装成字节流基类：
 
 ```cpp
 template <class Stream, class Addr>
@@ -87,24 +100,81 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
 
 注意 CRTP 在这里传递了两跳：Mixin 的模板参数是 `BaseStream<Stream, Addr>` 而不是最终的 `Stream`，因此 `static_cast<const T*>(this)->resource()` 解析到 `BaseStream::resource()`。`BaseStream` 同时持有唯一的 `Socket socket_` 成员——**资源控制块的持有集中在基类，Mixin 永远无状态**。`address_type = Addr` 别名保留地址协议，供后端中立的能力选择（见 4.3 的 `write_zc`）。
 
-最顶层 [tcp_stream.hpp](../include/faio/detail/net/tcp/tcp_stream.hpp) 与 [unix/socket.hpp](../include/faio/detail/net/unix/socket.hpp) 各自用一行闭合继承：
+最顶层 [tcp/stream.hpp](../include/faio/detail/net/tcp/stream.hpp) 与 [unix_domain/socket.hpp](../include/faio/detail/net/unix_domain/socket.hpp) 各自用一行闭合继承：
 
 ```cpp
-// tcp_stream.hpp
+// tcp/stream.hpp
 class TcpStream : public BaseStream<TcpStream, SocketAddr>, public ImplSocketOptions<TcpStream> {
   // ...
 };
 
-// unix/socket.hpp
+// unix_domain/socket.hpp
 class UnixStream : public ::faio::net::detail::BaseStream<UnixStream, UnixAddr>,
                    public ::faio::net::detail::ImplSocketOptions<UnixStream> { /* ... */ };
 ```
 
 `BaseStream` 的 `Stream` 参数仅用于 `from_native`/`connect` 等静态工厂构造正确的返回类型（`return Stream{std::move(*socket)};`），不参与 Mixin 下转。同一套 `BaseStream` 在两种地址协议下复用：`SocketAddr` 得到 TCP，`UnixAddr` 得到 Unix stream，读、写、就绪、try、关闭协议完全共享，差异只剩地址类型和原生能力限制。监听器（`BaseListener<Listener, Stream, Addr>`）与数据报（`BaseDatagram<Datagram, Addr>`，组装 `ImplSend`/`ImplRecv`）遵循完全相同的模式。
 
+整条继承链的形状：
+
+```mermaid
+classDiagram
+    class ImplStreamRead~T~ {
+        +read(span) 
+        +read_vectored()
+        +try_read()
+        +read_exact()
+        +read_owned()
+        +read_buf()
+    }
+    class ImplStreamWrite~T~ {
+        +write(span)
+        +write_all()
+        +flush()
+        +shutdown()
+    }
+    class ImplSocketOptions~T~ {
+        +set_nodelay()
+        +set_keepalive()
+        +local_addr()
+    }
+    class ImplLocalAddr~T, Addr~
+    class ImplPeerAddr~T, Addr~
+    class BaseStream~Stream, Addr~ {
+        -Socket socket_
+        +resource()
+        +fd()
+    }
+    class TcpStream {
+        +connect()
+        +from_native()
+        +split()
+    }
+    class UnixStream
+
+    ImplStreamRead <|-- BaseStream
+    ImplStreamWrite <|-- BaseStream
+    ImplLocalAddr <|-- BaseStream
+    ImplPeerAddr <|-- BaseStream
+    BaseStream <|-- TcpStream
+    BaseStream <|-- UnixStream
+    ImplSocketOptions <|-- TcpStream
+    ImplSocketOptions <|-- UnixStream
+```
+
+三层各自的约束可以一句话概括：
+
+| 层 | 知道什么 | 不知道什么 |
+| --- | --- | --- |
+| Mixin（`Impl*`） | 只需要 `T::resource()` 与 `T::fd()` | 不知道 `T` 是 TCP 还是 Unix，不知道后端 |
+| `BaseStream` | 地址类型、唯一 `Socket` 成员 | 不知道具体是 `TcpStream` 还是别的 |
+| 具体包装 | 原生能力差异（如 `write_zc` 是否可用） | 不重复实现读写 |
+
+`BaseStream` 的模板参数是两跳的关键：Mixin 收到的 `T` 是 `BaseStream<Stream, Addr>` 而不是最终类型。因此 `static_cast<const T*>(this)->resource()` 解析到基类的实现，具体包装不需要再提供一次。这也解释了为什么 `resource()` 必须定义在持有 `socket_` 的那一层——Mixin 永远无状态，状态只在一个地方。
+
 ### 1.2 方向执行权在 Mixin 中的实现
 
-方向执行权不是包装对象的互斥锁，而是资源控制块上的读写两个 gate。Mixin 中每个基础操作（`io::recv`/`io::send` 生成的 awaiter）在挂起时向 gate 登记自己；同方向已有 waiter 时返回 `EBUSY`。组合操作需要在多次基础 I/O 之间"霸住"方向，其实现可以直接在 [stream_read.hpp](../include/faio/detail/net/common/stream_read.hpp) 的 `read_exact_impl` 中看到：
+方向执行权不是包装对象的互斥锁，而是资源控制块上的读写两个 gate。Mixin 中每个基础操作（`io::recv`/`io::send` 生成的 awaiter）在挂起时向 gate 登记自己；同方向已有 waiter 时返回 `EBUSY`。组合操作需要在多次基础 I/O 之间"霸住"方向，其实现可以直接在 [base/stream_read.hpp](../include/faio/detail/net/base/stream_read.hpp) 的 `read_exact_impl` 中看到：
 
 ```cpp
 static task<expected<void>> read_exact_impl(std::shared_ptr<io::detail::resource_state> resource,
@@ -144,7 +214,7 @@ static task<expected<void>> read_exact_impl(std::shared_ptr<io::detail::resource
 2. **租约承接而非重取**：循环内每个 `io::recv` 用 `operation.reservation(&owner_identity)` 声明"我属于这个组合"，跳过 gate 的竞争检查；协作让出（`yield_if_needed`）和短读之间，其他读者依然无法插入，因此 `read_exact` 的字节流边界不会被并发读打散。
 3. **错误保留进度**：失败时把本次错误值与已传输字节数合并进 `Error::progress` 返回；中途 EOF 转换为 `UnexpectedEOF`。取消不回滚已传输数据——数据已经真实地进了用户 buffer。
 
-写方向的 `write_all_impl`（[stream_write.hpp](../include/faio/detail/net/common/stream_write.hpp)）结构相同，但有一处优化：它用 RAII 的 `borrowed_direction_lease` 先建立释放责任，而把"取得"动作合并进第一次 send 的既有域锁：
+写方向的 `write_all_impl`（[base/stream_write.hpp](../include/faio/detail/net/base/stream_write.hpp)）结构相同，但有一处优化：它用 RAII 的 `borrowed_direction_lease` 先建立释放责任，而把"取得"动作合并进第一次 send 的既有域锁：
 
 ```cpp
 io::detail::borrowed_direction_lease reservation{
@@ -172,9 +242,9 @@ while (!buffer.empty()) {
 
 ### 1.3 平台适配层
 
-Linux、macOS、Windows 的原生网络 API 在句柄类型、错误域与长度语义上各不相同。网络层把三平台差异收拢在 [platform.hpp](../include/faio/detail/net/common/platform.hpp) 的一组内联函数和 `Socket` 的创建/配置分支中，Mixin 与基类不直接写 `#ifdef`。
+Linux、macOS、Windows 的原生网络 API 在句柄类型、错误域与长度语义上各不相同。[platform/select.hpp](../include/faio/detail/net/platform/select.hpp) 只负责选择实现；共用 POSIX 函数位于 [platform/unix/socket.hpp](../include/faio/detail/net/platform/unix/socket.hpp)，系统差异分别位于 `platform/linux/socket.hpp`、`platform/macos/socket.hpp` 与 [platform/windows/socket.hpp](../include/faio/detail/net/platform/windows/socket.hpp)。`Socket` 和 Mixin 调用这些命名适配函数。
 
-`socket_would_block`（platform.hpp:33）是 would-block 的统一判定，也是所有 try 接口和 `accept_many`/`recv_many` 批次循环的出口条件：
+`socket_would_block` 是 would-block 的统一判定，也是所有 try 接口和 `accept_many`/`recv_many` 批次循环的出口条件。下面合并展示 POSIX 与 Windows 两份实现的判定：
 
 ```cpp
 inline auto socket_would_block(const Error& error) noexcept -> bool {
@@ -188,11 +258,11 @@ inline auto socket_would_block(const Error& error) noexcept -> bool {
 
 Winsock 与 errno 是两个独立错误域，相同数值在不同域中含义不同，因此 Windows 分支先判定 `error.domain()` 再比较 `WSAEWOULDBLOCK`；非 winsock 域（例如 `try_io` 中显式用户 syscall 带回的 errno 错误）仍走 EAGAIN/EWOULDBLOCK 判定。组合逻辑只用这一个函数判断"现在没货"，平台差异不向上泄漏。
 
-`socket_address_family`（platform.hpp:71）回答"这个 socket 属于哪个地址族"：POSIX 用 `getsockname` 读 `ss_family`；Windows 的未绑定 socket 没有本地地址可报，改用 `getsockopt(SO_PROTOCOL_INFOW)` 读 `WSAPROTOCOL_INFOW::iAddressFamily`，绑定前也能回答，import 校验与 `set_ttl` 的家族选择合同因此保持完整。`Socket::validate_family` 用它阻止把 Unix handle 当 IP handle 导入。
+`socket_address_family` 回答"这个 socket 属于哪个地址族"：POSIX 用 `getsockname` 读 `ss_family`；Windows 的未绑定 socket 没有本地地址可报，改用 `getsockopt(SO_PROTOCOL_INFOW)` 读 `WSAPROTOCOL_INFOW::iAddressFamily`，绑定前也能回答，import 校验与 `set_ttl` 的家族选择合同因此保持完整。`Socket::validate_family` 用它阻止把 Unix handle 当 IP handle 导入。
 
-显式同步收发 `socket_recv`/`socket_send`/`socket_sendto`（platform.hpp:93/:107/:125）处理 Windows 的 `int` 长度语义：stream 收发把长度裁到 `INT_MAX` 前缀、允许短 IO；数据报不能拆分，`sendto` 超限时直接返回 `WSAEMSGSIZE` 而非截断；"空指针+零长度"用栈上空字节兜底，绕过 Winsock 对 `nullptr` buffer 的拒绝；flags 中的 `MSG_DONTWAIT` 位被剥离——Windows 没有此标志，非阻塞由句柄属性表达。
+显式同步收发 `socket_recv`/`socket_send`/`socket_sendto`处理 Windows 的 `int` 长度语义：stream 收发把长度裁到 `INT_MAX` 前缀、允许短 IO；数据报不能拆分，`sendto` 超限时直接返回 `WSAEMSGSIZE` 而非截断；"空指针+零长度"用栈上空字节兜底，绕过 Winsock 对 `nullptr` buffer 的拒绝；flags 中的 `MSG_DONTWAIT` 位被剥离——Windows 没有此标志，非阻塞由句柄属性表达。
 
-`Socket::create`（common/socket.hpp:251）把三平台创建 flags 的差异收在一处：
+`Socket::create` 位于 [base/socket.hpp](../include/faio/detail/net/base/socket.hpp)，只保留 `create_native_socket → guard → prepare → adopt` 的共同流程。创建 flags 的差异由三平台各自的 `create_native_socket` 实现承担，合并示意如下：
 
 ```cpp
 #if defined(_WIN32)
@@ -209,7 +279,7 @@ Winsock 与 errno 是两个独立错误域，相同数值在不同域中含义�
 
 Windows 必须用 `WSASocketW` 创建：`WSA_FLAG_OVERLAPPED` 是该 socket 随后能注册进 IOCP 的前提；`WSA_FLAG_NO_HANDLE_INHERIT` 承担 POSIX `SOCK_CLOEXEC` 的角色；`type` 中的 POSIX 专用位被剥掉，非阻塞属性推迟到 `Socket::prepare` 阶段用 `ioctlsocket(FIONBIO)` 设置。Linux 在创建时一次给齐 `SOCK_NONBLOCK|SOCK_CLOEXEC` 两个标志；macOS/BSD 没有这两个创建标志，全部留到 `prepare` 的 `fcntl`。三平台在此之后汇合到同一条 guard → prepare → adopt 的所有权接力（见 4.1）。
 
-配置选项同样按平台能力收敛：`set_linger` 的上限在 Windows 改为 `USHRT_MAX`（Winsock 的 `linger` 两字段是 `u_short`，超限拒绝而非静默截断，sockopt.hpp:135）；`set_recv_packet_info_v4/v6` 在 `IP_PKTINFO`（Linux）/`IP_RECVDSTADDR`（BSD）/`IPV6_PKTINFO`（Windows 的 IPv6）之间按可用性选择，都不可用时返回 `ENOTSUP`（sockopt.hpp:338/:349）。
+配置选项同样按平台能力收敛：`set_linger` 的上限在 Windows 改为 `USHRT_MAX`（Winsock 的 `linger` 两字段是 `u_short`，超限拒绝而非静默截断，socket_options.hpp）；`set_recv_packet_info_v4/v6` 在 `IP_PKTINFO`（Linux）/`IP_RECVDSTADDR`（BSD）/`IPV6_PKTINFO`（Windows 的 IPv6）之间按可用性选择，都不可用时返回 `ENOTSUP`（socket_options.hpp）。
 
 ## 2. 执行与所有权
 
@@ -233,7 +303,7 @@ Recv/Send 等待者在调用时捕获资源强租约和紧凑 scalar 参数；�
 | `async_io(Interest, F)` | 用户提供的非阻塞 syscall 与独立就绪观察组合；未知 callable 不自动转换为原生 opcode |
 | `lookup_host` 的非数字主机名 | 没有对应内核 DNS opcode，使用独立 resolver 服务执行 `getaddrinfo` |
 
-Windows 的 TCP/UDP 数据路径直接提交 WSARecv/WSASend 及其消息、地址变体，连接与接受使用 ConnectEx/AcceptEx。后两个扩展 API 的语义与 POSIX 不同，网络层的接入点体现在 IOCP 后端完成路径的收尾上：AcceptEx 把新连接落在一个**事先创建**的 accepted socket 上而非 listener 的新 fd，完成后必须为它补两步初始化——`SO_UPDATE_ACCEPT_CONTEXT` 让 accepted socket 继承 listener 的 socket 上下文，再 `ioctlsocket(FIONBIO)` 恢复非阻塞属性，之后才能用 `getpeername` 取出对端地址交付给 accept awaiter（iocp/backend.hpp:693-709）。ConnectEx 同理，stream socket 完成后需 `SO_UPDATE_CONNECT_CONTEXT` 才能获得完整的连接态语义，后端只对 `SOCK_STREAM` 补这一步（iocp/backend.hpp:711-718）。网络层的 accept/connect awaiter 因此与 Unix 形态一致：返回的 stream 已经完成准备并注册进目标 domain；这些 Winsock 特有的收尾与稳定池、完成包排空、取消仲裁一起属于 IOCP 后端职责，见[异步IO](异步IO.md)第 8 章。IOCP 批量完成进入相同的稳定槽和挂起握手；CancelIoEx 成功仍必须排空原完成包。ready 使用非消费 WSAPoll，存在观察者时完成端口等待上限为 1ms。零拷贝发送接口保留等价的 OVERLAPPED 发送语义，`zero_copy` 能力为 false。
+Windows 的 TCP/UDP 数据路径直接提交 WSARecv/WSASend 及其消息、地址变体，连接与接受使用 ConnectEx/AcceptEx。后两个扩展 API 的语义与 POSIX 不同，网络层的接入点体现在 IOCP 后端完成路径的收尾上：AcceptEx 把新连接落在一个**事先创建**的 accepted socket 上而非 listener 的新 fd，完成后必须为它补两步初始化——`SO_UPDATE_ACCEPT_CONTEXT` 让 accepted socket 继承 listener 的 socket 上下文，再 `ioctlsocket(FIONBIO)` 恢复非阻塞属性，之后才能用 `getpeername` 取出对端地址交付给 accept awaiter（[backend/iocp/backend.hpp](../include/faio/detail/io/backend/iocp/backend.hpp)）。ConnectEx 同理，stream socket 完成后需 `SO_UPDATE_CONNECT_CONTEXT` 才能获得完整的连接态语义，后端只对 `SOCK_STREAM` 补这一步（[backend/iocp/backend.hpp](../include/faio/detail/io/backend/iocp/backend.hpp)）。网络层的 accept/connect awaiter 因此与 Unix 形态一致：返回的 stream 已经完成准备并注册进目标 domain；这些 Winsock 特有的收尾与稳定池、完成包排空、取消仲裁一起属于 IOCP 后端职责，见[异步IO](异步IO.md)第 7.3 节。IOCP 批量完成进入相同的稳定槽和挂起握手；CancelIoEx 成功仍必须排空原完成包。ready 使用非消费 WSAPoll，存在观察者时完成端口等待上限为 1ms。零拷贝发送接口保留等价的 OVERLAPPED 发送语义，`zero_copy` 能力为 false。
 
 带有效 context 的资源创建时确定 I/O domain。runtime 外使用空 context 创建的兼容对象，在首次异步操作时一次发布最终归属；并发首次操作跟随同一个绑定赢家。协程转到其他 worker、socket 被 move 或拆分，都保持已有的 I/O 归属，不重复注册 fd。accept 的结果按照 `accept_options` 选择首次归属，默认在同一 runtime 的活跃 domain 中均衡分配。注册事件使用资源身份，操作使用带代际的 token；关闭后的迟到事件不会作用于复用后的同号 fd。
 
@@ -268,7 +338,7 @@ auto stream = co_await faio::net::TcpStream::connect(
 
 ### 3.1 lookup_host 源码解析：数字快路径与 resolver 服务路径
 
-[resolver.hpp](../include/faio/detail/net/common/resolver.hpp) 的 `lookup_host` 是一条协程，内部分两个截然不同的执行路径：
+[resolver.hpp](../include/faio/detail/net/resolver.hpp) 的 `lookup_host` 是一条协程，内部分两个截然不同的执行路径：
 
 ```cpp
 inline auto lookup_host(io::io_context context,
@@ -347,7 +417,7 @@ inline auto lookup_host(io::io_context context,
 
 #### 同步创建与 expected 合同
 
-`TcpSocket::new_v4` 委托 [common/socket.hpp](../include/faio/detail/net/common/socket.hpp) 的 `Socket::create`：
+`TcpSocket::new_v4` 委托 [base/socket.hpp](../include/faio/detail/net/base/socket.hpp) 的 `Socket::create`：
 
 ```cpp
 template <class T = Socket>
@@ -395,7 +465,7 @@ template <class T = Socket>
 
 #### 配置接口（ImplSocketOptions）
 
-所有 socket 配置集中在 [sockopt.hpp](../include/faio/detail/net/common/sockopt.hpp) 的 `ImplSocketOptions<T>` Mixin，经 CRTP 由 `TcpSocket`/`TcpStream`/`TcpListener`/`UdpSocket` 等继承。每个选项都是 `with_resource` 包裹的短 `setsockopt`/`getsockopt`：
+所有 socket 配置集中在 [socket_options.hpp](../include/faio/detail/net/socket_options.hpp) 的 `ImplSocketOptions<T>` Mixin，经 CRTP 由 `TcpSocket`/`TcpStream`/`TcpListener`/`UdpSocket` 等继承。每个选项都是 `with_resource` 包裹的短 `setsockopt`/`getsockopt`：
 
 ```cpp
 template <class T>
@@ -436,7 +506,7 @@ struct ImplSocketOptions {
 
 `bind(address, ctx, backlog)`/`bind(ctx, address, backlog)` 同步创建、绑定并监听 socket；`bind(ctx, HostPort, backlog)` 返回组合 task，先异步解析，再依次调用同一同步绑定接口。地址 span 绑定按顺序尝试。
 
-同步 `bind` 的实现（[base_listener.hpp](../include/faio/detail/net/tcp/base_listener.hpp)）就是三步短 syscall 的串联，每步失败即返回 `expected` 错误：
+同步 `bind` 的实现（[base/listener.hpp](../include/faio/detail/net/base/listener.hpp)）就是三步短 syscall 的串联，每步失败即返回 `expected` 错误：
 
 ```cpp
 [[nodiscard]] static auto bind(const Addr& address,
@@ -508,7 +578,7 @@ class Accept : public AwaiterOptions<Accept> {
 
 #### 归属决策与失败清理
 
-归属策略由 [accept_options.hpp](../include/faio/detail/net/common/accept_options.hpp) 定义：`accept_options{placement, target}`，`placement` 为 `listener_local` / `balanced`（默认）/ `explicit_context`。决策流程如下：
+归属策略由 [accept_options.hpp](../include/faio/detail/net/accept_options.hpp) 定义：`accept_options{placement, target}`，`placement` 为 `listener_local` / `balanced`（默认）/ `explicit_context`。决策流程如下：
 
 ```mermaid
 flowchart TD
@@ -529,7 +599,7 @@ flowchart TD
     L -->|成功| N["native.release()<br/>返回 pair&lt;Stream, Addr&gt;"]
 ```
 
-对应 [base_listener.hpp](../include/faio/detail/net/tcp/base_listener.hpp) 的两个私有静态函数。`select_context` 选择目标：
+对应 [base/listener.hpp](../include/faio/detail/net/base/listener.hpp) 的两个私有静态函数。`select_context` 选择目标：
 
 ```cpp
 static auto select_context(const std::shared_ptr<io::detail::resource_state>& resource,
@@ -648,7 +718,7 @@ static auto accept_many_impl(std::shared_ptr<io::detail::resource_state> resourc
 
 #### connect 组合协程：SOCKET 创建 + CONNECT 提交 + 失败清理
 
-静态 `TcpStream::connect(address, ctx)` 继承自 `BaseStream::connect`（[base_stream.hpp](../include/faio/detail/net/tcp/base_stream.hpp)），完整实现只有三拍：
+静态 `TcpStream::connect(address, ctx)` 继承自 `BaseStream::connect`（[base/stream.hpp](../include/faio/detail/net/base/stream.hpp)），完整实现只有三拍：
 
 ```cpp
 /** @brief 建立数字端点连接；地址按值保存在组合协程帧，避免悬空借用。 */
@@ -668,7 +738,7 @@ static auto connect(Addr address, io::io_context context = io::io_context::curre
 
 第一拍通过统一 SOCKET awaiter 异步创建句柄，第二拍对该资源提交 CONNECT，第三拍把 socket 包成 `Stream` 返回。失败清理是隐式的：`create_async` 失败时尚未存在 fd；`io::connect` 失败时局部变量 `socket`（持有资源控制块）随协程帧销毁，进入正常关闭协议，不需要显式清理代码。多地址重载在同一帧内循环调用单地址版本，每个失败 socket 在下一次尝试前随迭代作用域释放。
 
-`create_async` 返回的 `CreateSocketAwaiter`（[common/socket.hpp](../include/faio/detail/net/common/socket.hpp)）本身不分配 task 帧，只做"原生创建结果的拥有权转换"：
+`create_async` 返回的 `CreateSocketAwaiter`（[base/socket.hpp](../include/faio/detail/net/base/socket.hpp)）本身不分配 task 帧，只做"原生创建结果的拥有权转换"：
 
 ```cpp
 class CreateSocketAwaiter {
@@ -701,7 +771,7 @@ class CreateSocketAwaiter {
 
 io_uring 有 SOCKET opcode 时（Linux 5.19+），fd 在内核中创建并随 CQE 返回；没有该 opcode 时统一引擎回退到短同步 `::socket`。无论哪条路径，`await_resume` 的所有权接力与同步 `Socket::create` 完全一致：guard 接住 fd → `prepare` 设置 nonblocking/CLOEXEC → `adopt_checked` 注册到**构造时固定的** `context_` → 成功才 `release`。`consumed_` 标志沿用 accept 的单次消费规则。取消与成功竞速时，若取消获胜但内核已返回 fd，由引擎负责回收，不会泄漏给用户层。
 
-`TcpStream` 自身在 [tcp_stream.hpp](../include/faio/detail/net/tcp/tcp_stream.hpp) 中只补充 hostname 入口：
+`TcpStream` 自身在 [tcp/stream.hpp](../include/faio/detail/net/tcp/stream.hpp) 中只补充 hostname 入口：
 
 ```cpp
 static auto connect(io::io_context context, HostPort endpoint) -> task<expected<TcpStream>> {
@@ -748,7 +818,7 @@ VectoredRead(VectoredRead &&other) noexcept
 
 调用者提供的外部 payload、iovec 数组和 control buffer 必须满足借用生命周期。
 
-`write_zc` 由 [stream_write.hpp](../include/faio/detail/net/common/stream_write.hpp) 的 `ZeroCopyWrite` awaiter 实现，它在 `await_suspend`（而非构造）时才按实际 domain 能力选择路径：
+`write_zc` 由 [base/stream_write.hpp](../include/faio/detail/net/base/stream_write.hpp) 的 `ZeroCopyWrite` awaiter 实现，它在 `await_suspend`（而非构造）时才按实际 domain 能力选择路径：
 
 ```cpp
 bool await_suspend(std::coroutine_handle<> continuation) noexcept {
@@ -813,13 +883,13 @@ static auto async_io_impl(std::shared_ptr<io::detail::resource_state> resource,
 
 内建 read/write/accept/UDP 收发不经过它。延迟执行的组合接口在调用时按值保存资源与 callable，不借用包装对象的 `this`；移动包装对象不会影响 task。最后一个包装拥有者析构仍然会请求关闭，尚未启动的 task 随后安全返回关闭或取消错误。
 
-基础读写、accept、UDP 收发及聚集 awaiter 支持 `set_timeout(duration)` 和 `set_timeout_at(steady_clock::time_point)`。这些配置来自 [awaiter_options.hpp](../include/faio/detail/net/common/awaiter_options.hpp) 的 `AwaiterOptions<Derived>` CRTP 基类：deadline 以可选的绝对时间点保存在 awaiter 内，`await_suspend` 时经 `configure(operation_)` 一次性转交给底层 operation；move 只发生在提交前，绝对 deadline 随 awaiter 移动而不重新计时。到期返回 `ETIMEDOUT`；停止令牌返回 `ECANCELED`。返回以前后端已停止访问借用缓冲区。
+基础读写、accept、UDP 收发及聚集 awaiter 支持 `set_timeout(duration)` 和 `set_timeout_at(steady_clock::time_point)`。这些配置来自 [base/awaiter_options.hpp](../include/faio/detail/net/base/awaiter_options.hpp) 的 `AwaiterOptions<Derived>` CRTP 基类：deadline 以可选的绝对时间点保存在 awaiter 内，`await_suspend` 时经 `configure(operation_)` 一次性转交给底层 operation；move 只发生在提交前，绝对 deadline 随 awaiter 移动而不重新计时。到期返回 `ETIMEDOUT`；停止令牌返回 `ECANCELED`。返回以前后端已停止访问借用缓冲区。
 
 ### 4.5 split 与半关闭
 
 `split() &` 返回 `ReadHalf`、`WriteHalf`。半边保留控制块，父对象 move 不会造成裸指针悬空；父 stream 与半边仍不能并发使用同一方向。
 
-`std::move(stream).into_split()` 返回 `OwnedReadHalf`、`OwnedWriteHalf`，可以分别交给不同任务。两种拆分的实现都在 [tcp_stream.hpp](../include/faio/detail/net/tcp/tcp_stream.hpp)：
+`std::move(stream).into_split()` 返回 `OwnedReadHalf`、`OwnedWriteHalf`，可以分别交给不同任务。两种拆分的实现都在 [tcp/stream.hpp](../include/faio/detail/net/tcp/stream.hpp)：
 
 ```cpp
 /** @brief 创建安全借用半边，父 stream 与半边同时保持同一资源。 */
@@ -843,7 +913,7 @@ static auto async_io_impl(std::shared_ptr<io::detail::resource_state> resource,
 
 每次拆分生成一个 `shared_ptr<char>` 作为 **split identity**：它只是一块堆内存的地址，唯一标识"这一次拆分"。`Socket::share()` 克隆指向同一资源控制块的拥有者（不 dup 原生 fd），因此借用半边、owned 半边、父 stream 共享同一份 fd 与方向 gate，方向互斥规则在拆分后依然由资源控制块仲裁。
 
-`reunite`（[halves.hpp](../include/faio/detail/net/tcp/halves.hpp)）比较资源身份与 split 身份，两者都匹配才允许合并：
+`reunite`（[base/halves.hpp](../include/faio/detail/net/base/halves.hpp)）比较资源身份与 split 身份，两者都匹配才允许合并：
 
 ```cpp
 [[nodiscard]] auto reunite(BasicWriteHalf<Stream, Addr, Owned>&& writer) && -> expected<Stream>
@@ -866,6 +936,33 @@ static auto async_io_impl(std::shared_ptr<io::detail::resource_state> resource,
 
 owned 写半边析构在此前写入排空后请求写半关闭（`request_shutdown()` 调用资源控制块的 `request_shutdown_write()`）。`forget()` 取消这项自动请求。读半边析构不会强制关闭整个连接；最后一个包装拥有者触发资源关闭。`shutdown(Write)` 只关闭写方向，读方向仍可以接收；`close` 关闭整个资源。
 
+半关闭与整体关闭是两条独立的状态线，混用会导致"以为关了写、其实连读也断了"：
+
+```mermaid
+stateDiagram-v2
+    [*] --> Open: connect / accept / from_native
+    Open --> WriteShutdown: shutdown(Write) 或 owned 写半边析构
+    Open --> Closing: close / 最后一个包装析构
+    WriteShutdown --> WriteShutdown: 继续 read / recv
+    WriteShutdown --> Closing: close
+    Closing --> Closed: 活跃操作排空 + fd exchange(-1)
+    Closed --> [*]
+    note right of WriteShutdown
+        write_shutdown = true
+        write/ write_all 返回错误
+        读方向不受影响
+    end note
+    note right of Closing
+        closing = true
+        新操作一律 EBADF
+        已接受操作被取消并排空
+    end note
+```
+
+两条线的分界点在 `resource_state` 的字段上：`write_shutdown` 只阻止写方向，`closing` 阻止一切。`shutdown(Write)` 不会设置 `closing`，因此读方向的 `reader` 仍然有效；`close` 会设置 `closing` 并遍历取消全部已接受操作（见[异步IO](异步IO.md) 6.9）。
+
+`shutdown` 本身也是一次异步操作：它要等当前写操作排空后才真正发出 `SHUT_WR`（`write_shutdown_issued` 保证只发一次）。这就是为什么 `reunite` 必须显式清掉 `automatic_shutdown_`——否则新重组的 stream 会在析构时对刚合并的连接再发一次半关闭。
+
 ## 5. UDP
 
 `UdpSocket` 是 move-only 消息型对象，`UdpDatagram` 是兼容别名。数字地址 `bind(address, ctx)`、`bind(ctx, address)` 与 `unbound` 均同步返回 `expected<UdpSocket>`；`unbound` 可以在配置后关联目标。`bind(ctx, HostPort)` 先异步解析，再调用同一同步创建与绑定接口。
@@ -887,7 +984,7 @@ UDP 零长度包是合法消息。网络层向零容量接收 buffer 收包仍�
 
 ### 5.1 收发 awaiter 与零长度数据报
 
-UDP 收发的核心 awaiter 是 [datagram_recv.hpp](../include/faio/detail/net/common/datagram_recv.hpp) 的 `ReceiveDatagram<Addr, Detailed>`：`Detailed` 编译期选择结果形态（`0`=字节数+对端地址，`1`=完整 `DatagramMessage`，`2`=仅字节数），三个公共接口 `recv_from`/`recv_message`/`recv` 只是它的三个薄包装。构造时在自身成员中保存 peer 地址、iovec 和 msghdr：
+UDP 收发的核心 awaiter 是 [base/datagram_recv.hpp](../include/faio/detail/net/base/datagram_recv.hpp) 的 `ReceiveDatagram<Addr, Detailed>`：`Detailed` 编译期选择结果形态（`0`=字节数+对端地址，`1`=完整 `DatagramMessage`，`2`=仅字节数），三个公共接口 `recv_from`/`recv_message`/`recv` 只是它的三个薄包装。构造时在自身成员中保存 peer 地址、iovec 和 msghdr：
 
 ```cpp
 ReceiveDatagram(std::shared_ptr<io::detail::resource_state> resource,
@@ -931,7 +1028,7 @@ auto await_resume() -> expected<...> {
 
 ### 5.2 send_to/recv_many/send_many
 
-`send_to` 的 awaiter `SendDatagram`（[datagram_send.hpp](../include/faio/detail/net/common/datagram_send.hpp)）把目标地址**按值**保存在 awaiter 内，因此临时构造的 `SocketAddr` 可以直接用于 `co_await` 而不必担心悬空：
+`send_to` 的 awaiter `SendDatagram`（[base/datagram_send.hpp](../include/faio/detail/net/base/datagram_send.hpp)）把目标地址**按值**保存在 awaiter 内，因此临时构造的 `SocketAddr` 可以直接用于 `co_await` 而不必担心悬空：
 
 ```cpp
 auto send_to(std::span<const char> buffer, Addr address) const noexcept {
@@ -984,7 +1081,7 @@ static auto send_many_impl(std::shared_ptr<io::detail::resource_state> resource,
 
 `UnixStream`/`UnixListener` 复用字节流、就绪、try、split、native 与关闭协议——它们与 TCP 类型共享同一套 `BaseStream`/`BaseListener` 实现，只是模板参数换成 `UnixAddr`（见 1.1）。`UnixDatagram` 提供 `bind`、`unbound`、`pair`、connected/unconnected 收发、peek、消息辅助数据、shutdown、native 和有界 batch。`UnixSocket::stream/datagram` 允许创建后配置/绑定，再转换为 listener、stream 或 datagram。
 
-`UnixStream::pair(ctx)`（unix/socket.hpp:49）是 socketpair 创建的样板，与 `Socket::create` 同源的所有权接力在**两个 fd**上各走一遍：
+`UnixStream::pair(ctx)`（[unix_domain/socket.hpp](../include/faio/detail/net/unix_domain/socket.hpp)）是 socketpair 创建的样板，与 `Socket::create` 同源的所有权接力在**两个 fd**上各走一遍：
 
 ```cpp
 int descriptors[2];
@@ -1003,9 +1100,9 @@ auto b = Socket::adopt_checked(second.get(), context);
 // ...
 ```
 
-`socketpair(2)` 不带 nonblocking/CLOEXEC 创建标志，两个 fd 先各自由 `owned_native_socket` guard 接住，prepare、adopt 任何一步失败都随 guard 析构成对归还，不会出现"一端已注册、另一端泄漏"。`UnixDatagram::pair`（unix/socket.hpp:108）结构相同，仅 `SOCK_DGRAM` 不同。
+`socketpair(2)` 不带 nonblocking/CLOEXEC 创建标志，两个 fd 先各自由 `owned_native_socket` guard 接住，prepare、adopt 任何一步失败都随 guard 析构成对归还，不会出现"一端已注册、另一端泄漏"。`UnixDatagram::pair`（[unix_domain/socket.hpp](../include/faio/detail/net/unix_domain/socket.hpp)）结构相同，仅 `SOCK_DGRAM` 不同。
 
-`peer_credentials()`（unix/socket.hpp:71）在 `with_resource` 临界区内查询对端内核身份：
+`peer_credentials()`（[unix_domain/socket.hpp](../include/faio/detail/net/unix_domain/socket.hpp)）在 `with_resource` 临界区内查询对端内核身份：
 
 ```cpp
 #if defined(__linux__)
@@ -1025,7 +1122,7 @@ auto b = Socket::adopt_checked(second.get(), context);
 
 Linux 的 `SO_PEERCRED` 返回 `ucred{pid, uid, gid}` 三元组；BSD/macOS 的 `getpeereid` 只提供 uid/gid，因此 `PeerCredentials::pid` 是 `optional`，macOS 上恒为 `nullopt`——跨平台代码必须处理"PID 不可得"而不是拿到一个无意义的零值。查询在资源控制临界区内执行，与关闭串行，不会读到已被复用的 fd 的对端身份。
 
-`UnixSocket::from_native`（unix/socket.hpp:197）对导入的 fd 做两道校验：`SO_TYPE` 必须是 `SOCK_STREAM` 或 `SOCK_DGRAM`，`getsockname` 的 `ss_family` 必须是 `AF_UNIX`，任一不符返回 `InvalidSocketType`——拒绝把 IP socket 或普通文件伪装成 Unix socket 注入网络层，校验通过后才进入 prepare → adopt 的常规接力。
+`UnixSocket::from_native`（[unix_domain/socket.hpp](../include/faio/detail/net/unix_domain/socket.hpp)）对导入的 fd 做两道校验：`SO_TYPE` 必须是 `SOCK_STREAM` 或 `SOCK_DGRAM`，`getsockname` 的 `ss_family` 必须是 `AF_UNIX`，任一不符返回 `InvalidSocketType`——拒绝把 IP socket 或普通文件伪装成 Unix socket 注入网络层，校验通过后才进入 prepare → adopt 的常规接力。
 
 ### 6.2 pipe：FIFO 的异步 open
 
@@ -1080,7 +1177,7 @@ io_uring 下这对操作提交原生 READ/WRITE SQE，与 socket 的 RECV/SEND �
 
 `examples/tcp_counter_server.cpp` 是多个客户端共享的内存计数器服务，支持 SET、GET、INCR、DEL 和 QUIT。它展示基于换行的分帧、BufReader 处理拆分和流水线请求、协程 mutex 保护原子递增、请求长度限制、完整请求与发送期限，以及客户端错误和断开的处理。默认监听 `127.0.0.1:8081`，可用 nc 交互；`--self-test` 绑定临时端口，运行两个并发计数客户端和一个协议校验客户端后自动退出。
 
-Linux 示例接受 `--io-backend=uring`、`--io-backend=epoll`，如 `tcp_counter_server --self-test --io-backend=epoll`。不传参数保留库的默认选择规则；也可通过 `FAIO_TEST_IO_BACKEND=uring|epoll` 选择，显式参数优先。macOS 固定使用 kqueue。tcp_echo_server/tcp_counter_server 使用四个 worker，udp_echo_server 使用两个 worker，tcp_echo_server_single_thread 不创建后台协程 worker。
+Linux 后端由构建固定：`FAIO_ENABLE_IO_URING=ON` 为 uring，`OFF` 为 epoll。示例参数 `--io-backend=uring|epoll` 和环境变量 `FAIO_TEST_IO_BACKEND=uring|epoll` 只校验与构建匹配，显式参数优先；不匹配会初始化失败。`tcp_counter_server --self-test --io-backend=epoll` 应使用 epoll 构建运行，不传参数时沿用当前编译后端。macOS 固定使用 kqueue。tcp_echo_server/tcp_counter_server 使用四个 worker，udp_echo_server 使用两个 worker，tcp_echo_server_single_thread 不创建后台协程 worker。
 
 详细中文注释与交互步骤见 [示例指南](../examples/README.md)。高级接口的验证按独立契约测试组织，见 `tests/test_network_contract.cpp`。
 

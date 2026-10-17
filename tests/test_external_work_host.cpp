@@ -238,7 +238,7 @@ TEST(ExternalHost, RemotePublicationDrivesBothExistingRuntimeModes) {
     config._mode = mode;
     config._num_workers = mode == faio::runtime::mode::current_thread ? 1 : 3;
 #if defined(__linux__)
-    config._requested_io_backend = faio::runtime::io_backend::IO_EPOLL;
+    config._requested_io_backend = faio::io::detail::compiled_io_backend;
 #endif
     faio::runtime::detail::runtime_context context{config};
     auto& host = context.external_host();
@@ -267,7 +267,7 @@ TEST(ExternalHost, CompletionWithoutNodeWakesSleepingCurrentDriver) {
   config._mode = faio::runtime::mode::current_thread;
   config._num_workers = 1;
 #if defined(__linux__)
-  config._requested_io_backend = faio::runtime::io_backend::IO_EPOLL;
+  config._requested_io_backend = faio::io::detail::compiled_io_backend;
 #endif
   faio::runtime::detail::runtime_context context{config};
   auto root = context.external_host().acquire_root();
@@ -284,7 +284,7 @@ TEST(ExternalHost, WorkerPublicationStaysOnItsOwnExternalFifo) {
   auto config = faio::runtime::detail::runtime_config{};
   config._num_workers = 3;
 #if defined(__linux__)
-  config._requested_io_backend = faio::runtime::io_backend::IO_EPOLL;
+  config._requested_io_backend = faio::io::detail::compiled_io_backend;
 #endif
   faio::runtime::detail::runtime_context context{config};
   auto root = context.external_host().acquire_root();
@@ -332,7 +332,7 @@ TEST(ExternalHost, ContinuousExternalWorkAllowsTimerAndCoroutineProgress) {
     config._io_interval = 2;
     config._global_queue_interval = 2;
 #if defined(__linux__)
-    config._requested_io_backend = faio::runtime::io_backend::IO_EPOLL;
+    config._requested_io_backend = faio::io::detail::compiled_io_backend;
 #endif
     faio::runtime::detail::runtime_context context{config};
     auto root = context.external_host().acquire_root();

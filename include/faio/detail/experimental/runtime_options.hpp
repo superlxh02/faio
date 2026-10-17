@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/experimental/runtime_options.hpp
+ * @brief 实验性的入口注解与发送器接收器适配：运行时选项。
+ * @details 实验适配在编译期开关下启用，连接阶段建立稳定操作状态；启动、结果交付与关闭沿受控任务图的租约和排空协议推进。
+ */
 #ifndef FAIO_DETAIL_EXPERIMENTAL_RUNTIME_OPTIONS_HPP
 #define FAIO_DETAIL_EXPERIMENTAL_RUNTIME_OPTIONS_HPP
 
@@ -16,11 +21,10 @@ namespace faio::runtime { using config = detail::runtime_config; }
 namespace faio::experimental {
 enum class entry_exit_policy { cancel_and_drain, drain };
 
-// GCC reflection annotations require structural values. std::optional has
-// private state, so retain optional semantics in a public literal value.
+/// @brief GCC 反射注解要求结构化值；std::optional 含私有状态，因此以公开字面量类型保留可选值语义。
 struct io_backend_option {
-  bool present{};
-  faio::runtime::io_backend stored{faio::runtime::io_backend::IO_EPOLL};
+  bool present{};  ///< 是否显式设置后端选项；false 表示沿用默认选择。
+  faio::runtime::io_backend stored{faio::runtime::io_backend::IO_EPOLL};  ///< 公开的后端枚举存储，便于作为结构化反射注解值。
   constexpr io_backend_option() noexcept = default;
   constexpr io_backend_option(std::nullopt_t) noexcept {}
   constexpr io_backend_option(faio::runtime::io_backend value) noexcept : present(true), stored(value) {}
@@ -39,6 +43,7 @@ struct io_backend_option {
   constexpr operator std::optional<faio::runtime::io_backend>() const noexcept {
     return present ? std::optional{stored} : std::nullopt;
   }
+  /// @brief 按该类型约定释放或清空当前状态，重复调用遵循对象的空状态规则。
   constexpr void reset() noexcept { present = false; stored = faio::runtime::io_backend::IO_EPOLL; }
   friend constexpr bool operator==(io_backend_option left, io_backend_option right) noexcept {
     return left.present == right.present && (!left.present || left.stored == right.stored);
@@ -46,22 +51,22 @@ struct io_backend_option {
 };
 
 struct runtime_options {
-  faio::runtime::mode mode{faio::runtime::mode::multi_thread};
-  std::size_t workers{};
-  std::uint32_t io_interval{61};
-  std::uint32_t global_queue_interval{61};
-  std::uint32_t idle_spin_count{faio::runtime::detail::AUTO_IDLE_SPIN_COUNT};
-  std::size_t num_events{1024};
-  std::uint64_t max_io_delay_ns{100000};
-  std::size_t max_blocking_threads{64};
-  std::uint64_t blocking_keep_alive_ms{10000};
-  std::size_t blocking_queue_limit{4096};
-  std::size_t filesystem_threads{4};
-  std::size_t resolver_threads{2};
-  std::size_t filesystem_queue_limit{4096};
-  std::size_t resolver_queue_limit{1024};
-  io_backend_option io_backend{std::nullopt};
-  entry_exit_policy exit_policy{entry_exit_policy::cancel_and_drain};
+  faio::runtime::mode mode{faio::runtime::mode::multi_thread};  ///< 运行时调度模式，选择当前线程或多工作线程驱动。
+  std::size_t workers{};  ///< 工作线程数量，零值由配置校验解析为默认数量。
+  std::uint32_t io_interval{61};  ///< 两次周期 IO 驱动之间的调度轮数，必须非零。
+  std::uint32_t global_queue_interval{61};  ///< 全局队列公平性检查间隔，单位为调度轮数。
+  std::uint32_t idle_spin_count{faio::runtime::detail::AUTO_IDLE_SPIN_COUNT};  ///< 空闲搜索线程进入内核等待前的自旋轮数上限。
+  std::size_t num_events{1024};  ///< 一次后端事件轮询可接收的事件数量上限。
+  std::uint64_t max_io_delay_ns{100000};  ///< 持续执行就绪任务时允许的最大 IO 驱动延迟，单位为纳秒。
+  std::size_t max_blocking_threads{64};  ///< 运行时通用阻塞任务池的最大线程数。
+  std::uint64_t blocking_keep_alive_ms{10000};  ///< 空闲阻塞线程的保活时长配置，单位为毫秒。
+  std::size_t blocking_queue_limit{4096};  ///< 等待中的阻塞任务容量，不含已经执行的任务。
+  std::size_t filesystem_threads{4};  ///< 文件阻塞服务的工作线程数量。
+  std::size_t resolver_threads{2};  ///< 地址解析阻塞服务的工作线程数量。
+  std::size_t filesystem_queue_limit{4096};  ///< 文件阻塞服务允许排队的任务数上限。
+  std::size_t resolver_queue_limit{1024};  ///< 地址解析服务允许排队的任务数上限。
+  io_backend_option io_backend{std::nullopt};  ///< 显式后端选择；未指定时采用编译期默认后端。
+  entry_exit_policy exit_policy{entry_exit_policy::cancel_and_drain};  ///< 入口任务返回后对派生任务采用的取消或排空策略。
 };
 
 enum class options_error {
@@ -98,7 +103,7 @@ constexpr const char* options_error_message(options_error error) noexcept {
   }
   return "faio experimental: invalid runtime_options";
 }
-} // namespace detail
+}
 
 constexpr options_error validate_options(const runtime_options& options) noexcept {
   if (options.mode != faio::runtime::mode::multi_thread
@@ -161,5 +166,5 @@ constexpr runtime_options current_thread_defaults() noexcept {
   return runtime_options{.mode = faio::runtime::mode::current_thread};
 }
 constexpr runtime_options multi_thread_defaults() noexcept { return {}; }
-} // namespace faio::experimental
+}
 #endif

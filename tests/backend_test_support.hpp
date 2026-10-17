@@ -1,7 +1,7 @@
 /**
  * @file backend_test_support.hpp
  * @brief 测试进程显式选择 Linux IO 后端，生产配置不读取测试环境变量。
- * @details 同一套行为测试分别由 FAIO_TEST_IO_BACKEND=uring/epoll 执行；
+ * @details 同一套行为测试分别在 uring/epoll 两个静态构建执行；
  *          未设置变量时保留库自身的默认后端选择规则。
  */
 #pragma once
@@ -55,7 +55,11 @@ inline faio::io::engine_config engine_config() {
 inline faio::io::engine_config provider_engine_config() {
   auto config = engine_config();
 #if defined(__linux__)
+#if defined(FAIO_TEST_BACKEND_INJECTION)
+  config.reactor_factory = faio::io::detail::make_platform_reactor;
+#else
   config.requested_backend = faio::runtime::io_backend::IO_EPOLL;
+#endif
 #endif
   return config;
 }

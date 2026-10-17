@@ -288,8 +288,8 @@ cmake --preset macos-clang23
 python3 scripts/compare_tcp_echo.py --build build/macos-clang23
 ```
 
-Linux 使用 `cmake --preset linux-clang22-dual` 构建包含 uring 与 epoll 的同一个 binary，分别运行
-`--build build/linux-clang22-dual --io-backend=uring` 与 `--build build/linux-clang22-dual --io-backend=epoll`
+Linux 使用 `linux-clang22-uring` 与 `linux-clang22-epoll` 分别构建静态后端，分别运行
+`--build build/linux-clang22-uring --io-backend=uring` 与 `--build build/linux-clang22-epoll --io-backend=epoll`
 ；服务启动日志必须证实实际后端与请求一致。epoll-only 构建可用 `linux-clang22-epoll` preset。默认测量 1/64/256 连接、64 B/1 KiB/16
 KiB、4 个服务 worker、最多 4 个客户端线程，3 轮交替服务顺序，每轮预热 1 秒、测量 5 秒。Tokio Cargo 版本固定为 1.49.0，C++/Rust
 使用 O2，不启用 LTO。

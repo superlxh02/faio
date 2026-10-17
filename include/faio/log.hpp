@@ -1,3 +1,8 @@
+/**
+ * @file faio/log.hpp
+ * @brief faio 公共接口：日志入口。
+ * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ */
 #ifndef FAIO_LOG_HPP
 #define FAIO_LOG_HPP
 
@@ -7,8 +12,8 @@
 #include <utility>
 
 namespace faio::log {
-// 独立的线程安全 logger，不修改应用的 spdlog 默认 logger 或全局配置。
-// 默认输出到 stderr；返回引用避免每条日志复制 shared_ptr。
+/// @brief 独立的线程安全 logger，不修改应用的 spdlog 默认 logger 或全局配置。
+/// 默认输出到 stderr；返回引用避免每条日志复制 shared_ptr。
 inline auto logger() -> const std::shared_ptr<spdlog::logger>& {
   static const auto instance = [] {
     auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
@@ -20,6 +25,5 @@ inline auto logger() -> const std::shared_ptr<spdlog::logger>& {
   }();
   return instance;
 }
-}  // namespace faio::log
-
-#endif  // FAIO_LOG_HPP
+}
+#endif

@@ -103,7 +103,7 @@ def measure_suite(args, repo):
     """在持有 suite 锁时构建、顺序运行、保存全部原始指标并汇总。"""
     connections = [int(v) for v in args.connections.split(',')]
     payloads = [int(v) for v in args.payloads.split(',')]
-    default_build = {'Darwin': 'macos-clang23', 'Windows': 'windows-msvc'}.get(platform.system(), 'linux-clang22-dual')
+    default_build = {'Darwin': 'macos-clang23', 'Windows': 'windows-msvc'}.get(platform.system(), 'linux-clang22-uring')
     build = (args.build or repo / 'build' / default_build).resolve()
     out = (args.output or repo / 'benchmark/result/tcp_echo' / datetime.now(timezone.utc).strftime(
         '%Y%m%dT%H%M%SZ')).resolve()

@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/common/error.hpp
+ * @brief 公共类型、错误与基础工具：错误值与错误域。
+ * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ */
 #ifndef FAIO_DETAIL_COMMON_ERROR_HPP
 #define FAIO_DETAIL_COMMON_ERROR_HPP
 
@@ -19,10 +24,10 @@ namespace faio {
 /// @brief 原生错误的来源；解析器错误不能作为 errno 解释。
 enum class error_domain { faio, posix, resolver, win32, winsock };
 
-// 错误类
+/// @brief 错误类
 class Error {
  public:
-  // 自定义错误码，从1000开始，0-999留给系统
+  /// @brief 自定义错误码，从1000开始，0-999留给系统
   enum ErrorCode {
     EmptySqe = 1000,
     InvalidAddresses,
@@ -56,7 +61,7 @@ class Error {
     return err_code_;
   }
 
-  // 是
+  /// @brief 是
   [[nodiscard]]
   auto message() const noexcept -> std::string_view {
     if (domain_ == error_domain::resolver)
@@ -86,9 +91,9 @@ class Error {
   }
 
  private:
-  int err_code_;
-  std::uint64_t transferred_{};
-  error_domain domain_{};
+  int err_code_;  ///< 原生错误码，与错误域一起解释系统调用失败。
+  std::uint64_t transferred_{};  ///< 操作已完成的字节数，失败或取消时仍保留有效进度。
+  error_domain domain_{};  ///< 错误码所属的系统错误域，决定错误文本与等价关系。
 };
 
 [[nodiscard]]
@@ -98,7 +103,7 @@ static inline auto make_error(int err) -> Error {
 
 template <typename T>
 using expected = std::expected<T, Error>;
-}  // namespace faio
+}
 
 namespace std {
 template <>
@@ -121,5 +126,5 @@ class formatter<faio::Error> {
     return format_to(context.out(), "{} (error {})", error.message(), error.value());
   }
 };
-}  // namespace std
-#endif  // FAIO_DETAIL_COMMON_ERROR_HPP
+}
+#endif

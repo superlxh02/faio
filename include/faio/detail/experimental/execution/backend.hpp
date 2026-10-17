@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/experimental/execution/backend.hpp
+ * @brief 实验性的入口注解与发送器接收器适配：后端封装与提交协议。
+ * @details 实验适配在编译期开关下启用，连接阶段建立稳定操作状态；启动、结果交付与关闭沿受控任务图的租约和排空协议推进。
+ */
 #ifndef FAIO_DETAIL_EXPERIMENTAL_EXECUTION_BACKEND_HPP
 #define FAIO_DETAIL_EXPERIMENTAL_EXECUTION_BACKEND_HPP
 #include "faio/detail/experimental/platform.hpp"
@@ -9,8 +14,7 @@
 #include <utility>
 
 namespace faio::experimental::detail {
-// Approved adjustment to plan 9.2: exec::task in the locked backend requires
-// callback_type. Ownership and cancellation remain in the standard stop state.
+/// @brief 当前后端的 exec::task 要求令牌公开 callback_type；所有权与取消状态仍由标准停止状态保存。
 class root_stop_token {
  public:
   template <class Callback> using callback_type = std::stop_callback<Callback>;
@@ -21,8 +25,8 @@ class root_stop_token {
   operator std::stop_token() const noexcept { return token_; }
   bool operator==(const root_stop_token&) const noexcept = default;
  private:
-  std::stop_token token_;
+  std::stop_token token_;  ///< 捕获的停止令牌，在异步执行期间观察所属任务的取消请求。
 };
 static_assert(stdexec::stoppable_token<root_stop_token>);
-} // namespace faio::experimental::detail
+}
 #endif

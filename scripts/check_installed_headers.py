@@ -4,12 +4,78 @@ import argparse
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 
 
 def run(argv, cwd):
     subprocess.run(argv, cwd=cwd, check=True, text=True)
+
+
+def header_applicable(relative, system, native_uring):
+    """Classify by implementation directory, keeping platform dispatchers applicable."""
+    if '/platform/windows/' in relative and system != 'Windows':
+        return False
+    if '/platform/unix/' in relative and system == 'Windows':
+        return False
+    if '/platform/linux/' in relative and system != 'Linux':
+        return False
+    if '/platform/macos/' in relative:
+        # Networking's macOS implementation also supplies the BSD socket policy.
+        bsd_network = system == 'FreeBSD' and relative.startswith('detail/net/platform/macos/')
+        if system != 'Darwin' and not bsd_network:
+            return False
+    if relative.startswith('detail/net/unix_domain') and system == 'Windows':
+        return False
+    for backend, systems in {
+        'epoll': {'Linux'}, 'kqueue': {'Darwin', 'FreeBSD'},
+        'uring': {'Linux'} if native_uring else set(), 'iocp': {'Windows'},
+    }.items():
+        if relative.startswith(f'detail/io/backend/{backend}/') and system not in systems:
+            return False
+    return True
+
+
+def validate_module_layout(faio_root):
+    allowed = {'faio.hpp', 'io.hpp', 'fs.hpp', 'net.hpp', 'log.hpp', 'detail', 'experimental'}
+    unexpected = sorted(p.name for p in faio_root.iterdir() if p.name not in allowed)
+    if unexpected:
+        raise RuntimeError(f'Public entry-point layout violation: {unexpected}')
+    io_root = faio_root / 'detail/io'
+    actual = {p.name for p in io_root.iterdir() if p.is_file()}
+    expected = {'io.hpp', 'engine.hpp', 'traits.hpp'}
+    if actual != expected:
+        raise RuntimeError(f'IO entry-point layout violation: expected {sorted(expected)}, got {sorted(actual)}')
+    for legacy in ('backends', 'util', 'reactor', 'uring'):
+        if (io_root / legacy).exists():
+            raise RuntimeError(f'Legacy io/{legacy} must not be installed')
+
+
+def validate_leaf_dependencies(faio_root):
+    """Generic contracts may describe requests, but must not select an implementation."""
+    leaves = sorted((faio_root / 'detail/io/protocol').glob('*.hpp'))
+    leaves += sorted((faio_root / 'detail/io/traits').glob('*.hpp'))
+    leaves += [faio_root / f'detail/io/base/{name}.hpp'
+               for name in ('backend', 'reactor', 'readiness_adapter')]
+    includes = re.compile(r'^\s*#\s*include\s*[<"](faio/[^>"\n]+)[>"]', re.MULTILINE)
+    selected = {'detail/io/platform/backend.hpp', 'detail/io/platform/reactor.hpp'}
+    for leaf in leaves:
+        pending = [(leaf, [leaf.relative_to(faio_root).as_posix()])]
+        visited = set()
+        while pending:
+            header, chain = pending.pop()
+            if header in visited:
+                continue
+            visited.add(header)
+            relative = header.relative_to(faio_root).as_posix()
+            if relative in selected or relative.startswith('detail/io/backend/'):
+                raise RuntimeError('Generic IO contract imports a selected backend: ' + ' -> '.join(chain))
+            if not header.is_file():
+                raise RuntimeError('Missing installed dependency: ' + ' -> '.join(chain))
+            for dependency in includes.findall(header.read_text(encoding='utf-8')):
+                target = dependency.removeprefix('faio/')
+                pending.append((faio_root / target, chain + [target]))
 
 
 def main():
@@ -34,9 +100,8 @@ def main():
     run(['cmake', '--install', str(build), '--prefix', str(prefix)], repo)
     # 验证本平台全部适用的安装头；平台专用后端不在别的平台直接导入。
     faio_root = prefix / 'include/faio'
-    unexpected = sorted(p.name for p in faio_root.iterdir() if p.name not in {'faio.hpp', 'log.hpp', 'detail', 'experimental'})
-    if unexpected:
-        raise RuntimeError(f'§5 entry-point layout violation: {unexpected}')
+    validate_module_layout(faio_root)
+    validate_leaf_dependencies(faio_root)
     experimental_root = faio_root / 'experimental'
     if experimental_root.exists():
         expected_experimental = {'runtime_options.h', 'runtime.h', 'reflection.h', 'async_main.h', 'execution.h'}
@@ -45,9 +110,6 @@ def main():
             raise RuntimeError(f'Experimental public header layout violation: {sorted(actual_experimental)}')
     cache = (build / 'CMakeCache.txt').read_text().splitlines()
     native_uring = any(line == 'FAIO_ENABLE_IO_URING:BOOL=ON' for line in cache)
-    legacy_uring = faio_root / 'detail/io/uring'
-    if legacy_uring.exists():
-        raise RuntimeError('Legacy io/uring must not be installed; all implementations belong to io/backends')
     system = platform.system()
     excluded = []
     experimental_deferred = []
@@ -59,15 +121,7 @@ def main():
         if relative.startswith(('experimental/', 'detail/experimental/')):
             experimental_deferred.append(relative)
             return False
-        invalid = (('/platform/windows_' in relative and system != 'Windows') or
-                   (relative.startswith('detail/fs/windows/') and system != 'Windows') or
-                   (system == 'Windows' and (relative.startswith('detail/net/unix/') or relative in {
-                       'detail/io/domain_posix.hpp', 'detail/io/platform/posix.hpp',
-                       'detail/io/platform/async_fd.hpp'})) or
-                   ('/backends/epoll/' in relative and system != 'Linux') or
-                   ('/backends/kqueue/' in relative and system not in {'Darwin', 'FreeBSD'}) or
-                   ('/backends/uring/' in relative and (system != 'Linux' or not native_uring)) or
-                   ('/backends/iocp/' in relative and system != 'Windows'))
+        invalid = not header_applicable(relative, system, native_uring)
         if invalid:
             excluded.append(relative)
         return not invalid
@@ -124,9 +178,7 @@ target_link_libraries(consumer PRIVATE faio::faio)
     run(['cmake', '--build', str(work / 'build'), '--parallel', str(args.jobs)], repo)
     run([str(work / 'build' / ('consumer.exe' if system == 'Windows' else 'consumer'))], repo)
     if system == 'Linux':
-        run([str(work / 'build/consumer'), 'epoll'], repo)
-        if native_uring:
-            run([str(work / 'build/consumer'), 'uring'], repo)
+        run([str(work / 'build/consumer'), 'uring' if native_uring else 'epoll'], repo)
     (work / 'verified_headers.txt').write_text('\n'.join(headers) + '\n', encoding='utf-8')
     (work / 'excluded_platform_headers.txt').write_text('\n'.join(excluded) + '\n', encoding='utf-8')
     (work / 'deferred_experimental_headers.txt').write_text('\n'.join(experimental_deferred) + '\n', encoding='utf-8')

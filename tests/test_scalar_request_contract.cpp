@@ -387,6 +387,9 @@ faio::task<bool> complete_deferred_timed_recv(timed_receive operation,
 }  // namespace compact_scalar_test
 
 TEST(CompactScalarContract, ImmediateValidationDeadlineStopAndReservationDoNotConsumePayload) {
+#if defined(__linux__) && FAIO_HAS_IO_URING
+  GTEST_SKIP() << "readiness immediate path is covered by the static epoll build";
+#endif
   using namespace compact_scalar_test;
   descriptor_pair pair;
   char byte{};
@@ -429,6 +432,9 @@ TEST(CompactScalarContract, ImmediateValidationDeadlineStopAndReservationDoNotCo
 }
 
 TEST(CompactScalarContract, WouldBlockMaterializationHonorsPoolFullAndNextGeneration) {
+#if defined(__linux__) && FAIO_HAS_IO_URING
+  GTEST_SKIP() << "readiness materialization is covered by the static epoll build";
+#endif
   using namespace compact_scalar_test;
   descriptor_pair first, second;
   char byte{}, blocked{};

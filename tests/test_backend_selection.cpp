@@ -1,7 +1,7 @@
 /**
  * @file test_backend_selection.cpp
- * @brief 默认、显式与构建能力共同决定后端；模拟旧内核不依赖测试机器版本。
- * @details 行为矩阵复用同一 binary，选择错误必须在创建 IO 服务时明确失败。
+ * @brief 编译期类型固定，显式配置只验证匹配；模拟旧内核不依赖测试机器版本。
+ * @details 行为矩阵分别构建两种 binary，选择错误必须在创建 IO 服务时明确失败。
  */
 #include "backend_test_support.hpp"
 #include <array>
@@ -10,7 +10,7 @@
 #include <string_view>
 
 #if defined(__linux__)
-#include "faio/detail/io/backend_selection.hpp"
+#include "faio/detail/io/platform/linux/backend_selection.hpp"
 #if FAIO_HAS_IO_URING
 #include <liburing.h>
 #endif
@@ -28,33 +28,30 @@ TEST(BackendSelection, KernelVersionUsesNumericMajorAndMinor) {
   EXPECT_THROW((void)parse_kernel_version("5.bad"), std::invalid_argument);
 }
 
-TEST(BackendSelection, OldKernelUsesEpollAndRejectsExplicitUring) {
+TEST(BackendSelection, BuildFixesTypeAndRejectsOtherRuntimeChoice) {
   using faio::io::detail::resolve_io_backend;
   using faio::runtime::io_backend;
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {4, 19}), io_backend::IO_EPOLL);
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 9}), io_backend::IO_EPOLL);
-  EXPECT_EQ(resolve_io_backend(io_backend::IO_EPOLL, {5, 4}), io_backend::IO_EPOLL);
-  EXPECT_THROW((void)resolve_io_backend(io_backend::IO_URING, {5, 9}), std::invalid_argument);
-}
-
-TEST(BackendSelection, NativeBuildDefaultsToUringOnSupportedKernel) {
-  using faio::io::detail::resolve_io_backend;
-  using faio::runtime::io_backend;
+  constexpr auto selected = faio::io::detail::compiled_io_backend;
 #if FAIO_HAS_IO_URING
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 10}), io_backend::IO_URING);
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {6, 0}), io_backend::IO_URING);
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {7, 0}), io_backend::IO_URING);
-  EXPECT_EQ(resolve_io_backend(io_backend::IO_URING, {5, 10}), io_backend::IO_URING);
+  static_assert(selected == io_backend::IO_URING);
+  EXPECT_THROW((void)resolve_io_backend(std::nullopt, {5, 9}), std::invalid_argument);
+  EXPECT_THROW((void)resolve_io_backend(io_backend::IO_EPOLL, {7, 0}), std::invalid_argument);
 #else
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 10}), io_backend::IO_EPOLL);
-  EXPECT_EQ(resolve_io_backend(std::nullopt, {7, 0}), io_backend::IO_EPOLL);
+  static_assert(selected == io_backend::IO_EPOLL);
+  EXPECT_EQ(resolve_io_backend(std::nullopt, {4, 19}), selected);
+  EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 9}), selected);
   EXPECT_THROW((void)resolve_io_backend(io_backend::IO_URING, {7, 0}), std::invalid_argument);
-  // OFF构建需要在真正创建engine时拒绝明确uring选择，不能只验证纯选择函数。
-  faio::io::engine_config unavailable{};
-  unavailable.requested_backend = io_backend::IO_URING;
-  EXPECT_THROW((void)faio::io::io_engine{unavailable}, std::invalid_argument);
 #endif
-  EXPECT_EQ(resolve_io_backend(io_backend::IO_EPOLL, {7, 0}), io_backend::IO_EPOLL);
+  EXPECT_EQ(resolve_io_backend(std::nullopt, {5, 10}), selected);
+  EXPECT_EQ(resolve_io_backend(selected, {7, 0}), selected);
+  auto unavailable = faio_test::engine_config();
+  unavailable.requested_backend =
+      selected == io_backend::IO_EPOLL ? io_backend::IO_URING : io_backend::IO_EPOLL;
+  EXPECT_THROW((void)faio::io::io_engine{unavailable}, std::invalid_argument);
+  EXPECT_THROW(
+      (void)faio::runtime::detail::validate_config(
+          faio_test::config_builder().set_io_backend(*unavailable.requested_backend).build()),
+      std::invalid_argument);
 }
 
 #if FAIO_HAS_IO_URING

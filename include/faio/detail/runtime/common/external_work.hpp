@@ -1,6 +1,11 @@
+/**
+ * @file faio/detail/runtime/common/external_work.hpp
+ * @brief 运行时调度、线程协调与定时驱动：外部任务图接纳、分派与排空。
+ * @details 运行时按所属线程区分私有状态与跨线程发布状态。任务接纳先登记完成责任，关闭先停止接纳再排空；休眠登记后复查工作以避免丢失唤醒。
+ */
 #pragma once
 
-// 此文件无实验宏和 execution 协议依赖，C++23/C++26 TU 使用同一宿主布局。
+/// @brief 此文件无实验宏和 execution 协议依赖，C++23/C++26 TU 使用同一宿主布局。
 #include "faio/detail/coroutine/execution_thread.hpp"
 #include <atomic>
 #include <condition_variable>
@@ -22,58 +27,61 @@ struct external_root_state;
 class external_child_lease;
 
 struct external_scope_ref {
-  external_work_host* host{};
-  external_root_state* root_state{};
+  external_work_host* host{};  ///< 借用外部任务宿主，登记、发布和排空期间由运行时保持存活。
+  external_root_state* root_state{};  ///< 借用当前根任务的稳定状态，必须覆盖所关联节点的执行期。
   explicit operator bool() const noexcept;
   bool valid() const noexcept;
 };
 
 struct external_work_node {
-  external_work_node* next{};
-  void (*execute)(external_work_node*) noexcept{};
-  external_scope_ref scope{};
+  external_work_node* next{};  ///< 侵入式任务队列后继，不拥有后继节点。
+  void (*execute)(external_work_node*) noexcept{};  ///< 节点被领取后执行的静态回调，回调可销毁节点所属对象。
+  external_scope_ref scope{};  ///< 外部任务作用域身份，用于传播根任务归属与取消。
 };
 
-// 逻辑退役和共享元数据寿命分开。退役后的 scheduler 副本不再借用 host。
+/// @brief 逻辑退役和共享元数据寿命分开。退役后的 scheduler 副本不再借用 host。
 struct external_root_state : std::enable_shared_from_this<external_root_state> {
   ~external_root_state();
+  /// @brief 取得所属任务或服务的协作停止令牌。
   std::stop_token stop_token() const noexcept { return stop_.get_token(); }
+  /// @brief 向当前任务及其受控后代传播协作停止请求。
   void request_stop() noexcept { stop_.request_stop(); }
   void child_begin() noexcept;
   void child_end() noexcept;
   void terminal() noexcept;
   void on_drained(external_work_node& node) noexcept;
   bool drained() const noexcept { return retired_.load(std::memory_order_acquire); }
+  /// @brief 检查当前包装是否持有有效资源身份。
   bool valid() const noexcept { return !drained(); }
   external_work_host& host() const noexcept { return *host_; }
 
  private:
   friend class external_work_host;
   explicit external_root_state(external_work_host* host) : host_(host) {}
-  external_work_host* host_{};  // retired_ 为 true 后不再解引用此身份地址。
-  external_root_state* next_{};
-  std::size_t identity_{};
-  std::size_t pending_{};  // 在 host admission mutex 下保护。
-  bool terminal_{};
-  bool registered_{};
-  bool drained_hook_installed_{};
-  external_work_node* drained_node_{};
-  std::atomic<bool> retired_{false};
-  std::stop_source stop_;
+  external_work_host* host_{};  ///< retired_ 为 true 后不再解引用此身份地址。
+  external_root_state* next_{};  ///< 根任务侵入式登记链表中的后继，不拥有后继根。
+  std::size_t identity_{};  ///< 读写半部共享的身份租约，合并时验证来自同一原始流。
+  std::size_t pending_{};  ///< 在 host admission mutex 下保护。
+  bool terminal_{};  ///< 标记已交付终态，析构据此区分放弃与正常结束。
+  bool registered_{};  ///< 当前对象是否已经登记到宿主，析构时据此成对撤销。
+  bool drained_hook_installed_{};  ///< 是否已安装根任务排空钩子，禁止重复安装。
+  external_work_node* drained_node_{};  ///< 排空后应交付的稳定分派节点。
+  std::atomic<bool> retired_{false};  ///< 根任务身份是否已经退役，阻止再次登记或提交后代。
+  std::stop_source stop_;  ///< 本操作或任务图的停止源，向已登记等待者广播协作取消。
   struct forward_stop {
-    std::stop_source* target;
+    std::stop_source* target;  ///< 接收父级停止传播的目标停止源，回调期间保持有效。
     void operator()() const noexcept { target->request_stop(); }
   };
-  std::optional<std::stop_callback<forward_stop>> parent_stop_;
+  std::optional<std::stop_callback<forward_stop>> parent_stop_;  ///< 向当前根停止源传播父级停止的回调连接。
 };
 
 class external_work_host {
  public:
-  using root_handle = std::shared_ptr<external_root_state>;
-  static constexpr std::size_t automatic_target = std::numeric_limits<std::size_t>::max();
+  using root_handle = std::shared_ptr<external_root_state>;  ///< 共享拥有外部根任务状态的租约类型。
+  static constexpr std::size_t automatic_target = std::numeric_limits<std::size_t>::max();  ///< 自动选择目标工作线程的哨兵编号。
   enum class phase { accepting, quiescing, draining, stopped };
 
-  // wake 接受已选定 worker 编号；current-thread 只有编号 0。
+  /// @brief wake 接受已选定 worker 编号；current-thread 只有编号 0。
   explicit external_work_host(std::size_t workers = 1) : queues_(workers) {
     if (!workers)
       throw std::invalid_argument("external host requires a worker");
@@ -91,15 +99,16 @@ class external_work_host {
     wake_ = wake;
   }
   void set_context(::faio::runtime::detail::runtime_context* context) noexcept { context_ = context; }
+  /// @brief 取得关联运行时上下文的借用引用，不延长运行时生命期。
   ::faio::runtime::detail::runtime_context* context() const noexcept { return context_; }
   std::size_t worker_count() const noexcept { return queues_.size(); }
   phase state() const noexcept { return phase_.load(std::memory_order_acquire); }
 
   root_handle acquire_root() {
-    // 分配只发生于 connect/run，start/publish 路径不分配。
+    /// @brief 分配只发生于 connect/run，start/publish 路径不分配。
     root_handle root{new external_root_state{this}};
-    // 回调只借用 root 自己的 source，retired metadata 可比 host 活得更久。
-    // 构造/同步停止回调在准入锁外，所有 source/回调均为标准库对象。
+    /// @brief 回调只借用 root 自己的 source，retired metadata 可比 host 活得更久。
+    /// 构造/同步停止回调在准入锁外，所有 source/回调均为标准库对象。
     root->parent_stop_.emplace(stop_.get_token(), external_root_state::forward_stop{&root->stop_});
     {
       std::lock_guard lock(mutex_);
@@ -126,9 +135,12 @@ class external_work_host {
 
   class reservation {
    public:
+    /// @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。
     reservation() noexcept = default;
+    /// @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。
     reservation(const reservation&) = delete;
     reservation& operator=(const reservation&) = delete;
+    /// @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。
     reservation(reservation&& other) noexcept
         : host_(std::exchange(other.host_, nullptr)), root_(std::move(other.root_)),
           top_(other.top_) {}
@@ -140,7 +152,9 @@ class external_work_host {
       return *this;
     }
     ~reservation() { reset(); }
+    /// @brief 把已连接的稳定操作交给其执行协议，之后只能交付一个终态。
     void start() noexcept { reset(); }
+    /// @brief 按该类型约定释放或清空当前状态，重复调用遵循对象的空状态规则。
     void reset() noexcept {
       if (auto* host = std::exchange(host_, nullptr))
         host->release_reservation(root_, top_);
@@ -148,13 +162,15 @@ class external_work_host {
     }
    private:
     friend class external_work_host;
+    /// @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。
     reservation(external_work_host& host, root_handle root, bool top) noexcept
         : host_(&host), root_(std::move(root)), top_(top) {}
-    external_work_host* host_{};
-    root_handle root_;
-    bool top_{};
+    external_work_host* host_{};  ///< 借用外部任务宿主，登记、发布和排空期间由运行时保持存活。
+    root_handle root_;  ///< 当前受控任务图的根状态租约，维持接纳、取消与排空归属。
+    bool top_{};  ///< 是否为顶层接纳租约，停机时与后代接纳采用不同规则。
   };
 
+  /// @brief 在资源状态锁内取得指定方向的组合操作预留。
   reservation reserve(const root_handle& root, bool top_level = false) {
     std::lock_guard lock(mutex_);
     if (!owns(root) || state() == phase::stopped
@@ -185,8 +201,8 @@ class external_work_host {
         host_->release_work(root_, true);
     }
    private:
-    external_work_host* host_{};
-    root_handle root_;
+    external_work_host* host_{};  ///< 借用外部任务宿主，登记、发布和排空期间由运行时保持存活。
+    root_handle root_;  ///< 当前受控任务图的根状态租约，维持接纳、取消与排空归属。
   };
 
   class dispatch {
@@ -209,11 +225,12 @@ class external_work_host {
     friend class external_work_host;
     dispatch(external_work_host& host, external_work_node* node, root_handle root) noexcept
         : host_(&host), node_(node), root_(std::move(root)) {}
-    external_work_host* host_{};
-    external_work_node* node_{};  // 仅调用前读取；guard 析构绝不访问节点。
-    root_handle root_;
+    external_work_host* host_{};  ///< 借用外部任务宿主，登记、发布和排空期间由运行时保持存活。
+    external_work_node* node_{};  ///< 仅调用前读取；guard 析构绝不访问节点。
+    root_handle root_;  ///< 当前受控任务图的根状态租约，维持接纳、取消与排空归属。
   };
 
+  /// @brief 在结果写入后发布完成握手，只有已经挂起的等待者才重新入队。
   void publish(external_work_node& node, std::size_t target = automatic_target) noexcept {
     root_handle root;
     void* wake_state;
@@ -236,7 +253,8 @@ class external_work_host {
         root = node.scope.root_state->weak_from_this().lock();
         if (!root)
           std::terminate();
-        root->pending_ += 2;  // queued 及锁外 waker publisher，各自保留完整责任。
+        /// @brief queued 及锁外 waker publisher，各自保留完整责任。
+        root->pending_ += 2;
       }
       node.next = nullptr;
       auto& queue = queues_[target];
@@ -247,7 +265,8 @@ class external_work_host {
       queue.tail = &node;
       queue.ready.store(true, std::memory_order_release);
       ++queued_;
-      ++publishers_;  // 完成入队后仍保留 waker 的生命期。
+      /// @brief 完成入队后仍保留 waker 的生命期。
+      ++publishers_;
       ++wake_publishers_;
       wake_state = wake_state_;
       wake = wake_;
@@ -266,6 +285,7 @@ class external_work_host {
       signal_locked();
     }
   }
+  /// @brief 在结果写入后发布完成握手，只有已经挂起的等待者才重新入队。
   void publish(external_work_node* node, std::size_t target = automatic_target) noexcept {
     publish(*node, target);
   }
@@ -287,7 +307,7 @@ class external_work_host {
       root = node->scope.root_state->weak_from_this().lock();
       if (!root)
         std::terminate();
-      // queued 转 dispatch，root 的 pending 责任连续不归零。
+      /// @brief queued 转 dispatch，root 的 pending 责任连续不归零。
     }
     --queued_;
     ++dispatches_;
@@ -310,10 +330,12 @@ class external_work_host {
     if (state() != phase::stopped)
       phase_.store(phase::draining, std::memory_order_release);
   }
+  /// @brief 向当前任务及其受控后代传播协作停止请求。
   void request_stop() noexcept {
     stop_.request_stop();
     notify_completion();
   }
+  /// @brief 检查当前组件是否已经没有尚未归还的执行、内核引用与完成责任。
   bool quiescent() const noexcept {
     std::lock_guard lock(mutex_);
     return !roots_ && !reservations_ && !queued_ && !dispatches_ && !publishers_;
@@ -350,10 +372,7 @@ class external_work_host {
     }
   }
   void notify_external_completion() noexcept { notify_completion(); }
-  // A kernel wake may be consumed before its publisher releases the final
-  // quiescence ticket. The current-thread driver settles that bounded tail
-  // before its final completion check and kernel sleep. User receiver guards
-  // are deliberately excluded: waiting for arbitrary user code could stall I/O.
+  /// @brief 内核唤醒可能先于发布者释放最后一个静止凭证被消费；单线程驱动器在最终完成检查和内核等待前排空这段有界发布尾部。用户接收器守卫不参与该等待，以免任意用户代码阻塞 IO。
   bool wait_for_wake_publisher() noexcept {
     std::size_t observed;
     {
@@ -378,10 +397,10 @@ class external_work_host {
  private:
   friend struct external_root_state;
   struct retirement_notification {
-    external_work_host* host{};
-    void* state{};
-    void (*wake)(void*, std::size_t) noexcept{};
-    std::size_t worker{};
+    external_work_host* host{};  ///< 借用外部任务宿主，登记、发布和排空期间由运行时保持存活。
+    void* state{};  ///< 类型擦除的借用状态地址，由配套静态回调还原真实类型。
+    void (*wake)(void*, std::size_t) noexcept{};  ///< 将目标工作线程从内核等待唤醒的静态适配回调。
+    std::size_t worker{};  ///< 节点应在其上执行的工作线程编号。
     ~retirement_notification() {
       if (host) {
         if (wake)
@@ -398,9 +417,9 @@ class external_work_host {
     revision_.notify_all();
   }
   struct queue {
-    external_work_node* head{};
-    external_work_node* tail{};
-    std::atomic<bool> ready{false};  // 无实验节点时 loop 只读此空提示。
+    external_work_node* head{};  ///< 下一条待读数据或节点的起点。
+    external_work_node* tail{};  ///< 侵入式队列末节点，追加时无需遍历；空队列为 nullptr。
+    std::atomic<bool> ready{false};  ///< 无实验节点时 loop 只读此空提示。
   };
   void enqueue_drained_locked(external_root_state& root, retirement_notification& notification) noexcept {
     auto* node = std::exchange(root.drained_node_, nullptr);
@@ -408,7 +427,8 @@ class external_work_host {
       return;
     if (!node->execute || state() == phase::stopped)
       std::terminate();
-    node->scope = {};  // 清理通知不借用已经退役的 root。
+    /// @brief 清理通知不借用已经退役的 root。
+    node->scope = {};
     node->next = nullptr;
     const auto* binding = current_execution_thread;
     const auto target = binding && binding->external_host() == this
@@ -441,7 +461,7 @@ class external_work_host {
     if (root.terminal_)
       enqueue_drained_locked(root, notification);
     if (!notification.host) {
-      // 无 ready node 的完成也必须唤醒 current-thread generic drive。
+      /// @brief 无 ready node 的完成也必须唤醒 current-thread generic drive。
       ++publishers_;
       ++wake_publishers_;
       notification.host = this;
@@ -533,22 +553,28 @@ class external_work_host {
       enqueue_drained_locked(root, notification);
   }
 
-  mutable std::mutex mutex_;
-  std::atomic<std::size_t> revision_{0};
-  std::vector<queue> queues_;
-  external_root_state* roots_head_{};
-  std::size_t next_identity_{}, next_worker_{};
-  std::size_t roots_{}, reservations_{}, top_reservations_{}, queued_{}, dispatches_{}, publishers_{};
-  std::size_t wake_publishers_{};
-  std::atomic<phase> phase_{phase::accepting};
-  std::stop_source stop_;
-  ::faio::runtime::detail::runtime_context* context_{};
-  void* wake_state_{};
-  void (*wake_)(void*, std::size_t) noexcept{};
+  mutable std::mutex mutex_;  ///< 串行保护所属对象的共享状态；调度与用户回调应遵循该对象的锁外调用协议。
+  std::atomic<std::size_t> revision_{0};  ///< 宿主状态变化代数，配合原子等待避免丢失排空通知。
+  std::vector<queue> queues_;  ///< 每个工作线程独占消费的外部节点 FIFO 集合。
+  external_root_state* roots_head_{};  ///< 宿主当前根任务的侵入式链表头。
+  std::size_t next_identity_{},  ///< 下一个根任务身份编号。
+      next_worker_{};  ///< 自动分配外部工作目标线程时的轮转位置。
+  std::size_t roots_{},  ///< 当前仍由宿主管理的根任务数量。
+      reservations_{},  ///< 尚未转为已发布工作的接纳租约数量。
+      top_reservations_{},  ///< 尚未启动的顶层接纳租约数量，静默阶段须处理它们。
+      queued_{},  ///< 已发布但尚未领取的外部节点数量。
+      dispatches_{},  ///< 已领取且分派守卫尚未退出的外部节点数量。
+      publishers_{};  ///< 仍在锁外发布结果的线程数，域静止必须等待它们退出。
+  std::size_t wake_publishers_{};  ///< 仍可能发送内核通知的发布者数量，用于排空有界唤醒尾部。
+  std::atomic<phase> phase_{phase::accepting};  ///< 宿主接纳、静默、排空与关闭阶段的原子状态。
+  std::stop_source stop_;  ///< 本操作或任务图的停止源，向已登记等待者广播协作取消。
+  ::faio::runtime::detail::runtime_context* context_{};  ///< 借用运行时上下文，其生命期必须覆盖本操作。
+  void* wake_state_{};  ///< 底层唤醒适配回调使用的借用宿主状态。
+  void (*wake_)(void*, std::size_t) noexcept{};  ///< 将目标工作线程从内核等待唤醒的静态适配回调。
 };
 
-// 派生 native 根和 blocking job 可以没有 tracker；独立 child 责任仍保留
-// root 的逻辑寿命。共享元数据本身不延迟退役，最后 child_end 才归还责任。
+/// @brief 派生 native 根和 blocking job 可以没有 tracker；独立 child 责任仍保留
+/// root 的逻辑寿命。共享元数据本身不延迟退役，最后 child_end 才归还责任。
 class external_child_lease {
  public:
   external_child_lease() noexcept = default;
@@ -567,12 +593,13 @@ class external_child_lease {
   }
   ~external_child_lease() { reset(); }
   explicit operator bool() const noexcept { return static_cast<bool>(root_); }
+  /// @brief 按该类型约定释放或清空当前状态，重复调用遵循对象的空状态规则。
   void reset() noexcept {
     if (auto root = std::move(root_))
       root->child_end();
   }
  private:
-  std::shared_ptr<external_root_state> root_;
+  std::shared_ptr<external_root_state> root_;  ///< 当前受控任务图的根状态租约，维持接纳、取消与排空归属。
 };
 
 inline external_child_lease external_work_host::acquire_child(external_scope_ref scope) const noexcept {
@@ -580,7 +607,8 @@ inline external_child_lease external_work_host::acquire_child(external_scope_ref
 }
 
 inline external_root_state::~external_root_state() {
-  parent_stop_.reset();  // 等停止回调退出，不能在 host mutex 内注销。
+  /// @brief 等停止回调退出，不能在 host mutex 内注销。
+  parent_stop_.reset();
   if (!retired_.load(std::memory_order_acquire))
     host_->destroy_root(*this);
 }
@@ -593,6 +621,7 @@ inline void external_root_state::terminal() noexcept {
 inline void external_root_state::on_drained(external_work_node& node) noexcept {
   host_->install_drained_node(*this, node);
 }
+/// @brief 检查当前包装是否持有有效资源身份。
 inline bool external_scope_ref::valid() const noexcept {
   return host && root_state && std::addressof(root_state->host()) == host && root_state->valid();
 }
@@ -600,4 +629,4 @@ inline external_scope_ref::operator bool() const noexcept { return valid(); }
 using external_reservation = external_work_host::reservation;
 using external_dispatch = external_work_host::dispatch;
 using external_publisher_guard = external_work_host::publisher_guard;
-}  // namespace faio::detail
+}

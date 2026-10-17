@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/experimental/async_entry.hpp
+ * @brief 实验性的入口注解与发送器接收器适配：反射异步入口。
+ * @details 实验适配在编译期开关下启用，连接阶段建立稳定操作状态；启动、结果交付与关闭沿受控任务图的租约和排空协议推进。
+ */
 #ifndef FAIO_DETAIL_EXPERIMENTAL_ASYNC_ENTRY_HPP
 #define FAIO_DETAIL_EXPERIMENTAL_ASYNC_ENTRY_HPP
 
@@ -26,17 +31,17 @@ consteval std::meta::info entry_function_of(faio::task<int> (&entry)(int, char**
 }
 
 struct entry_scope {
-  std::stop_source stop{};
-  faio::detail::task_tracker tracker{};
-  std::optional<int> result{};
-  std::exception_ptr error{};
-  entry_exit_policy exit_policy{entry_exit_policy::cancel_and_drain};
+  std::stop_source stop{};  ///< 本操作或任务图的停止源，向已登记等待者广播协作取消。
+  faio::detail::task_tracker tracker{};  ///< 跟踪本任务及派生任务的完成计数，归零后才允许排空返回。
+  std::optional<int> result{};  ///< 已完成操作的返回值；具体错误解释遵循所属接口约定。
+  std::exception_ptr error{};  ///< 跨异步边界保存的异常，结果领取时重新抛出。
+  entry_exit_policy exit_policy{entry_exit_policy::cancel_and_drain};  ///< 入口任务返回后对派生任务采用的取消或排空策略。
   faio::detail::cancellation_error_policy cancellation_policy{
-      faio::detail::cancellation_error_policy::normal_if_stop_requested};
+      faio::detail::cancellation_error_policy::normal_if_stop_requested};  ///< 未观察的取消异常处理策略，随任务上下文传播。
 };
 
 struct entry_forward_stop {
-  std::stop_source* source;
+  std::stop_source* source;  ///< 本操作或任务图的停止源，向已登记等待者广播协作取消。
   void operator()() const noexcept { source->request_stop(); }
 };
 
@@ -70,7 +75,7 @@ faio::detail::detached_task make_entry_coro(entry_scope* scope, int argc, char**
   } catch (...) {
     scope->error = std::current_exception();
   }
-  // Stop before returning this root's ticket; all derived roots share tracker.
+  /// @brief 归还本根任务凭证前先请求停止；所有派生根任务共享同一个计数器。
   if (scope->error || scope->exit_policy == entry_exit_policy::cancel_and_drain)
     scope->stop.request_stop();
 }
@@ -88,7 +93,7 @@ int run_main(int faio_argc, char** faio_argv) noexcept {
     result = service->with_context([&](faio::runtime::detail::runtime_context& context) {
       entry_scope scope{.exit_policy = options.exit_policy};
       std::stop_callback parent_stop{context.stop_token(), entry_forward_stop{&scope.stop}};
-      // Both user invocation and descendants execute within this single scope.
+      /// @brief 用户入口与其派生任务均在同一个任务作用域内执行。
       auto root = make_entry_coro<Entity>(&scope, faio_argc, faio_argv);
       scope.tracker.add();
       context.run_entry(root, scope.tracker);
@@ -99,7 +104,7 @@ int run_main(int faio_argc, char** faio_argv) noexcept {
   } catch (...) {
     error = std::current_exception();
   }
-  // The controlled access and shared lock have ended before shutdown.
+  /// @brief 关闭前先结束受控访问并释放共享锁。
   if (service) {
     try {
       service->shutdown(faio::io::shutdown_policy::cancel_all);
@@ -120,6 +125,6 @@ int run_main(int faio_argc, char** faio_argv) noexcept {
   }
   return result;
 }
-} // namespace detail
-} // namespace faio::experimental
+}
+}
 #endif

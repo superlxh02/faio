@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/common/util/rand.hpp
+ * @brief 公共类型、错误与基础工具：线程随机数。
+ * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ */
 #ifndef FAIO_DETAIL_COMMON_UTIL_RAND_HPP
 #define FAIO_DETAIL_COMMON_UTIL_RAND_HPP
 
@@ -29,8 +34,8 @@ class FastRand {
   }
 
  private:
-  uint32_t one_;
-  uint32_t two_;
+  uint32_t one_;  ///< 快速伪随机数生成器的第一组内部状态。
+  uint32_t two_;  ///< 快速伪随机数生成器的第二组内部状态。
 };
-}  // namespace faio::util
-#endif  // FAIO_DETAIL_COMMON_UTIL_RAND_HPP
+}
+#endif

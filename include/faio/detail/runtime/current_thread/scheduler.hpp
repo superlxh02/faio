@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/runtime/current_thread/scheduler.hpp
+ * @brief 运行时调度、线程协调与定时驱动：调度接口。
+ * @details 运行时按所属线程区分私有状态与跨线程发布状态。任务接纳先登记完成责任，关闭先停止接纳再排空；休眠登记后复查工作以避免丢失唤醒。
+ */
 #ifndef FAIO_DETAIL_RUNTIME_CURRENT_THREAD_SCHEDULER_HPP
 #define FAIO_DETAIL_RUNTIME_CURRENT_THREAD_SCHEDULER_HPP
 
@@ -13,8 +18,8 @@
 #include <vector>
 
 namespace faio::runtime::detail {
-// 只有驱动线程访问 local_ 和 incoming_；生产者持有 mutex_ 后才能访问 remote_。
-// 通过交换队列批量接收跨线程任务，避免每次恢复任务都获取互斥锁。
+/// @brief 只有驱动线程访问 local_ 和 incoming_；生产者持有 mutex_ 后才能访问 remote_。
+/// 通过交换队列批量接收跨线程任务，避免每次恢复任务都获取互斥锁。
 class current_thread_scheduler {
  public:
   void enqueue(std::coroutine_handle<> task) {
@@ -64,13 +69,13 @@ class current_thread_scheduler {
     waker_ = engine;
   }
 
-  // 在生产者使用的同一把锁下登记休眠意图，随后重新检查任务组是否完成。
+  /// @brief 在生产者使用的同一把锁下登记休眠意图，随后重新检查任务组是否完成。
   bool prepare_sleep() {
     std::lock_guard lock(mutex_);
     if (has_ready())
       return false;
-    // 原子读改写与完成发布者同步，即使发布者此前看到驱动器尚未休眠，
-    // 此处获取完成状态后再次检查，也能避免丢失唤醒。
+    /// @brief 原子读改写与完成发布者同步，即使发布者此前看到驱动器尚未休眠，
+    /// 此处获取完成状态后再次检查，也能避免丢失唤醒。
     sleeping_.exchange(true, std::memory_order_acq_rel);
     return true;
   }
@@ -80,7 +85,7 @@ class current_thread_scheduler {
     sleeping_.store(false, std::memory_order_release);
   }
 
-  // 未被等待的阻塞任务可能只更新完成计数，而不向就绪队列加入协程。
+  /// @brief 未被等待的阻塞任务可能只更新完成计数，而不向就绪队列加入协程。
   void notify_completion() noexcept {
     if (on_driver() || !sleeping_.exchange(false, std::memory_order_acq_rel))
       return;
@@ -89,6 +94,7 @@ class current_thread_scheduler {
       waker_->wake_up();
   }
 
+  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
   void close() {
     std::lock_guard lock(mutex_);
     closed_ = true;
@@ -103,7 +109,8 @@ class current_thread_scheduler {
 
   void notify_locked() noexcept {
     if (sleeping_.load(std::memory_order_relaxed) && waker_) {
-      sleeping_.store(false, std::memory_order_release);  // 合并下一次休眠前的重复唤醒。
+      /// @brief 合并下一次休眠前的重复唤醒。
+      sleeping_.store(false, std::memory_order_release);
       waker_->wake_up();
     }
   }
@@ -123,18 +130,18 @@ class current_thread_scheduler {
     return task;
   }
 
-  std::vector<std::coroutine_handle<>> local_ = std::vector<std::coroutine_handle<>>(64);
-  std::size_t head_{};
-  std::size_t size_{};
-  std::deque<std::coroutine_handle<>> incoming_;
-  std::mutex mutex_;
-  std::deque<std::coroutine_handle<>> remote_;
-  std::atomic<bool> remote_pending_{false};
-  io_engine* waker_{};  // 所有结果发布者退出后才能清空。
-  std::atomic<bool> sleeping_{false};
-  bool closed_{};
+  std::vector<std::coroutine_handle<>> local_ = std::vector<std::coroutine_handle<>>(64);  ///< 少量缓冲区向量使用的内联数组，避免普通请求堆分配。
+  std::size_t head_{};  ///< 下一条待消费记录的索引。
+  std::size_t size_{};  ///< 当前有效元素或缓冲字节的数量。
+  std::deque<std::coroutine_handle<>> incoming_;  ///< 从远程队列批量取回、等待本线程消费的任务。
+  std::mutex mutex_;  ///< 串行保护所属对象的共享状态；调度与用户回调应遵循该对象的锁外调用协议。
+  std::deque<std::coroutine_handle<>> remote_;  ///< 跨线程提交的协程句柄 FIFO，由远程队列锁保护。
+  std::atomic<bool> remote_pending_{false};  ///< 远程队列的保守非空提示，用于降低空轮询锁争用。
+  io_engine* waker_{};  ///< 所有结果发布者退出后才能清空。
+  std::atomic<bool> sleeping_{false};  ///< 当前线程是否已经登记内核等待，投递方据此承担唤醒责任。
+  bool closed_{};  ///< 是否已关闭新任务入口；已接受任务仍按所属组件协议排空。
 };
 
 static_assert(coroutine_scheduler<current_thread_scheduler>);
-}  // namespace faio::runtime::detail
+}
 #endif

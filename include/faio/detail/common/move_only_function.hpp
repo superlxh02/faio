@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/common/move_only_function.hpp
+ * @brief 公共类型、错误与基础工具：仅移动可调用对象。
+ * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ */
 #pragma once
 #include <concepts>
 #include <cstddef>
@@ -18,19 +23,22 @@ class move_only_function;
 
 template <class R, class... Args>
 class move_only_function<R(Args...)> {
-  static constexpr std::size_t inline_bytes = 64;
+ public:
+  static constexpr std::size_t inline_capacity = 64;  ///< 可调用对象的内联存储容量，单位为字节。
 
+ private:
   struct table {
-    R (*invoke)(void*, Args&&...);
+    R (*invoke)(void*, Args&&...);  ///< 调用擦除类型后的目标对象，参数按原签名转发。
 
-    void (*destroy)(void*) noexcept;
+    void (*destroy)(void*) noexcept;  ///< 销毁擦除类型后的目标对象并释放其拥有的存储。
 
-    void (*move)(void*, void*) noexcept;
+    void (*move)(void*, void*) noexcept;  ///< 将目标对象转移到另一存储位置，源对象随后不再拥有目标。
   };
 
   template <class F>
-  static constexpr bool fits = sizeof(F) <= inline_bytes && alignof(F) <= alignof(std::max_align_t)
-                               && std::is_nothrow_move_constructible_v<F>;
+  static constexpr bool fits =
+      sizeof(F) <= inline_capacity && alignof(F) <= alignof(std::max_align_t)
+      && std::is_nothrow_move_constructible_v<F>;
 
   template <class F>
   static F& target(void* storage) noexcept {
@@ -43,7 +51,10 @@ class move_only_function<R(Args...)> {
   template <class F>
   inline static constexpr table operations{
       [](void* object, Args&&... args) -> R {
-        return std::invoke(target<F>(object), std::forward<Args>(args)...);
+        if constexpr (std::is_void_v<R>)
+          std::invoke(target<F>(object), std::forward<Args>(args)...);
+        else
+          return std::invoke(target<F>(object), std::forward<Args>(args)...);
       },
       [](void* object) noexcept {
         if constexpr (fits<F>)
@@ -64,6 +75,9 @@ class move_only_function<R(Args...)> {
       }};
 
  public:
+  template <class F>
+  static constexpr bool stores_inline = fits<std::decay_t<F>>;
+
   move_only_function() noexcept = default;
 
   move_only_function(std::nullptr_t) noexcept {}
@@ -107,6 +121,7 @@ class move_only_function<R(Args...)> {
 
   R operator()(Args... args) { return table_->invoke(storage_, std::forward<Args>(args)...); }
 
+  /// @brief 按该类型约定释放或清空当前状态，重复调用遵循对象的空状态规则。
   void reset() noexcept {
     if (table_) {
       table_->destroy(storage_);
@@ -115,7 +130,7 @@ class move_only_function<R(Args...)> {
   }
 
  private:
-  alignas(std::max_align_t) std::byte storage_[inline_bytes];
-  const table* table_{};
+  alignas(std::max_align_t) std::byte storage_[inline_capacity];  ///< 按最大基本对齐存放小型可调用对象的内联字节区。
+  const table* table_{};  ///< 当前可调用类型的调用、析构和移动函数表；空指针表示未绑定。
 };
-}  // namespace faio
+}

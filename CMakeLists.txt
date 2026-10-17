@@ -3,7 +3,6 @@
 # faio 是头文件库，INTERFACE 设置会传递给链接 faio::faio 的消费目标。
 # =============================================================================
 cmake_minimum_required(VERSION 3.20)
-
 # 非 Windows 的 Release 默认基线为 -O2，须在 project 初始化选项前设置。
 # CACHE 不带 FORCE：保留命令行、preset 或工具链明确传入的 Release 参数。
 # Windows 的 /O2 或 -O2 由编译器 preset 指定，不能在这里混用参数风格。
@@ -29,13 +28,13 @@ option(FAIO_BUILD_BENCHMARKS "Build faio benchmarks" ON)
 option(FAIO_BUILD_TESTS "Build faio tests" ON)
 option(FAIO_INSTALL "Install faio headers and CMake package" ON)
 
-# 按目标平台决定后端默认值：Linux 默认编译 epoll/io_uring 双后端；
+# 按目标平台决定静态后端：Linux ON 固定 io_uring，OFF 固定 epoll；
 # Windows 使用 IOCP，macOS 使用 kqueue，二者不依赖 Linux 专用库。
 set(FAIO_IO_URING_DEFAULT OFF)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(FAIO_IO_URING_DEFAULT ON)
 endif()
-option(FAIO_ENABLE_IO_URING "Build the native Linux io_uring backend alongside epoll" ${FAIO_IO_URING_DEFAULT})
+option(FAIO_ENABLE_IO_URING "Select the static Linux io_uring backend (OFF selects epoll)" ${FAIO_IO_URING_DEFAULT})
 
 # 后续 C++ 目标使用 C++23，禁止标准降级和语言扩展；同时输出编译命令数据库。
 # faio 的公共目标还会声明 cxx_std_23，使安装消费方获得同一语言要求。
@@ -178,8 +177,8 @@ if(WIN32)
     # common/concepts.hpp 的 POSIX 类型名称在 Windows 由 I/O 兼容层提供。
     # 分别配置源码构建与安装消费路径，保持公共协程及 runtime 模块不变。
     target_include_directories(faio INTERFACE
-        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/faio/detail/io/platform/windows_compat>"
-        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/faio/detail/io/platform/windows_compat>")
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/faio/detail/io/platform/windows/compat>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/faio/detail/io/platform/windows/compat>")
 endif()
 
 # Linux epoll/可选 io_uring 与 macOS kqueue 由已有平台源码选择。
@@ -192,6 +191,12 @@ endif()
 # 同时检查 expected、format 和 coroutine；执行编译链接，不运行探测程序。
 # 可在配置阶段诊断系统 AppleClang 标准库不足，不能只按编译器版本判断。
 include(CheckCXXSourceCompiles)
+check_cxx_source_compiles(
+    "struct base { int value(this auto const&) { return 0; } }; struct derived : base {}; int main() { return derived{}.value(); }"
+    FAIO_HAS_DEDUCING_THIS)
+if(NOT FAIO_HAS_DEDUCING_THIS)
+    message(FATAL_ERROR "faio requires C++23 explicit object parameters (deducing this); use a compiler implementing this feature")
+endif()
 check_cxx_source_compiles(
     "#include <expected>\n#include <format>\n#include <coroutine>\nint main() { std::expected<int,int> value{1}; return std::format(\"{}\", *value).empty(); }"
     FAIO_HAS_CXX23_LIBRARY)

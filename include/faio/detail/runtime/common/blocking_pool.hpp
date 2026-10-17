@@ -1,8 +1,16 @@
+/**
+ * @file faio/detail/runtime/common/blocking_pool.hpp
+ * @brief 运行时调度、线程协调与定时驱动：通用阻塞任务池。
+ * @details 运行时按所属线程区分私有状态与跨线程发布状态。任务接纳先登记完成责任，关闭先停止接纳再排空；休眠登记后复查工作以避免丢失唤醒。
+ */
 #pragma once
 #include "faio/detail/execution/blocking_executor.hpp"
 #include <chrono>
+#include <concepts>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace faio::runtime::detail {
 /** @brief 用户阻塞任务的有界服务适配器，与文件及 DNS 服务隔离。
@@ -27,13 +35,18 @@ class blocking_pool {
 
   ~blocking_pool() { close(); }
 
-  /** @brief 所有权仅在接受成功后交给服务；失败供 start_blocking
-   * 回滚根任务计数。 */
-  void submit(::faio::move_only_function<void()> job) {
-    auto admitted = service_->try_submit(std::move(job));  // 短锁中判断容量并移动任务。
+  /** @brief 接受成功后服务负责执行；失败供 start_blocking 回滚根任务计数。
+   * @details 参数转移遵循 blocking_executor::try_submit 的小对象/大对象规则。
+   */
+  template <class F>
+    requires std::invocable<std::decay_t<F>&> && std::constructible_from<std::decay_t<F>, F&&>
+  void submit(F&& job) {
+    /// @brief 接受后直接在队列构造包装。
+    auto admitted = service_->try_submit(std::forward<F>(job));
     if (!admitted && admitted.error().value() == ECANCELED)
       throw std::logic_error("阻塞线程池已关闭");
-    if (!admitted)  // 不接受时池中没有任务引用，允许上层立即释放完成状态。
+    /// @brief 不接受时池中没有任务引用，允许上层立即释放完成状态。
+    if (!admitted)
       throw std::runtime_error(std::format("阻塞任务提交失败：{}", admitted.error()));
   }
 
@@ -48,4 +61,4 @@ class blocking_pool {
  private:
   std::shared_ptr<execution::blocking_executor> service_;  ///< 服务 lease 覆盖所有已接受任务。
 };
-}  // namespace faio::runtime::detail
+}

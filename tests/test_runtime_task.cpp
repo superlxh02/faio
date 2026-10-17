@@ -101,43 +101,18 @@ TEST(RuntimeTaskTest, ConfigBuilderAppliesValues) {
 TEST(RuntimeTaskTest, IdleSpinPolicyResolvesDefaultsAndPreservesExplicitCounts) {
   using faio::runtime::detail::validate_config;
 #if defined(__linux__)
-  using faio::runtime::io_backend;
-  const auto automatic_epoll = faio::ConfigBuilder{}.set_io_backend(io_backend::IO_EPOLL).build();
-  EXPECT_EQ(validate_config(automatic_epoll)._idle_spin_count, 0u);
-  // 第二次验证保持第一次的已解析值，不把禁用空闲轮询误解为非法配置。
-  EXPECT_EQ(validate_config(validate_config(automatic_epoll))._idle_spin_count, 0u);
+  constexpr auto selected = faio::io::detail::compiled_io_backend;
+  const auto automatic = faio::ConfigBuilder{}.set_io_backend(selected).build();
+  EXPECT_EQ(validate_config(automatic)._idle_spin_count, 0u);
+  EXPECT_EQ(validate_config(validate_config(automatic))._idle_spin_count, 0u);
   for (const auto count : {0u, 4u, 32u}) {
-    const auto before_backend = faio::ConfigBuilder{}
-                                    .set_idle_spin_count(count)
-                                    .set_io_backend(io_backend::IO_EPOLL)
-                                    .build();
-    const auto after_backend = faio::ConfigBuilder{}
-                                   .set_io_backend(io_backend::IO_EPOLL)
-                                   .set_idle_spin_count(count)
-                                   .build();
+    const auto before_backend =
+        faio::ConfigBuilder{}.set_idle_spin_count(count).set_io_backend(selected).build();
+    const auto after_backend =
+        faio::ConfigBuilder{}.set_io_backend(selected).set_idle_spin_count(count).build();
     EXPECT_EQ(validate_config(before_backend)._idle_spin_count, count);
     EXPECT_EQ(validate_config(after_backend)._idle_spin_count, count);
   }
-#if defined(FAIO_HAS_IO_URING) && FAIO_HAS_IO_URING
-  // 编译了 uring 仍可能运行于 <5.10 内核；只在可选择原生后端时验证其默认值。
-  if (faio::io::detail::resolve_io_backend(std::nullopt) == io_backend::IO_URING) {
-    const auto automatic_native =
-        faio::ConfigBuilder{}.set_io_backend(io_backend::IO_URING).build();
-    EXPECT_EQ(validate_config(automatic_native)._idle_spin_count, 0u);
-    EXPECT_EQ(validate_config(faio::ConfigBuilder{}
-                                  .set_io_backend(io_backend::IO_URING)
-                                  .set_idle_spin_count(0)
-                                  .build())
-                  ._idle_spin_count,
-              0u);
-    EXPECT_EQ(validate_config(faio::ConfigBuilder{}
-                                  .set_idle_spin_count(32)
-                                  .set_io_backend(io_backend::IO_URING)
-                                  .build())
-                  ._idle_spin_count,
-              32u);
-  }
-#endif
 #else
   EXPECT_EQ(validate_config(faio::ConfigBuilder{}.build())._idle_spin_count, 32u);
   EXPECT_EQ(validate_config(faio::ConfigBuilder{}.set_idle_spin_count(0).build())._idle_spin_count,

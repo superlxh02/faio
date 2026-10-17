@@ -1,7 +1,12 @@
+/**
+ * @file faio/detail/net/tcp/socket.hpp
+ * @brief 网络地址、socket 与传输协议：socket 资源封装。
+ * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ */
 #ifndef FAIO_DETAIL_NET_TCP_SOCKET_HPP
 #define FAIO_DETAIL_NET_TCP_SOCKET_HPP
-#include "faio/detail/net/common/platform.hpp"
-#include "faio/detail/net/tcp/tcp_listener.hpp"
+#include "faio/detail/net/platform/select.hpp"
+#include "faio/detail/net/tcp/listener.hpp"
 
 namespace faio::net::detail {
 /** @brief 可先配置选项、绑定本地地址再 connect/listen 的独占 TCP socket。 */
@@ -37,12 +42,16 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
     return Socket::create<TcpSocket>(AF_INET6, SOCK_STREAM, IPPROTO_TCP, std::move(context));
   }
 
+  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
   [[nodiscard]] auto fd() const noexcept -> native_socket_type { return socket_.fd(); }
 
+  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
   [[nodiscard]] auto as_native_handle() const noexcept -> native_socket_type { return fd(); }
 
+  /// @brief 取得当前对象关联的 IO 上下文租约。
   [[nodiscard]] auto context() const noexcept { return socket_.context(); }
 
+  /// @brief 取得底层共享资源控制块，以保持句柄身份与所属域。
   [[nodiscard]] auto resource() const noexcept { return socket_.resource(); }
 
   [[nodiscard]] auto bind(const SocketAddr& address) -> expected<void> {
@@ -65,12 +74,15 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
     return connect_owned(std::move(socket_), std::move(address));
   }
 
+  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
   auto close() noexcept { return socket_.close(); }
 
+  /// @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。
   [[nodiscard]] auto into_native() -> expected<owned_native_socket> {
     return socket_.into_native();
   }
 
+  /// @brief 接管显式传入的原生句柄，按平台规则建立资源包装。
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_socket native)
       -> expected<TcpSocket> {
     if (auto placement = native.validate_import(context); !placement)
@@ -100,7 +112,7 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
     co_return TcpStream{std::move(socket)};
   }
 
-  Socket socket_;
+  Socket socket_;  ///< 拥有或共享底层 socket 包装，跨挂起保持原生资源身份。
 };
-}  // namespace faio::net::detail
+}
 #endif

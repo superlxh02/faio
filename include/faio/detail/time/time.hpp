@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/time/time.hpp
+ * @brief 异步时间操作：时间点与时间跨度。
+ * @details 使用单调时钟推进异步等待；停止与到期共享唯一完成仲裁。组合超时在返回前排空已启动的分支，避免协程帧和借用参数提前失效。
+ */
 #ifndef FAIO_DETAIL_TIME_TIME_HPP
 #define FAIO_DETAIL_TIME_TIME_HPP
 
@@ -41,7 +46,7 @@ decltype(auto) timeout(T&& operation, std::chrono::milliseconds interval) noexce
   return std::forward<T>(operation).set_timeout(interval);
 }
 
-/// 挂起当前协程指定时长
+/// @brief 挂起当前协程指定时长
 /// 如果 duration <= 0 则立即返回（不挂起）
 static inline auto sleep(const std::chrono::nanoseconds& duration) {
   auto now = std::chrono::steady_clock::now();
@@ -51,21 +56,20 @@ static inline auto sleep(const std::chrono::nanoseconds& duration) {
   return detail::Sleep{now + duration};
 }
 
-/// 挂起当前协程直到指定的绝对时间点
+/// @brief 挂起当前协程直到指定的绝对时间点
 static inline auto sleep_until(std::chrono::steady_clock::time_point expired_time) {
   return detail::Sleep{expired_time};
 }
 
-/// 创建一个周期性定时器，首次 tick 在一个 period 之后触发
+/// @brief 创建一个周期性定时器，首次 tick 在一个 period 之后触发
 static inline auto interval(std::chrono::nanoseconds period) {
   return detail::Interval{std::chrono::steady_clock::now(), period};
 }
 
-/// 创建一个周期性定时器，首次 tick 在 start + period 触发
+/// @brief 创建一个周期性定时器，首次 tick 在 start + period 触发
 static inline auto interval_at(std::chrono::steady_clock::time_point start,
                                std::chrono::nanoseconds period) {
   return detail::Interval{start, period};
 }
-}  // namespace faio::time
-
-#endif  // FAIO_DETAIL_TIME_TIME_HPP
+}
+#endif

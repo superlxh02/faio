@@ -1,3 +1,8 @@
+/**
+ * @file faio/detail/experimental/runtime_facade.hpp
+ * @brief 实验性的入口注解与发送器接收器适配：运行时引用与拥有者。
+ * @details 实验适配在编译期开关下启用，连接阶段建立稳定操作状态；启动、结果交付与关闭沿受控任务图的租约和排空协议推进。
+ */
 #ifndef FAIO_DETAIL_EXPERIMENTAL_RUNTIME_FACADE_HPP
 #define FAIO_DETAIL_EXPERIMENTAL_RUNTIME_FACADE_HPP
 
@@ -17,6 +22,7 @@ class runtime_ref {
  public:
   explicit runtime_ref(faio::runtime::detail::runtime_context& context) noexcept : context_(&context) {}
   auto mode() const noexcept -> faio::runtime::mode { return context_->config()._mode; }
+  /// @brief 返回实际已初始化后端提供的能力快照。
   auto io_capabilities() const noexcept { return context_->io_capabilities(); }
   auto get_current_thread_scheduler() const -> current_thread_scheduler;
   auto get_multi_thread_scheduler() const -> multi_thread_scheduler;
@@ -24,9 +30,10 @@ class runtime_ref {
   template <class Sender> auto bind(Sender&& sender) const;
   template <class Sender> auto spawn_sender(Sender&& sender) const;
   template <class T> auto as_sender(faio::task<T> child) const;
+  /// @brief 取得当前对象关联的运行时上下文引用。
   auto context() const noexcept -> faio::runtime::detail::runtime_context& { return *context_; }
  private:
-  faio::runtime::detail::runtime_context* context_;
+  faio::runtime::detail::runtime_context* context_;  ///< 借用运行时上下文，其生命期必须覆盖本操作。
 };
 
 namespace detail {
@@ -51,8 +58,11 @@ class runtime_owner {
   template <class Sender> auto bind(Sender&& sender) { return ref().bind(std::forward<Sender>(sender)); }
   template <class Sender> auto spawn_sender(Sender&& sender) { return ref().spawn_sender(std::forward<Sender>(sender)); }
   template <class T> auto as_sender(faio::task<T> child) { return ref().as_sender(std::move(child)); }
+  /// @brief 向当前任务及其受控后代传播协作停止请求。
   void request_stop() noexcept { context_.request_stop(); }
+  /// @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。
   void shutdown(faio::io::shutdown_policy policy = faio::io::shutdown_policy::cancel_all) { context_.shutdown(policy); }
+  /// @brief 返回实际已初始化后端提供的能力快照。
   auto io_capabilities() const noexcept { return context_.io_capabilities(); }
  private:
   static auto checked_config(runtime_options options) -> faio::runtime::config {
@@ -60,9 +70,9 @@ class runtime_owner {
       throw std::invalid_argument("faio experimental: runtime owner mode mismatch");
     return to_runtime_config(options);
   }
-  faio::runtime::detail::runtime_context context_;
+  faio::runtime::detail::runtime_context context_;  ///< 持有所属 IO 上下文租约，用于资源归属、服务选择与安全排空。
 };
-} // namespace detail
+}
 
 class current_thread_runtime final : public detail::runtime_owner<faio::runtime::mode::current_thread> {
  public:
@@ -76,5 +86,5 @@ class multi_thread_runtime final : public detail::runtime_owner<faio::runtime::m
 };
 
 auto this_runtime() -> runtime_ref;
-} // namespace faio::experimental
+}
 #endif

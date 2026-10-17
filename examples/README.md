@@ -27,11 +27,24 @@
 [异步 IO](../docs/异步IO.md) 的 Windows IOCP 章节，原生网络契约见
 `tests/test_windows_network.cpp`，接口说明见 [网络 IO](../docs/网络IO.md)。
 
-[experimental/](experimental/) 子目录收录实验性特性的独立示例：`async_main.cpp` 展示注解声明的异步入口，
-`async_main_execution.cpp` 与 `execution_current_thread.cpp`、`execution_multi_thread.cpp` 展示 stdexec Sender/Receiver
-与 faio 协程的互操作，`execution_tcp_server.cpp` 给出完整网络服务形态。这些示例要求 Linux + GCC 16.1 + C++26，
-经 `FAIO_ENABLE_EXPERIMENTAL` 与 `linux-gcc16.1-experimental-*` 预设构建，不参与上面八个示例的跨平台矩阵；
-机制阐述与源码解析见 [实验性特性](../docs/实验性特性.md)。
+[experimental/](experimental/) 子目录收录实验性特性的独立示例，与上面八个示例分开构建：
+
+| 程序 | 展示内容 |
+| --- | --- |
+| `async_main.cpp` | `[[=faio::experimental::main]]` 与 `runtime_options` 注解声明入口和配置，不写 `main` |
+| `async_main_execution.cpp` | 注解入口 + `spawn_sender` 提交 sender 图并等待结果 |
+| `execution_current_thread.cpp` | 单线程模式下 `exec::task` 与 `faio::task` 互相等待 |
+| `execution_multi_thread.cpp` | 多线程模式下 `schedule` 到 faio scheduler 后再 `as_sender` |
+| `execution_tcp_server.cpp` | 完整网络服务形态：sender 图驱动 TCP 接受与回显 |
+
+这些示例要求 Linux + GCC 16.1 + C++26，经 `FAIO_ENABLE_EXPERIMENTAL` 与 `linux-gcc16.1-experimental-*` 预设构建，不参与上面八个示例的跨平台矩阵：
+
+```sh
+cmake --preset linux-gcc16.1-experimental-dual
+cmake --build --preset linux-gcc16.1-experimental-dual --target async_main execution_tcp_server -j4
+```
+
+平台门禁、注解校验、桥接协议与所有权模型的源码解析见 [实验性特性](../docs/实验性特性.md)。
 
 ## 构建与运行
 
@@ -45,8 +58,8 @@ cmake --build --preset macos-clang23 --target coroutine_basics coroutine_sync tc
 Linux Clang 22 双后端构建：
 
 ```sh
-cmake --preset linux-clang22-dual
-cmake --build --preset linux-clang22-dual --target coroutine_basics coroutine_sync tcp_echo_server udp_echo_server tcp_counter_server blocking_thread_pool tcp_echo_server_single_thread file_and_directory -j4
+cmake --preset linux-clang22-uring
+cmake --build --preset linux-clang22-uring --target coroutine_basics coroutine_sync tcp_echo_server udp_echo_server tcp_counter_server blocking_thread_pool tcp_echo_server_single_thread file_and_directory -j4
 ```
 
 下面统一把构建目录记为 `BUILD_DIR`。macOS：
@@ -58,7 +71,7 @@ BUILD_DIR=build/macos-clang23
 Linux：
 
 ```sh
-BUILD_DIR=build/linux-clang22-dual
+BUILD_DIR=build/linux-clang22-uring
 ```
 
 先运行无需外部客户端的程序：

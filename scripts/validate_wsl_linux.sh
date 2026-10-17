@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# WSL Linux 双后端的可复现构建/运行入口；不改动系统选择的 faio 后端。
+# WSL Linux 两种静态后端的独立构建/运行入口；不改动系统选择的 faio 后端。
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dependency_root="${FAIO_DEPENDENCY_ROOT:-$(dirname "$repo")/faio-deps}"
-build="${FAIO_WSL_BUILD:-$repo/build/wsl-linux-clang22-dual}"
+build_root="${FAIO_WSL_BUILD:-$repo/build/wsl-linux-clang22}"
+selected_backend="${FAIO_WSL_BACKEND:-uring}"
+build="$build_root/$selected_backend"
 jobs="${FAIO_WSL_JOBS:-4}"
 phase="${1:-verify}"
-logs="$build/logs"
+logs="$build_root/logs"
 apt_root="$dependency_root/wsl/apt"
 mkdir -p "$logs"
 
@@ -76,19 +78,24 @@ environment() {
     cat "$logs/environment.log"
 }
 configure() {
+    selected_backend="${1:-$selected_backend}"
+    build="$build_root/$selected_backend"
+    local native=OFF
+    if [[ "$selected_backend" == uring ]]; then native=ON; fi
     environment
-    run_logged configure cmake -S "$repo" -B "$build" -G Ninja \
+    run_logged "configure-$selected_backend" cmake -S "$repo" -B "$build" -G Ninja \
         -DCMAKE_CXX_COMPILER=clang++-22 -DCMAKE_BUILD_TYPE=Release \
         '-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG' \
-        -DFAIO_ENABLE_IO_URING=ON -DFAIO_BUILD_TESTS=ON -DFAIO_BUILD_EXAMPLES=ON \
+        -DFAIO_ENABLE_IO_URING="$native" -DFAIO_BUILD_TESTS=ON -DFAIO_BUILD_EXAMPLES=ON \
         -DFAIO_BUILD_BENCHMARKS=ON -DFAIO_INSTALL=ON \
         -DFAIO_USE_WORKSPACE_DEPS=ON -DFAIO_DEPENDENCY_ROOT="$dependency_root"
 }
 compile() {
-    run_logged build cmake --build "$build" --parallel "$jobs"
+    run_logged "build-$selected_backend" cmake --build "$build" --parallel "$jobs"
 }
 test_backend() {
     local backend="$1"
+    build="$build_root/$backend"
     run_logged "ctest-$backend" env FAIO_TEST_IO_BACKEND="$backend" \
         ctest --test-dir "$build" --verbose --output-on-failure --timeout 120 --parallel 1
     cp "$build/Testing/Temporary/LastTest.log" "$logs/ctest-$backend-full.log"
@@ -96,6 +103,7 @@ test_backend() {
 examples() {
     local backend
     for backend in epoll uring; do
+        build="$build_root/$backend"
         mkdir -p "$build/examples/manual-$backend"
         (
             cd "$build/examples/manual-$backend"
@@ -111,7 +119,7 @@ examples() {
     done
 }
 consumer() {
-    run_logged installed-consumer python3 "$repo/scripts/check_installed_headers.py" --build "$build" --compiler clang++-22
+    run_logged "installed-consumer-$selected_backend" python3 "$repo/scripts/check_installed_headers.py" --build "$build" --compiler clang++-22
 }
 summary() {
     # GoogleTest 汇总重复列出 skipped 名称，先按完整用例名去重，再报告真实数量。
@@ -134,8 +142,7 @@ for backend in ("epoll", "uring"):
         "passed_cases": cases - len(skipped),
         "skipped_cases": skipped,
     }
-consumer_log = (logs / "installed-consumer.log").read_text()
-result["installed_headers"] = int(re.search(r"PASS: (\d+) self-contained", consumer_log).group(1))
+result["installed_headers"] = {backend: int(re.search(r"PASS: (\d+) self-contained", (logs / f"installed-consumer-{backend}.log").read_text()).group(1)) for backend in ("epoll", "uring")}
 result["manual_backend_examples"] = len(list(logs.glob("*example-*.log")))
 text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
 (logs / "validation-summary.json").write_text(text)
@@ -154,6 +161,6 @@ case "$phase" in
     examples) examples ;;
     consumer) consumer ;;
     summary) summary ;;
-    verify) configure; compile; test_backend epoll; test_backend uring; examples; consumer; summary ;;
+    verify) for selected_backend in epoll uring; do configure "$selected_backend"; compile; test_backend "$selected_backend"; consumer; done; examples; summary ;;
     *) echo "phase must be download|install|bootstrap|environment|configure|build|epoll|uring|examples|consumer|summary|verify" >&2; exit 2 ;;
 esac

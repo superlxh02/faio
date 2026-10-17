@@ -2,7 +2,7 @@
 
 **简体中文** | [English](README_EN.md)
 
-faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平台覆盖 Linux（io_uring/epoll 双后端）、macOS（kqueue）与 Windows（原生 IOCP/OVERLAPPED）；功能涵盖协程任务与同步原语、单/多线程运行时、TCP/UDP 网络、Unix 平台网络扩展、定时器，以及原生异步文件 I/O（无原生支持的操作由独立有界服务回退执行）。库以头文件形式提供，采用 [Apache-2.0](LICENSE) 开源许可证。
+faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平台覆盖 Linux（编译期选择 io_uring 或 epoll）、macOS（kqueue）与 Windows（原生 IOCP/OVERLAPPED）；功能涵盖协程任务与同步原语、单/多线程运行时、TCP/UDP 网络、Unix 平台网络扩展、定时器，以及原生异步文件 I/O（无原生支持的操作由独立有界服务回退执行）。库以头文件形式提供，采用 [Apache-2.0](LICENSE) 开源许可证。
 
 在 faio 中，异步流程以同步方式书写：协程等待 I/O、定时器或同步原语时挂起并让出工作线程，完成事件到达后由运行时恢复。uring 支持的文件操作提交原生 SQE，其余由独立有界服务执行，worker 全程不阻塞，适用于高并发网络服务、异步任务处理与通用协程并发程序。
 
@@ -25,11 +25,12 @@ faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平
 ## 特点
 
 - **C++20 无栈协程**：`task<T>` 为惰性、移动独占的协程任务，嵌套 `co_await` 经对称转移（symmetric transfer）直接接续子任务，无额外栈分配与调度开销；结果与异常沿等待链传播，异步错误可用标准 `try/catch` 处理。
-- **Proactor 模型**：应用提交完整 I/O 操作，后端执行完成时投递事件唤醒协程。io_uring 为原生 proactor；epoll/kqueue 与 Windows IOCP 经适配统一为同一 proactor 语义，应用代码无平台分支。
+- **Proactor 模型**：应用提交完整 I/O 操作，后端执行完成时投递事件唤醒协程。io_uring 与 Windows IOCP 提供原生完成；epoll/kqueue 经 readiness 适配统一为同一完成语义，应用代码无平台分支。
 - **Worker-Thread 模式**：固定数量的工作线程各自运行独立事件循环，统一处理就绪协程、I/O 完成、定时器到期与跨线程唤醒。协程挂起即让出线程；阻塞工作使用 spawn_blocking，长计算主动让出协作预算。
 - **任务窃取调度**：本地就绪队列加全局队列的两级结构，同线程提交进本地快速槽，跨线程提交进全局队列；空闲线程批量窃取任务，降低锁竞争并保持多核负载均衡。
 - **协程语义的同步原语**：互斥锁、信号量、条件变量、闩、屏障与有界 MPSC 队列均为协程级原语，争用时挂起协程而非阻塞线程，恢复投递回原调度域；全部等待支持停止令牌协作取消。
 - **协程化的异步网络与文件 I/O**：TCP/UDP 与文件、套接字底层操作统一封装为可 `co_await` 的 awaitable，以同步书写方式实现一连接一协程，并直接获得超时与协作取消能力。
+- **实验性演进路径**：C++26 静态反射把运行时配置写成实体注解、把 `task<int>` 声明为程序入口；Sender/Receiver 适配让 faio 运行时作为标准 `stdexec::scheduler` 与 `faio::task` 作为 sender 接入 P2300 图。实验层独立门禁、独立构建目标，关闭时不参与任何编译。
 
 ## 简单示例
 
@@ -131,6 +132,8 @@ int main() {
 
 ### 实验性特性：注解入口与 Sender 互操作
 
+下面这段程序不写 `main`、不写 `block_on`，也不为 stdexec 单独搭一套调度设施：入口与运行时配置由两个注解声明，`exec::task` 与 `faio::task` 在同一棵任务树上互相等待。
+
 ```cpp
 #include <faio/experimental/execution.h>
 #include <faio/experimental/async_main.h>
@@ -163,7 +166,12 @@ faio::task<int> async_main(int, char**) {
 }
 ```
 
-实验性特性要求 Linux + GCC 16.1 + C++26，经 `FAIO_ENABLE_EXPERIMENTAL` 及预设 `linux-gcc16.1-experimental-*` 构建；架构设计与源码解析见 [实验性特性](docs/实验性特性.md)，完整示例见 [examples/experimental](examples/experimental/)。
+这一层提供两组能力，都建立在既有运行时之上、不新建线程池或事件循环：
+
+- **编译期配置与异步入口**：`runtime_options` 注解经 C++26 静态反射读取，取值非法（如 `current_thread` 配多个 worker、选了未编译的 io_uring）在**编译期**报错；`main` 注解把 `task<int>(int, char**)` 声明为程序入口，由库生成真正的 `main`，负责配置、提交与停机。
+- **Sender/Receiver 互操作**：`execution_scheduler` 把运行时包装为标准 `stdexec::scheduler`，`as_sender` 把 `faio::task<T>` 包装为 sender，`run`/`bind`/`spawn_sender` 提供同步驱动、独立根与"发射后等待"三种用法。
+
+实验性特性有独立平台门禁：仅支持 Linux + GCC 16.1.x + libstdc++ 16 + C++26，经 `FAIO_ENABLE_EXPERIMENTAL` 与预设 `linux-gcc16.1-experimental-*` 构建。门禁只作用于实验层，基础库仍保持 C++23 跨平台（Linux / macOS / Windows）；关闭开关时实验头文件不参与任何编译。架构设计与逐类源码解析见 [实验性特性](docs/实验性特性.md)，完整程序见 [examples/experimental](examples/experimental/)。
 
 默认运行时在首次使用时启动，可用 `faio::runtime::configure()` 在首次使用前调整线程数等参数。完整示例按学习场景组织：[协程基础与并发](examples/coroutine_basics.cpp)、[协程同步](examples/coroutine_sync.cpp)、[简单 TCP 服务](examples/tcp_echo_server.cpp)、[简单 UDP 服务](examples/udp_echo_server.cpp)、[TCP 共享计数器应用](examples/tcp_counter_server.cpp)、[阻塞线程池](examples/blocking_thread_pool.cpp)、[单线程 TCP 服务](examples/tcp_echo_server_single_thread.cpp) 和 [文件与目录操作](examples/file_and_directory.cpp)。详细中文讲解、协议和运行步骤见 [示例指南](examples/README.md)。
 
@@ -184,7 +192,7 @@ faio::task<int> async_main(int, char**) {
 | 可选开发依赖 | 单元测试使用 GoogleTest；TCP 性能对照 benchmark 使用 standalone Asio |
 | 可选性能工具 | Rust / Cargo、wrk、Python 3 及 numpy / pandas / matplotlib，详见 [benchmark](benchmark/README.md) |
 
-平台 I/O 后端：Linux 为 io_uring/epoll 双后端（默认构建两者，运行 Linux 5.10 及更新内核时默认 io_uring），macOS 为 kqueue，Windows 为原生 IOCP/OVERLAPPED（构建目标 Windows 10/11 x64，导出 `_WIN32_WINNT=0x0A00`）。
+平台 I/O 后端：Linux 在编译期选择 io_uring 或 epoll（`FAIO_ENABLE_IO_URING=ON` 固定 io_uring，需要 Linux 5.10+；`OFF` 固定 epoll），macOS 为 kqueue，Windows 为原生 IOCP/OVERLAPPED（构建目标 Windows 10/11 x64，导出 `_WIN32_WINNT=0x0A00`）。
 
 ## 三方库集成
 
@@ -205,7 +213,7 @@ faio 是头文件库，第三方依赖只在构建期需要；**CMake 配置期�
 
 ## 源码编译
 
-四个构建开关 `FAIO_BUILD_EXAMPLES`、`FAIO_BUILD_TESTS`、`FAIO_BUILD_BENCHMARKS`、`FAIO_INSTALL` 默认均为 `ON`。`CMakePresets.json` 提供 Windows 的 `windows-msvc`、`windows-clang`、`windows-mingw`、`windows-clang-asan`，Linux 的 `linux-clang22-dual`、`linux-clang22-epoll`，以及 macOS 的 `macos-clang23`；除 Linux 双后端测试使用两个专用名称外，configure、build 和 test 均使用同名预设。自定义 Debug、Docker 或 vcpkg 构建可用 `cmake -S . -B <构建目录>` 显式指定参数。
+四个构建开关 `FAIO_BUILD_EXAMPLES`、`FAIO_BUILD_TESTS`、`FAIO_BUILD_BENCHMARKS`、`FAIO_INSTALL` 默认均为 `ON`。`CMakePresets.json` 提供 Windows 的 `windows-msvc`、`windows-clang`、`windows-mingw`、`windows-clang-asan`，Linux 的 `linux-clang22-uring`、`linux-clang22-epoll`，以及 macOS 的 `macos-clang23`；configure、build 和 test 使用同名预设。自定义 Debug、Docker 或 vcpkg 构建可用 `cmake -S . -B <构建目录>` 显式指定参数。
 
 ### Windows（MSVC / clang-cl / MinGW-w64）
 
@@ -242,16 +250,18 @@ sudo apt-get install cmake ninja-build liburing-dev libspdlog-dev
 
 git clone https://github.com/superlxh02/faio.git
 cd faio
-cmake --preset linux-clang22-dual
-cmake --build --preset linux-clang22-dual -j4
-./build/linux-clang22-dual/examples/coroutine_basics
+cmake --preset linux-clang22-uring
+cmake --build --preset linux-clang22-uring -j4
+./build/linux-clang22-uring/examples/coroutine_basics
 ```
 
-双后端为同一个构建，分别用两个测试预设运行，无需重新编译：
+两种静态后端使用独立构建目录，分别编译和测试：
 
 ```bash
-ctest --preset linux-clang22-dual-epoll
-ctest --preset linux-clang22-dual-uring
+ctest --preset linux-clang22-uring
+cmake --preset linux-clang22-epoll
+cmake --build --preset linux-clang22-epoll -j4
+ctest --preset linux-clang22-epoll
 ```
 
 无需 liburing 时改用 `linux-clang22-epoll` 预设（测试预设同名）。启用完整开发构建（测试与 benchmark）需再安装 GoogleTest 和 standalone Asio：
@@ -259,6 +269,8 @@ ctest --preset linux-clang22-dual-uring
 ```bash
 sudo apt-get install libgtest-dev libasio-dev
 ```
+
+后端封装使用 CRTP 和 C++23 显式对象参数（deducing this），构建会检查编译器支持。`set_io_backend` 仅校验与当前构建匹配，不能运行时切换；不匹配会在初始化时失败。生产封装不保存后端/reactor函数表。
 
 GCC 工具链的版本要求见[环境](#环境)一节。
 
@@ -286,6 +298,20 @@ ctest --preset macos-clang23
 预设选择 `/opt/homebrew/opt/llvm/bin/clang++`，并以 `/opt/homebrew` 为依赖查找前缀；只构建库时可关闭测试与 benchmark，不安装 GoogleTest 和 Asio。
 
 ## 集成
+
+### 模块入口与源码布局
+
+`<faio/faio.hpp>` 聚合完整库；也可按需包含以下模块入口：
+
+| 入口 | 内容 |
+| --- | --- |
+| [`<faio/io.hpp>`](include/faio/io.hpp) | 低层 IO 操作、引擎、缓冲区、流约束和组合工具 |
+| [`<faio/fs.hpp>`](include/faio/fs.hpp) | File、目录、元数据、打开选项与路径操作 |
+| [`<faio/net.hpp>`](include/faio/net.hpp) | 地址、DNS、TCP/UDP 与受支持的本地 IPC |
+
+`detail/io/` 根目录只保留 `io.hpp`、`engine.hpp`、`traits.hpp` 三个入口。内部以 `traits/` 定义概念，`protocol/` 保存中立数据，`base/` 提供通用静态包装，`core/` 管理状态和生命周期，`awaiter/` 连接协程，`stream/` 提供流工具。具体后端集中在 `backend/{epoll,kqueue,uring,iocp}/`，由 `backend/factory.hpp` 装配；原生类型、系统调用与平台选择位于 `platform/`。
+
+FS 根头选择统一接口，共同租约和游标位于 `fs/core/`，请求路由位于 `fs/provider/`，原生实现在 `fs/platform/`。NET 按 `tcp/`、`udp/`、`unix_domain/` 组织传输功能，公共实现位于 `net/base/`，OS 差异位于 `net/platform/`。`unix_domain` 是网络功能，`platform/unix` 是平台实现。FS/NET 使用 IO 引擎，IO 核心不依赖两者的具体实现。详细源码职责见[异步 IO](docs/异步IO.md)和[网络 IO](docs/网络IO.md)。
 
 ### CMake 源码集成
 
@@ -336,7 +362,7 @@ target_link_libraries(my_app PRIVATE faio::faio)
 | [协程并发](docs/协程并发.md) | spawn / block_on、join_handle、join / select / scope 的完成边界 |
 | [协程同步](docs/协程同步.md) | 等待节点协议、互斥锁、条件变量、信号量、闩、屏障与 MPSC |
 | [异步运行时](docs/异步运行时.md) | 运行时组件、协程调度、I/O 驱动、启动与关闭流程 |
-| [异步 I/O](docs/异步IO.md) | uring 原生完成、epoll/kqueue、Windows IOCP 后端、文件服务、缓冲与组合 IO、取消及生命周期 |
+| [异步 I/O](docs/异步IO.md) | 控制面与辅助类型、统一后端抽象、协程桥、`io_domain` 状态机、uring/IOCP 与 epoll/kqueue 两条主线、文件双路封装 |
 | [网络 I/O](docs/网络IO.md) | TCP / UDP 接口的 Mixin 与 CRTP 设计及关键源码 |
 | [定时器](docs/定时器.md) | 多级时间轮、休眠、周期 tick 与 I/O 超时 |
 | [实验性特性](docs/实验性特性.md) | 注解异步入口、编译期运行时配置、stdexec Sender/Receiver 适配的架构与源码解析 |

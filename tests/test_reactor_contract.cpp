@@ -1,19 +1,24 @@
+#include "faio/detail/io/backend/factory.hpp"
 /**
  * @file test_reactor_contract.cpp
  * @brief epoll/kqueue 共同的后端契约：就绪、半关闭、控制唤醒及长期注册。
- * @details 本测试直接使用后端中立函数表，不依赖 runtime 或协程。
+ * @details 本测试直接使用后端中立静态接口，不依赖 runtime 或协程。
  */
-#include "faio/detail/io/reactor/reactor_ref.hpp"
+#include "faio/detail/io/platform/reactor.hpp"
+#include "faio/detail/io/base/readiness_adapter.hpp"
 #include <gtest/gtest.h>
 #if defined(__linux__)
-#include "faio/detail/io/backends/epoll/reactor.hpp"
+#include "faio/detail/io/backend/epoll/reactor.hpp"
 #elif defined(__APPLE__) || defined(__FreeBSD__)
-#include "faio/detail/io/backends/kqueue/reactor.hpp"
+#include "faio/detail/io/backend/kqueue/reactor.hpp"
 #endif
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <fcntl.h>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <sys/socket.h>
 #include <system_error>
@@ -21,9 +26,83 @@
 #include <unistd.h>
 #include <vector>
 
+#if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
+namespace faio::io::detail {
+struct reactor_control_test_access {
+  template <class R>
+  static void bind(R& reactor,
+                   void (*step)(reactor_control_test_point, void*) noexcept,
+                   void* context) noexcept {
+    reactor.control_test_step_ = step;
+    reactor.control_test_context_ = context;
+  }
+};
+}  // namespace faio::io::detail
+#endif
+
 namespace {
 using namespace std::chrono_literals;
 using faio::io::detail::readiness_event;
+
+#if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
+using faio::io::detail::reactor_control_test_access;
+using faio::io::detail::reactor_control_test_point;
+#if defined(__linux__)
+using concrete_reactor = faio::io::detail::epoll_reactor;
+#else
+using concrete_reactor = faio::io::detail::kqueue_reactor;
+#endif
+
+/** @brief 一次可控交接；钩子和测试等待都限时，失败不遗留阻塞的 jthread。 */
+class controlled_reactor_pause {
+ public:
+  explicit controlled_reactor_pause(reactor_control_test_point point) : point_(point) {}
+
+  static void step(reactor_control_test_point point, void* context) noexcept {
+    auto& self = *static_cast<controlled_reactor_pause*>(context);
+    if (point != self.point_)
+      return;
+    std::unique_lock lock(self.mutex_);
+    if (!self.armed_)
+      return;
+    self.armed_ = false;
+    self.entered_ = true;
+    self.changed_.notify_all();
+    if (!self.changed_.wait_for(lock, 2s, [&] { return self.released_; }))
+      self.timed_out_ = true;
+  }
+
+  bool wait_for_entry() {
+    std::unique_lock lock(mutex_);
+    return changed_.wait_for(lock, 1s, [&] { return entered_; });
+  }
+
+  void release() {
+    std::lock_guard lock(mutex_);
+    released_ = true;
+    changed_.notify_all();
+  }
+
+  bool timed_out() {
+    std::lock_guard lock(mutex_);
+    return timed_out_;
+  }
+
+ private:
+  const reactor_control_test_point point_;
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  bool armed_{true}, entered_{}, released_{}, timed_out_{};
+};
+
+// Declare after the worker thread so ASSERT failure releases the hook before
+// jthread's destructor joins that worker.
+struct release_reactor_pause {
+  controlled_reactor_pause& pause;
+
+  ~release_reactor_pause() { pause.release(); }
+};
+#endif
 
 /** @brief 只用于测试的描述符所有者；资源销毁晚于 reactor.detach。 */
 struct descriptor_pair {
@@ -159,6 +238,110 @@ TEST(ReactorContract, ConcurrentWakeBurstsRemainBoundedAndDrainable) {
   std::array<readiness_event, 16> events{};
   EXPECT_GT(reactor.poll(events, 100), 0);
   EXPECT_EQ(reactor.poll(events, 0), 0);
+}
+
+TEST(ReactorContract, WakeAfterEachPollBoundaryPublishesEveryRound) {
+  auto reactor = faio::io::detail::make_platform_reactor();
+  std::atomic<unsigned> published{}, acknowledged{};
+  constexpr unsigned rounds = 2000;
+  std::jthread producer([&](std::stop_token stop) {
+    for (unsigned round = 1; round <= rounds && !stop.stop_requested(); ++round) {
+      while (acknowledged.load(std::memory_order_acquire) != round - 1) {
+        if (stop.stop_requested())
+          return;
+        std::this_thread::yield();
+      }
+      published.store(round, std::memory_order_release);
+      reactor.wake();
+      reactor.wake();  // The same epoch may coalesce, including across a kernel drain.
+    }
+  });
+  std::array<readiness_event, 16> events{};
+  for (unsigned round = 1; round <= rounds; ++round) {
+    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    while (published.load(std::memory_order_acquire) < round
+           && std::chrono::steady_clock::now() < deadline)
+      ASSERT_GE(reactor.poll(events, 20), 0);
+    ASSERT_EQ(published.load(std::memory_order_acquire), round);
+    acknowledged.store(round, std::memory_order_release);
+  }
+}
+
+#if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
+TEST(ReactorContract, NoticeBeforeDelayedControlSyscallPreventsBlocking) {
+  concrete_reactor reactor;
+  controlled_reactor_pause pause{reactor_control_test_point::wake_before_syscall};
+  reactor_control_test_access::bind(reactor, &controlled_reactor_pause::step, &pause);
+  std::jthread producer([&] { reactor.wake(); });
+  release_reactor_pause release{pause};
+  ASSERT_TRUE(pause.wait_for_entry());
+
+  // The producer published the epoch but has not written/triggered an OS event.
+  // A finite timeout bounds failure; the epoch must still force a zero wait.
+  std::array<readiness_event, 16> events{};
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_EQ(reactor.poll(events, 500), 0);
+  EXPECT_LT(std::chrono::steady_clock::now() - start, 200ms);
+
+  pause.release();
+  producer.join();
+  EXPECT_FALSE(pause.timed_out());
+  EXPECT_GT(reactor.poll(events, 100), 0);  // The delayed syscall remains drainable.
+  EXPECT_EQ(reactor.poll(events, 0), 0);
+}
+
+TEST(ReactorContract, NewNoticeSurvivesControlEventConsumedByPreviousPoll) {
+  concrete_reactor reactor;
+  reactor.wake();
+  controlled_reactor_pause pause{reactor_control_test_point::poll_after_consume};
+  reactor_control_test_access::bind(reactor, &controlled_reactor_pause::step, &pause);
+  std::array<readiness_event, 16> events{};
+  int first_count{};
+  std::jthread consumer([&] { first_count = reactor.poll(events, 500); });
+  release_reactor_pause release{pause};
+  ASSERT_TRUE(pause.wait_for_entry());
+
+  // This wake belongs to the next epoch, but its OS event is deliberately
+  // consumed by the current epoll drain / EV_CLEAR retrieval.
+  reactor.wake();
+  pause.release();
+  consumer.join();
+  EXPECT_FALSE(pause.timed_out());
+  ASSERT_GT(first_count, 0);
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_EQ(reactor.poll(events, 500), 0);
+  EXPECT_LT(std::chrono::steady_clock::now() - start, 200ms);
+  EXPECT_EQ(reactor.poll(events, 0), 0);  // The notice is consumed exactly once.
+}
+#endif
+
+TEST(ReactorContract, AdapterMapsDirectlyWithoutLosingGenerationDirectionOrBudget) {
+  using namespace faio::io::detail;
+  static_assert(basic_readiness_adapter<reactor_box>::poll_flushes_submissions);
+  descriptor_pair pair;
+  basic_readiness_adapter adapter{make_platform_reactor()};
+  constexpr std::uint64_t generation = 0xf123'4567'89ab'cdefULL;
+  ASSERT_EQ(adapter.attach(pair.fds[0], generation), 0);
+  EXPECT_EQ(adapter.poll({}, std::nullopt), 0);
+  ASSERT_EQ(::write(pair.fds[1], "x", 1), 1);
+  ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);
+  std::array<backend_event, 1> events{};
+  std::uint32_t flags{};
+  for (unsigned attempt = 0; attempt < 8 && !(flags & read_closed_bit); ++attempt) {
+    const int count = adapter.poll(events, 20);
+    ASSERT_GE(count, 0);
+    ASSERT_LE(count, 1);
+    if (!count)
+      continue;
+    EXPECT_EQ(events[0].kind, backend_event_kind::readiness);
+    EXPECT_EQ(events[0].key, generation);
+    EXPECT_EQ(events[0].result, 0);
+    flags |= events[0].flags;
+  }
+  EXPECT_NE(flags & readable_bit, 0u);
+  EXPECT_NE(flags & read_closed_bit, 0u);
+  adapter.detach(pair.fds[0]);
 }
 
 /** @brief 小输出 span 不能丢失内核 batch 中尚未移交的其他资源事件。 */

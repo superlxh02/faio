@@ -67,9 +67,9 @@
       }
     },
     {
-      "name": "linux-clang22-dual",
-      "displayName": "Linux native io_uring and epoll, Clang 22",
-      "description": "Linux/WSL Clang 22 双后端：Ninja、Release、-O2/-DNDEBUG，导出 compile_commands.json；开启 io_uring 并保留 epoll。",
+      "name": "linux-clang22-uring",
+      "displayName": "Linux static io_uring, Clang 22",
+      "description": "Linux Clang 22：编译期固定 io_uring，Release；epoll 使用独立构建。",
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -78,13 +78,13 @@
         "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
         "FAIO_ENABLE_IO_URING": "ON"
       },
-      "binaryDir": "${sourceDir}/build/linux-clang22-dual"
+      "binaryDir": "${sourceDir}/build/linux-clang22-uring"
     },
     {
       "name": "linux-clang22-epoll",
       "displayName": "Linux epoll only, Clang 22",
-      "description": "Linux/WSL Clang 22 epoll：继承双后端模板的工具链和优化参数，关闭 io_uring；使用独立构建目录。",
-      "inherits": "linux-clang22-dual",
+      "description": "Linux Clang 22：编译期固定 epoll，无 liburing 依赖。",
+      "inherits": "linux-clang22-uring",
       "binaryDir": "${sourceDir}/build/linux-clang22-epoll",
       "cacheVariables": {
         "FAIO_ENABLE_IO_URING": "OFF"
@@ -184,13 +184,13 @@
       "jobs": 4
     },
     {
-      "name": "linux-clang22-dual",
-      "description": "构建 linux-clang22-dual 配置中已生成的全部目标。",
-      "configurePreset": "linux-clang22-dual"
+      "name": "linux-clang22-uring",
+      "description": "Linux Clang 22：编译期固定 io_uring，Release；epoll 使用独立构建。",
+      "configurePreset": "linux-clang22-uring"
     },
     {
       "name": "linux-clang22-epoll",
-      "description": "构建 linux-clang22-epoll 配置中已生成的全部目标。",
+      "description": "Linux Clang 22：编译期固定 epoll，无 liburing 依赖。",
       "configurePreset": "linux-clang22-epoll"
     },
     {
@@ -268,33 +268,22 @@
       }
     },
     {
-      "name": "linux-clang22-dual-epoll",
-      "description": "运行 linux-clang22-dual 构建目录的 CTest，失败时输出诊断。FAIO_TEST_IO_BACKEND=epoll 明确选择本轮测试后端，不重新编译。",
-      "configurePreset": "linux-clang22-dual",
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
-      },
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "linux-clang22-dual-uring",
-      "description": "运行 linux-clang22-dual 构建目录的 CTest，失败时输出诊断。FAIO_TEST_IO_BACKEND=uring 明确选择本轮测试后端，不重新编译。",
-      "configurePreset": "linux-clang22-dual",
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "uring"
-      },
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
       "name": "linux-clang22-epoll",
-      "description": "运行 linux-clang22-epoll 构建目录的 CTest，失败时输出诊断。FAIO_TEST_IO_BACKEND=epoll 明确选择本轮测试后端，不重新编译。",
+      "description": "Linux Clang 22：编译期固定 epoll，无 liburing 依赖。",
       "configurePreset": "linux-clang22-epoll",
       "environment": {
         "FAIO_TEST_IO_BACKEND": "epoll"
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-clang22-uring",
+      "description": "Linux Clang 22：编译期固定 io_uring，Release；epoll 使用独立构建。",
+      "configurePreset": "linux-clang22-uring",
+      "environment": {
+        "FAIO_TEST_IO_BACKEND": "uring"
       },
       "output": {
         "outputOnFailure": true
@@ -323,7 +312,7 @@
     },
     {
       "name": "linux-gcc16.1-experimental-dual",
-      "configurePreset": "linux-gcc16.1-experimental-dual",
+      "configurePreset": "linux-gcc16.1-experimental-epoll",
       "output": {
         "outputOnFailure": true
       },
