@@ -1,5 +1,7 @@
 # faio · Fast Async IO
 
+[Website](https://superlxh02.github.io/faio/) · [Documentation (中文)](https://superlxh02.github.io/faio/book/) · [API guide (中文)](docs/api/index.md) · [Examples (中文)](docs/examples/index.md) · [Local preview and deployment](.github/site/README.md)
+
 [简体中文](README.md) | **English**
 
 faio is a high-performance, cross-platform asynchronous I/O library built on C++20 coroutines (requiring a C++23 toolchain). It runs on Linux (a compile-time choice of io_uring or epoll), macOS (kqueue), and Windows (native IOCP/OVERLAPPED), and provides coroutine tasks and synchronization primitives, single/multi-thread runtimes, TCP/UDP networking, Unix-specific network extensions, timers, and native asynchronous file I/O (operations without native support fall back to an isolated bounded service). The library is header-only and licensed under [Apache-2.0](LICENSE).

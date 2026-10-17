@@ -1,0 +1,523 @@
+:root {
+  --content-max-width: 940px;
+  --sidebar-width: 262px;
+  --page-padding: 32px;
+  --mono-font: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+.navy {
+  --bg: #0b0e16;
+  --fg: #bac5dc;
+  --sidebar-bg: #0c111c;
+  --sidebar-fg: #8694b2;
+  --sidebar-active: #9cb8ff;
+  --links: #93b1ff;
+  --inline-code-color: #b1c7f7;
+  --theme-popup-bg: #131b2b;
+  --theme-popup-border: #2d3b55;
+  --quote-bg: #121e34;
+  --quote-border: #597ed4;
+  --table-border-color: #28344b;
+  --table-header-bg: #151f32;
+  --table-alternate-bg: #101827;
+  --searchbar-border-color: #344a70;
+  --searchbar-bg: #121c30;
+  --searchbar-fg: #d2def8;
+  --searchresults-header-fg: #a3bfff;
+  --searchresults-border-color: #2a3e61;
+  --searchresults-li-bg: #121c30;
+  --search-mark-bg: #334a7d;
+  --code-bg: #101725;
+  --icons: #617495;
+  --icons-hover: #c4d7ff;
+}
+.light {
+  --bg: #fbfcff;
+  --fg: #34425c;
+  --sidebar-bg: #f3f6fc;
+  --sidebar-fg: #6a7b98;
+  --sidebar-active: #315ecd;
+  --links: #315ecd;
+  --inline-code-color: #345ba5;
+  --theme-popup-bg: #fff;
+  --theme-popup-border: #d8e1f1;
+  --quote-bg: #eef3ff;
+  --quote-border: #8aa9ee;
+  --table-border-color: #dde5f3;
+  --table-header-bg: #eef3fc;
+  --table-alternate-bg: #f4f7fc;
+  --searchbar-border-color: #c5d3ef;
+  --searchbar-bg: #fff;
+  --searchbar-fg: #34425c;
+  --searchresults-header-fg: #315ecd;
+  --searchresults-border-color: #d8e1f1;
+  --searchresults-li-bg: #eef3ff;
+  --search-mark-bg: #c8d9ff;
+  --code-bg: #edf2fb;
+}
+.coal,
+.ayu,
+.rust {
+  --links: #8eaff7;
+  --inline-code-color: #a9c3f6;
+  --sidebar-active: #9cb8ff;
+}
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.content main {
+  padding-top: 22px;
+  padding-bottom: 65px;
+}
+.content h1 {
+  font-size: 3.2rem;
+  font-weight: 600;
+  letter-spacing: -1px;
+  margin: 15px 0 25px;
+  color: var(--fg);
+}
+.navy .content h1,
+.navy .content h2,
+.navy .content h3 {
+  color: #e1e8f8;
+}
+.content h2 {
+  font-size: 2rem;
+  font-weight: 550;
+  margin-top: 2.5em;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--table-border-color);
+}
+.content h3 {
+  font-size: 1.6rem;
+  font-weight: 550;
+  margin-top: 1.8em;
+}
+.content p,
+.content li {
+  font-size: 1.5rem;
+  line-height: 1.9;
+}
+.content p {
+  margin-block: 1.2em;
+}
+.content a {
+  text-underline-offset: 4px;
+}
+.content pre {
+  border: 1px solid var(--table-border-color);
+  border-radius: 8px;
+  padding: 20px;
+  background: var(--code-bg);
+  overflow: auto;
+}
+.content pre code {
+  font-family: var(--mono-font);
+  font-size: 12.5px;
+  line-height: 1.85;
+}
+.content :not(pre) > code {
+  font-size: 0.85em;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: var(--code-bg);
+}
+.content table {
+  display: block;
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.8;
+  margin-block: 24px;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.content td,
+.content th {
+  padding: 13px 15px;
+}
+.content th {
+  text-align: left;
+  font-weight: 550;
+}
+.content td code {
+  white-space: normal;
+}
+.content blockquote {
+  border-radius: 0 7px 7px 0;
+  padding: 13px 20px;
+}
+.content blockquote p {
+  margin: 4px 0;
+}
+.sidebar {
+  padding-top: 64px;
+  border-right: 1px solid var(--table-border-color);
+}
+.sidebar .sidebar-scrollbox {
+  padding: 18px 18px 38px;
+}
+.chapter {
+  font-size: 14px;
+}
+.chapter li.chapter-item {
+  line-height: 2.3;
+}
+.chapter li.part-title {
+  font-size: 16px;
+  letter-spacing: 0;
+  color: var(--fg);
+  font-weight: 650;
+  margin-top: 25px;
+  margin-bottom: 9px;
+}
+.chapter .chapter-item > .chapter-link-wrapper > a { font-size: 14px; }
+.chapter .section > .chapter-item > .chapter-link-wrapper > a { font-size: 13px; }
+.chapter .on-this-page .header-item > .chapter-link-wrapper > a {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--sidebar-fg);
+}
+.chapter li a {
+  border-radius: 4px;
+}
+.chapter li a.active {
+  font-weight: 600;
+  color: var(--sidebar-active);
+}
+.navy .chapter li a.active {
+  background: #192744;
+  padding-left: 8px;
+  margin-left: -8px;
+}
+.menu-title {
+  font-size: 12px;
+  color: var(--sidebar-fg);
+}
+.faio-book-nav {
+  height: 64px;
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 200;
+  display: flex;
+  gap: 26px;
+  align-items: center;
+  padding-inline: 25px;
+  background: var(--bg);
+  color: var(--fg);
+  border-bottom: 1px solid var(--table-border-color);
+  box-sizing: border-box;
+}
+.faio-book-nav a {
+  color: inherit;
+  text-decoration: none;
+  font-size: 12px;
+}
+.faio-book-nav a:hover {
+  color: var(--links);
+}
+.faio-book-nav .faio-book-brand {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -1.2px;
+  margin-right: 4px;
+}
+.faio-book-brand img {
+  width: 28px;
+  height: 28px;
+}
+.faio-book-nav .nav-label {
+  margin-right: auto;
+  padding-left: 22px;
+  border-left: 1px solid var(--table-border-color);
+  color: var(--sidebar-fg);
+  font-size: 11px;
+}
+#mdbook-page-wrapper {
+  padding-top: 64px;
+}
+html body #mdbook-menu-bar.menu-bar {
+  position: sticky;
+  top: 64px !important;
+  margin-block: 0;
+  border-bottom: 1px solid var(--table-border-color);
+  background: var(--bg);
+}
+#mdbook-menu-bar-hover-placeholder {
+  display: none;
+}
+.faio-book-toc {
+  position: fixed;
+  right: 23px;
+  top: 157px;
+  width: 178px;
+  max-height: 70vh;
+  overflow: auto;
+  border-left: 1px solid var(--table-border-color);
+  padding-left: 17px;
+  font-size: 11px;
+}
+.faio-book-toc strong {
+  display: block;
+  font-size: 10px;
+  color: var(--sidebar-fg);
+  font-weight: 500;
+  margin-bottom: 17px;
+  letter-spacing: 1px;
+}
+.faio-book-toc a {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--sidebar-fg);
+  text-decoration: none;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.faio-book-toc a:hover,
+.faio-book-toc a.current {
+  color: var(--links);
+}
+.faio-book-toc a.level-3 {
+  padding-left: 10px;
+  opacity: 0.8;
+  font-size: 10px;
+}
+.faio-doc-footer {
+  border-top: 1px solid var(--table-border-color);
+  margin-top: 60px;
+  padding-top: 20px;
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  color: var(--sidebar-fg);
+  font-size: 11px;
+}
+.faio-doc-footer a {
+  color: var(--links);
+}
+.faio-backtop {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  height: 35px;
+  width: 35px;
+  background: var(--sidebar-bg);
+  color: var(--links);
+  border: 1px solid var(--table-border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mermaid {
+  background: var(--bg);
+  border: 1px solid var(--table-border-color);
+  padding: 20px 8px;
+  border-radius: 8px;
+  margin-block: 27px;
+  text-align: center;
+  overflow: auto;
+}
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-error {
+  font-size: 12px;
+  padding: 12px;
+  background: var(--quote-bg);
+}
+.api-eyebrow {
+  font: 10px var(--mono-font);
+  letter-spacing: 1.6px;
+  color: var(--links);
+  margin-top: -10px;
+  margin-bottom: 24px;
+}
+.api-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 30px;
+  margin-bottom: 40px;
+}
+.content .api-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--table-border-color);
+  border-radius: 8px;
+  padding: 22px 19px;
+  background: var(--sidebar-bg);
+  text-decoration: none;
+  transition: border-color 0.2s;
+}
+.api-card:hover {
+  border-color: var(--links);
+}
+.api-card > span {
+  color: var(--sidebar-fg);
+  font: 10px var(--mono-font);
+}
+.content .api-card h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 21px 0 0;
+  font-size: 16px;
+  color: var(--fg);
+  font-weight: 550;
+}
+.api-card h3 b {
+  color: var(--links);
+  font-size: 14px;
+  font-weight: 400;
+}
+.content .api-card p {
+  color: var(--sidebar-fg);
+  font-size: 12px;
+  line-height: 1.9;
+  margin: 13px 0 22px;
+}
+.content .api-card > code {
+  margin-top: auto;
+  font-size: 9px;
+  color: var(--links);
+  background: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1580px) {
+  .content {
+    margin-right: 210px;
+  }
+  .faio-book-toc {
+    right: 28px;
+  }
+}
+@media (max-width: 1579px) {
+  .faio-book-toc {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  :root {
+    --sidebar-width: 235px;
+    --page-padding: 24px;
+  }
+  .api-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .content h1 {
+    font-size: 2.9rem;
+  }
+}
+@media (max-width: 620px) {
+  :root {
+    --page-padding: 18px;
+  }
+  .faio-book-nav {
+    height: 58px;
+    gap: 17px;
+    padding-inline: 16px;
+  }
+  .faio-book-nav .faio-book-brand {
+    font-size: 25px;
+    margin: 0;
+  }
+  .faio-book-brand img {
+    width: 25px;
+    height: 25px;
+  }
+  .faio-book-nav .nav-label {
+    padding-left: 13px;
+    font-size: 9px;
+  }
+  .faio-book-nav a {
+    font-size: 10px;
+  }
+  .faio-book-nav > a:last-child {
+    display: none;
+  }
+  .sidebar {
+    padding-top: 58px;
+  }
+  #mdbook-page-wrapper {
+    padding-top: 58px;
+  }
+  html body #mdbook-menu-bar.menu-bar {
+    top: 58px !important;
+  }
+  .content main {
+    padding-top: 12px;
+  }
+  .content h1 {
+    font-size: 2.7rem;
+  }
+  .content h2 {
+    font-size: 1.9rem;
+  }
+  .content p,
+  .content li {
+    font-size: 1.4rem;
+  }
+  .content pre {
+    padding: 14px;
+  }
+  .content pre code {
+    font-size: 11px;
+  }
+  .content table {
+    font-size: 12px;
+  }
+  .content td,
+  .content th {
+    padding: 11px;
+  }
+  .api-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .content .api-card {
+    padding: 22px;
+  }
+  .content .api-card h3 {
+    margin-top: 15px;
+    font-size: 17px;
+  }
+  .content .api-card p {
+    font-size: 13px;
+    margin-bottom: 17px;
+  }
+  .content .api-card > code {
+    font-size: 10px;
+  }
+  .faio-backtop {
+    bottom: 15px;
+    right: 15px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 128px;
+  }
+}
+@media print {
+  .faio-book-nav,
+  .faio-book-toc,
+  .faio-backtop,
+  .faio-doc-footer {
+    display: none;
+  }
+  #mdbook-page-wrapper {
+    padding-top: 0;
+  }
+  .api-grid {
+    display: block;
+  }
+}

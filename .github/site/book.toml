@@ -1,0 +1,36 @@
+[book]
+title = "faio 开发者文档"
+authors = ["faio contributors"]
+description = "faio C++23 异步 I/O 库：快速开始、API 参考、官方例程与模块设计。"
+language = "zh-CN"
+src = "../../docs"
+
+[build]
+build-dir = "../../build/site/book"
+extra-watch-dirs = ["../../examples", "../../include", "theme"]
+
+[preprocessor.repository-links]
+command = "python3 scripts/docs_links.py"
+after = ["links"]
+
+[output.html]
+theme = "../../build/docs-theme"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+smart-punctuation = true
+git-repository-url = "https://github.com/superlxh02/faio"
+edit-url-template = "https://github.com/superlxh02/faio/edit/main/.github/site/{path}"
+additional-css = ["theme/book.css"]
+additional-js = ["node_modules/mermaid/dist/mermaid.min.js", "theme/book.js"]
+no-section-label = true
+
+[output.html.search]
+enable = true
+limit-results = 24
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+runnable = false

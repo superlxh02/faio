@@ -1,0 +1,81 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  MDBOOK_VERSION: 0.5.4
+  DOXYGEN_VERSION: 1.18.0
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: .github/site/package-lock.json
+      - name: Install documentation tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/mdbook"
+          curl --fail --location --retry 3 \
+            "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            --output "$RUNNER_TEMP/mdbook.tar.gz"
+          tar -xzf "$RUNNER_TEMP/mdbook.tar.gz" -C "$RUNNER_TEMP/mdbook"
+          echo "$RUNNER_TEMP/mdbook" >> "$GITHUB_PATH"
+          curl --fail --location --retry 3 \
+            "https://github.com/doxygen/doxygen/releases/download/Release_1_18_0/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz" \
+            --output "$RUNNER_TEMP/doxygen.tar.gz"
+          echo "14fa81bdc34171edb5f1f02b1d60e74802f0439b77fa44e592565d517d72df90  $RUNNER_TEMP/doxygen.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/doxygen.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/doxygen-${DOXYGEN_VERSION}/bin" >> "$GITHUB_PATH"
+      - name: Install local diagram renderer
+        run: npm ci --prefix .github/site --ignore-scripts --no-audit --no-fund
+      - name: Build homepage and public API reference; check links
+        env:
+          FAIO_SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 .github/site/scripts/docs.py build
+      - name: Upload documentation preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-preview
+          path: build/site
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload GitHub Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

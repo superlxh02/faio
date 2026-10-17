@@ -7,6 +7,7 @@
 # MinGW GCC 与其他采用 GNU 命令行的编译器继承原有警告选项。
 # 每个示例仅由自己的 cpp 构建，不链接其他示例或公共示例实现。
 foreach(example IN ITEMS
+    quickstart
     coroutine_basics
     coroutine_sync
     tcp_echo_server

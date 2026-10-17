@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="faio：完全基于协程的现代 C++ 异步 I/O 库。网络、文件、定时器与并发原语，统一于一套协程 API。"
+    />
+    <meta name="theme-color" content="#0a0c10" />
+    <meta property="og:title" content="faio · 现代 C++ 的异步答案" />
+    <meta
+      property="og:description"
+      content="C++23 协程、跨平台 I/O 与结构化并发。写下 co_await，剩下的交给运行时。"
+    />
+    <title>faio — 现代 C++ 的异步答案</title>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="stylesheet" href="assets/home.css" />
+    <script src="assets/home.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳转到正文</a>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./" aria-label="faio 首页"
+          ><img src="assets/favicon.svg" alt="" width="30" height="30" /><span
+            >faio</span
+          ></a
+        >
+        <nav class="desktop-nav" aria-label="主导航">
+          <a href="book/getting-started.html">快速开始</a
+          ><a href="api/">API 参考</a><a href="book/examples/">官方例程</a
+          ><a href="book/modules.html">模块讲解</a>
+        </nav>
+        <a class="github-link" href="https://github.com/superlxh02/faio"
+          ><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 .8a11.2 11.2 0 0 0-3.54 21.82c.56.1.77-.24.77-.54v-2.1c-3.12.68-3.78-1.32-3.78-1.32-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.62 1.22 3.26.93.1-.73.39-1.22.71-1.5-2.49-.28-5.11-1.25-5.11-5.54 0-1.22.44-2.22 1.15-3-.12-.28-.5-1.43.11-2.97 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.6 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.69.12 2.97.71.78 1.14 1.78 1.14 3 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.09c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
+            /></svg
+          ><span>GitHub</span><span aria-hidden="true">↗</span></a
+        >
+        <button
+          class="menu-toggle"
+          aria-expanded="false"
+          aria-controls="mobile-nav"
+          aria-label="打开导航"
+        >
+          <span></span><span></span>
+        </button>
+      </div>
+      <nav id="mobile-nav" class="mobile-nav" aria-label="移动端导航" hidden>
+        <a href="book/getting-started.html">快速开始</a
+        ><a href="api/">API 参考</a><a href="book/examples/">官方例程</a
+        ><a href="book/modules.html">模块讲解</a>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="hero shell">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-badge">
+          <span></span> C++23 协程 · 结构化并发 · 跨平台
+        </div>
+        <h1>现代 C++ 的<br /><span>异步答案。</span></h1>
+        <p class="hero-description">
+          完全基于协程的现代 C++ 异步 I/O 基础设施。<br />网络、文件、定时与并发原语，尽收一套协程
+          API——一个 <code>co_await</code>，等待即是调度。
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="book/getting-started.html"
+            >开始使用 <span aria-hidden="true">→</span></a
+          ><a class="button secondary" href="api/"
+            >浏览 API <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="hero-meta">
+          <span>C++23</span><i></i><span>Header-only</span><i></i
+          ><span>Apache 2.0</span>
+        </div>
+        <div class="code-showcase">
+          <div class="code-topbar">
+            <div class="code-tabs" role="tablist" aria-label="代码示例">
+              <button
+                role="tab"
+                id="tab-cpp"
+                aria-selected="true"
+                aria-controls="panel-cpp"
+                data-code-tab="cpp"
+              >
+                C++ <span>协程并发</span></button
+              ><button
+                role="tab"
+                id="tab-cmake"
+                aria-selected="false"
+                aria-controls="panel-cmake"
+                data-code-tab="cmake"
+                tabindex="-1"
+              >
+                CMake <span>工程集成</span>
+              </button>
+            </div>
+            <a href="book/getting-started.html">完整例程 <span>↗</span></a>
+          </div>
+          <div class="code-body">
+            <div class="code-source">
+              <div
+                role="tabpanel"
+                id="panel-cpp"
+                aria-labelledby="tab-cpp"
+                tabindex="0"
+              >
+                <!-- QUICKSTART_CODE -->
+              </div>
+              <div
+                role="tabpanel"
+                id="panel-cmake"
+                aria-labelledby="tab-cmake"
+                tabindex="0"
+                hidden
+              >
+                <pre><code><span class="comment"># 先安装依赖，再通过 CMake 公共目标集成</span>
+<span class="keyword">cmake_minimum_required</span>(VERSION <span class="number">3.20</span>)
+<span class="keyword">project</span>(my_app LANGUAGES CXX)
+
+<span class="keyword">set</span>(FAIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+<span class="keyword">set</span>(FAIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+<span class="keyword">set</span>(FAIO_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+<span class="keyword">add_subdirectory</span>(third_party/faio)
+
+<span class="keyword">add_executable</span>(my_app main.cpp)
+<span class="keyword">target_link_libraries</span>(my_app PRIVATE faio::faio)</code></pre>
+              </div>
+            </div>
+            <div class="execution-view" aria-label="例程执行流">
+              <span class="small-label">CONCURRENT BY DESIGN</span>
+              <div class="task-nodes">
+                <div>
+                  <span class="node-dot"></span><code>task&lt;int&gt;</code
+                  ><strong>20</strong>
+                </div>
+                <div>
+                  <span class="node-dot purple"></span
+                  ><code>task&lt;int&gt;</code><strong>22</strong>
+                </div>
+              </div>
+              <div class="join-lines" aria-hidden="true">
+                <span></span><span></span>
+              </div>
+              <div class="join-node">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 4l7 8 7-8" /><path d="M12 12v8" /></svg
+                ><code>co_await join(...)</code>
+              </div>
+              <div class="result-line" aria-hidden="true"></div>
+              <div class="result-node">
+                <span>RETURN VALUE</span><strong>42<span>↗</span></strong>
+              </div>
+              <p>并发启动，按输入顺序取得结果。</p>
+            </div>
+          </div>
+          <div class="code-statusbar">
+            <span><i></i> quickstart.cpp</span
+            ><span>异步等待期间，工作线程继续处理其他任务。</span>
+          </div>
+        </div>
+      </section>
+      <section class="platform-band shell" aria-label="平台支持">
+        <span class="platform-caption"
+          >原生系统后端<br /><strong>三平台，一套 API。</strong></span
+        >
+        <div class="platform-item">
+          <svg class="stroke" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 7 5 5-5 5" /><path d="M12 19h7" /></svg
+          ><span><strong>Linux</strong><code>io_uring / epoll</code></span>
+        </div>
+        <div class="platform-item">
+          <svg class="fill" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.03 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.378-3.066c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.702z"
+            /></svg
+          ><span><strong>macOS</strong><code>kqueue</code></span>
+        </div>
+        <div class="platform-item">
+          <svg class="fill" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3 5.4 10.6 4.3v7.5H3zm9-1.2L21.4 3v8.8h-9.4zM3 13.2h7.6v7.5L3 19.6zm9 0h9.4V21L12 19.8z"
+            /></svg
+          ><span><strong>Windows</strong><code>IOCP</code></span>
+        </div>
+      </section>
+      <section class="capabilities shell" id="features">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">CAPABILITIES</span>
+            <h2>从一次 I/O，到完整应用。</h2>
+          </div>
+          <p>把流程写清楚，<br />让并发有边界、资源有归属。</p>
+        </div>
+        <div class="capability-grid">
+          <a class="capability-card wide" href="book/api/tasks.html"
+            ><div class="card-heading">
+              <span class="card-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="m8 6-6 6 6 6" /><path d="m16 6 6 6-6 6" /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>用协程组织逻辑</h3>
+            <p>
+              <code>task&lt;T&gt;</code> 表达异步流程，<code>co_await</code>
+              等待结果。用 join 汇合任务，用 select 处理竞速。
+            </p>
+            <div class="syntax-art" aria-hidden="true">
+              <span>auto</span> [a, b] =
+              <span>co_await</span> faio::<b>join</b>(first(), second());
+            </div></a
+          >
+          <a class="capability-card" href="book/api/network.html"
+            ><div class="card-heading">
+              <span class="card-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><circle cx="12" cy="12" r="9" /><path
+                    d="M3 12h18"
+                  /><path
+                    d="M12 3c2.5 2.6 3.9 5.7 3.9 9s-1.4 6.4-3.9 9c-2.5-2.6-3.9-5.7-3.9-9S9.5 5.6 12 3Z"
+                  /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>网络 I/O</h3>
+            <p>
+              TCP、UDP、地址解析与 Unix 扩展。一个连接，一个清晰的处理流程。
+            </p>
+            <div class="card-tags">
+              <span>TcpStream</span><span>UdpSocket</span>
+            </div></a
+          >
+          <a class="capability-card" href="book/api/filesystem.html"
+            ><div class="card-heading">
+              <span class="card-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path
+                    d="M14 2.5H6A1.5 1.5 0 0 0 4.5 4v16A1.5 1.5 0 0 0 6 21.5h12a1.5 1.5 0 0 0 1.5-1.5V7.5z"
+                  /><path d="M14 2.5v5h5.5" /><path d="M8.5 13h7" /><path
+                    d="M8.5 17h5"
+                  /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>文件与目录</h3>
+            <p>从异步读写到目录枚举，使用统一的结果与错误处理方式。</p>
+            <div class="card-tags">
+              <span>File</span><span>ReadDir</span>
+            </div></a
+          >
+          <a class="capability-card" href="book/api/runtime.html"
+            ><div class="card-heading">
+              <span class="card-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><rect x="5" y="5" width="14" height="14" rx="2" /><rect
+                    x="9.5"
+                    y="9.5"
+                    width="5"
+                    height="5"
+                  /><path
+                    d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"
+                  /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>适合你的运行时</h3>
+            <p>选择单线程或多线程模式，配置任务调度与阻塞工作容量。</p>
+            <div class="card-tags">
+              <span>current_thread</span><span>multi_thread</span>
+            </div></a
+          >
+          <a class="capability-card" href="book/api/sync.html"
+            ><div class="card-heading">
+              <span class="card-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><rect x="4.5" y="10.5" width="15" height="10" rx="2" /><path
+                    d="M8 10.5V7a4 4 0 0 1 8 0v3.5"
+                  /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>并发之间，协作有序</h3>
+            <p>互斥锁、信号量、条件变量与有界通道。等待挂起协程。</p>
+            <div class="card-tags"><span>mutex</span><span>mpsc</span></div></a
+          >
+          <a class="capability-card" href="book/api/time.html"
+            ><div class="card-heading">
+              <span class="card-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><circle cx="12" cy="12" r="9" /><path
+                    d="M12 7v5l3.5 2"
+                  /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>掌握等待的时间</h3>
+            <p>休眠、周期 tick 与 I/O 截止时间，为异步操作设定边界。</p>
+            <div class="card-tags">
+              <span>sleep</span><span>timeout</span>
+            </div></a
+          >
+        </div>
+      </section>
+      <section class="learning-section shell">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">START HERE. GO FURTHER.</span>
+            <h2>找到你的下一步。</h2>
+          </div>
+          <a class="inline-link" href="book/">进入文档中心 <span>→</span></a>
+        </div>
+        <div class="learning-grid">
+          <a href="book/getting-started.html"
+            ><span class="learning-number">01</span>
+            <div>
+              <h3>快速开始 <span>↗</span></h3>
+              <p>准备环境，集成 CMake，运行第一个程序。</p>
+            </div></a
+          ><a href="api/"
+            ><span class="learning-number">02</span>
+            <div>
+              <h3>API 参考 <span>↗</span></h3>
+              <p>查阅公开接口、参数、返回值与使用约定。</p>
+            </div></a
+          ><a href="book/examples/"
+            ><span class="learning-number">03</span>
+            <div>
+              <h3>官方例程 <span>↗</span></h3>
+              <p>阅读真实源码，从回显服务走向完整应用。</p>
+            </div></a
+          ><a href="book/modules.html"
+            ><span class="learning-number">04</span>
+            <div>
+              <h3>模块讲解 <span>↗</span></h3>
+              <p>深入协程、运行时与 I/O 模块的设计。</p>
+            </div></a
+          >
+        </div>
+      </section>
+      <section class="experimental shell" id="experimental">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker lab">EXPERIMENTAL</span>
+            <h2>站在标准的前沿。</h2>
+          </div>
+          <p>围绕 C++26 与 P2300 探索 faio 的演进形态，<br />与基础库完全解耦。</p>
+        </div>
+        <div class="lab-grid">
+          <a class="lab-card" href="book/实验性特性.html"
+            ><div class="card-heading">
+              <span class="card-icon lab-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M10 2v6L4.6 19a2 2 0 0 0 1.8 3h11.2a2 2 0 0 0 1.8-3L14 8V2" /><path
+                    d="M8 2h8"
+                  /><path d="M7.2 15h9.6" /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>编译期配置与异步入口</h3>
+            <p>
+              基于 C++26 静态反射与注解，把运行时配置写成函数注解，用
+              <code>[[=faio::experimental::main(app)]]</code>
+              将协程直接声明为程序入口，配置错误在编译期暴露。
+            </p>
+            <div class="card-tags">
+              <span>P2996 反射</span><span>P3394 注解</span>
+            </div></a
+          >
+          <a class="lab-card" href="book/实验性特性.html"
+            ><div class="card-heading">
+              <span class="card-icon lab-icon"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M9 2v5M15 2v5" /><path
+                    d="M7 7h10v4a5 5 0 0 1-10 0z"
+                  /><path d="M12 16v6" /></svg></span
+              ><span class="card-arrow"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"
+                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
+              >
+            </div>
+            <h3>Sender/Receiver 互操作</h3>
+            <p>
+              基于 stdexec（P2300 参考实现），把 faio 运行时包装为标准
+              scheduler、把 <code>task&lt;T&gt;</code> 包装为
+              sender，与 stdexec 算法无缝组合，复用同一运行时宿主。
+            </p>
+            <div class="card-tags">
+              <span>P2300</span><span>stdexec</span>
+            </div></a
+          >
+        </div>
+        <p class="lab-note">
+          独立门禁：Linux + GCC 16.1 + C++26。基础库不受影响，保持 C++23
+          跨平台；未启用实验性开关时，实验性头文件不参与任何编译。
+        </p>
+      </section>
+      <section class="closing shell">
+        <div class="closing-glow" aria-hidden="true"></div>
+        <span class="section-kicker">BUILD WITH FAIO</span>
+        <h2>从第一个 <code>co_await</code> 开始。</h2>
+        <p>阅读快速开始，把异步能力带进你的下一个 C++ 工程。</p>
+        <a class="button primary" href="book/getting-started.html"
+          >开始构建 <span>→</span></a
+        >
+        <div class="install-command">
+          <code>git clone https://github.com/superlxh02/faio.git</code
+          ><button id="copy-command" aria-label="复制克隆命令">复制</button>
+        </div>
+        <span class="sr-only" id="copy-status" aria-live="polite"></span>
+      </section>
+    </main>
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <a class="brand" href="./"
+          ><img src="assets/favicon.svg" alt="" width="25" height="25" /><span
+            >faio</span
+          ></a
+        >
+        <p>Fast Async I/O · Modern C++</p>
+        <nav aria-label="页脚导航">
+          <a href="api/">API 参考</a
+          ><a href="https://github.com/superlxh02/faio">GitHub ↗</a
+          ><a href="https://github.com/superlxh02/faio/blob/main/LICENSE"
+            >Apache 2.0</a
+          >
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

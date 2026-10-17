@@ -2,6 +2,8 @@
 
 **简体中文** | [English](README_EN.md)
 
+[项目主页](https://superlxh02.github.io/faio/) · [开发者文档](https://superlxh02.github.io/faio/book/) · [API 参考](docs/api/index.md) · [官方例程](docs/examples/index.md) · [本地预览与部署](.github/site/README.md)
+
 faio 是一个基于 C++20 协程构建的高性能跨平台异步 I/O 库。平台覆盖 Linux（编译期选择 io_uring 或 epoll）、macOS（kqueue）与 Windows（原生 IOCP/OVERLAPPED）；功能涵盖协程任务与同步原语、单/多线程运行时、TCP/UDP 网络、Unix 平台网络扩展、定时器，以及原生异步文件 I/O（无原生支持的操作由独立有界服务回退执行）。库以头文件形式提供，采用 [Apache-2.0](LICENSE) 开源许可证。
 
 在 faio 中，异步流程以同步方式书写：协程等待 I/O、定时器或同步原语时挂起并让出工作线程，完成事件到达后由运行时恢复。uring 支持的文件操作提交原生 SQE，其余由独立有界服务执行，worker 全程不阻塞，适用于高并发网络服务、异步任务处理与通用协程并发程序。

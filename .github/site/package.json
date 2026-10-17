@@ -1,0 +1,9 @@
+{
+  "name": "faio-documentation",
+  "private": true,
+  "description": "Local, CDN-free diagram rendering for the faio documentation",
+  "dependencies": {
+    "@highlightjs/cdn-assets": "11.11.1",
+    "mermaid": "11.12.0"
+  }
+}
