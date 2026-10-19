@@ -126,14 +126,14 @@ class iocp_backend {
   const char* name() const noexcept { return backend_name; }
 
   /** @brief 持久关联完整位宽句柄；失败时不接管调用方的所有权。 */
-  int attach(native_registration handle, std::uint64_t) noexcept {
+  int register_resource(native_registration handle, std::uint64_t) noexcept {
     /// @brief 以组件短锁串行保护共享状态；可能等待内核或执行用户回调的动作在所属协议允许的锁外完成。
     std::lock_guard lock(mutex_);
-    return attach_locked(handle);
+    return register_resource_locked(handle);
   }
 
   /** @brief IOCP 关联不能解除；删除用户态缓存，实际关闭仍由资源负责。 */
-  void detach(native_registration handle) noexcept {
+  void unregister_resource(native_registration handle) noexcept {
     /// @brief 以组件短锁串行保护共享状态；可能等待内核或执行用户回调的动作在所属协议允许的锁外完成。
     std::lock_guard lock(mutex_);
     registrations_.erase(handle.value);
@@ -176,7 +176,7 @@ class iocp_backend {
     if (r.fd < 0)
       return {submit_status::rejected, EBADF};
     const native_registration handle{static_cast<std::uintptr_t>(r.fd), r.native_kind};
-    if (int error = attach_locked(handle); error)
+    if (int error = register_resource_locked(handle); error)
       return {submit_status::rejected, -error};
     /// @brief 此节点直到原生结果消费后才允许再次进入空闲链。
     auto* node = free_;
@@ -379,7 +379,7 @@ class iocp_backend {
 
  private:
   /// @brief 在后端锁内把完整宽度原生句柄关联到完成端口。
-  int attach_locked(native_registration handle) noexcept {
+  int register_resource_locked(native_registration handle) noexcept {
     if (handle.kind != handle_kind::windows_socket && handle.kind != handle_kind::windows_handle)
       return -EINVAL;
     if (auto it = registrations_.find(handle.value); it != registrations_.end())

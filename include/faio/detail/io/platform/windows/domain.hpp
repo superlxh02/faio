@@ -147,7 +147,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   void forget_native_handle(native_descriptor handle, native_handle_kind kind) noexcept {
     /// @brief 以组件短锁串行保护共享状态；可能等待内核或执行用户回调的动作在所属协议允许的锁外完成。
     std::lock_guard lock(mutex_);
-    backend_.detach({static_cast<std::uintptr_t>(handle), kind});
+    backend_.unregister_resource({static_cast<std::uintptr_t>(handle), kind});
   }
 
   /// @brief 从运行时放置服务选择 IO 域，未配置放置服务时沿用当前域。
@@ -212,9 +212,10 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     r->regular_file = regular;
     r->native_kind =
         regular ? native_handle_kind::windows_handle : native_handle_kind::windows_socket;
-    if (const int error = backend_.attach({static_cast<std::uintptr_t>(fd), r->native_kind}, r->id);
+    if (const int error =
+            backend_.register_resource({static_cast<std::uintptr_t>(fd), r->native_kind}, r->id);
         error)
-      throw std::system_error(-error, std::generic_category(), "IOCP attach");
+      throw std::system_error(-error, std::generic_category(), "IOCP register_resource");
     r->registered = true;
     /// @brief fd family 与绑定归属一起固定，native 扩展不能盲用于 Unix/pipe。
     r->socket_family =
@@ -265,12 +266,12 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       throw;
     }
     resource->id = id;
-    if (const int error = backend_.attach(
+    if (const int error = backend_.register_resource(
             {static_cast<std::uintptr_t>(resource->fd()), resource->native_kind}, id);
         error) {
       resources_.erase(id);
       descriptors_.erase(resource->fd());
-      throw std::system_error(-error, std::generic_category(), "IOCP attach");
+      throw std::system_error(-error, std::generic_category(), "IOCP register_resource");
     }
     resource->registered = true;
     resource->socket_family = query_socket_family(resource->fd());
@@ -319,7 +320,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     const native_descriptor fd =
         resource.handle.exchange(-1, std::memory_order_acq_rel);
     if (resource.registered && fd >= 0)
-      backend_.detach({static_cast<std::uintptr_t>(fd), resource.native_kind});
+      backend_.unregister_resource({static_cast<std::uintptr_t>(fd), resource.native_kind});
     resources_.erase(resource.id);
     if (fd >= 0)
       descriptors_.erase(fd);
@@ -351,7 +352,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     if (fd < 0)
       return std::unexpected{make_error(EBADF)};
     if (resource.registered && !preserve_association)
-      backend_.detach({static_cast<std::uintptr_t>(fd), resource.native_kind});
+      backend_.unregister_resource({static_cast<std::uintptr_t>(fd), resource.native_kind});
     resource.registered = false;
     /// @brief 先发布 closing，后续 syscall 无法跨关闭边界取得执行权。
     resource.closing = true;
@@ -1622,7 +1623,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     /// @brief 普通文件不能套用 socket 或管道的 readiness 执行路径。
     if (resource.regular_file)
       return -ENOTSUP;
-    const int result = backend_.attach(
+    const int result = backend_.register_resource(
         {static_cast<std::uintptr_t>(resource.fd()), resource.native_kind}, resource.id);
     /// @brief 仅成功登记后才允许发布 registered 标志。
     if (!result)
@@ -1911,7 +1912,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     if (fd >= 0) {
       /// @brief 已有持久就绪登记时复用该登记，避免逐次修改内核兴趣集。
       if (resource.registered)
-        backend_.detach({static_cast<std::uintptr_t>(fd), resource.native_kind});
+        backend_.unregister_resource({static_cast<std::uintptr_t>(fd), resource.native_kind});
       resource.registered = false;
       descriptors_.erase(fd);
       if (resource.owns_handle) {

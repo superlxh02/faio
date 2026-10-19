@@ -77,12 +77,12 @@ struct scripted_readiness {
   static constexpr const char* backend_name = "scripted-direction-readiness";
   std::shared_ptr<readiness_script> state;
 
-  int attach(int, std::uint64_t key) noexcept {
+  int register_resource(int, std::uint64_t key) noexcept {
     state->key = key;  // 后续事件必须使用已登记的资源代际。
     return 0;
   }
 
-  void detach(int) noexcept { state->key = 0; }
+  void unregister_resource(int) noexcept { state->key = 0; }
 
   int poll(std::span<faio::io::detail::readiness_event> output, std::optional<int>) noexcept {
     if (output.empty() || !state->event)

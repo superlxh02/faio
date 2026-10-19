@@ -57,7 +57,7 @@ flowchart TD
         B["IORegistrantAwaiter<br/>等待节点 + 三态 gate"]
     end
     subgraph CONTRACT["合同层（第 4 章）"]
-        K["backend_api / reactor_api<br/>attach · try_submit · flush · poll · wake"]
+        K["backend_api / reactor_api<br/>register_resource · try_submit · flush · poll · wake"]
         EV["backend_event<br/>readiness / result / cancel_ack / buffer_release"]
     end
     subgraph COMPLETE["完成端（第 6 章）"]
@@ -1096,7 +1096,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["attach<br/>登记长期资源"] --> B["try_submit + flush<br/>提交一次性请求"]
+    A["register_resource<br/>登记长期资源"] --> B["try_submit + flush<br/>提交一次性请求"]
     B --> C["poll<br/>消费完成事件"]
     C -.->|"下一批"| B
     W["wake<br/>打断等待"] -.-> C
@@ -1106,7 +1106,8 @@ flowchart LR
 
 | 动作 | 语义 | 谁调用 |
 | --- | --- | --- |
-| `attach(handle, key)` | 把长期资源与一个单调 `key` 关联，供后续事件识别 | 域，在资源首次需要就绪观察时 |
+| `register_resource(handle, key)` | 登记长期资源；在 reactor 中关联单调 `key`，供后续就绪事件识别 | 域，在资源首次需要后端登记时 |
+| `unregister_resource(handle)` | 撤销后端的资源登记，不关闭原生句柄 | 域，在资源关闭或导出前 |
 | `try_submit(op)` | 尝试接受一个一次性请求，返回**已接受 / 暂满 / 拒绝** | 域，在 `submit_locked` 内 |
 | `flush()` | 把已准备但未交给内核的提交推下去 | 域，仅当 `poll_flushes_submissions == false` |
 | `poll(out, timeout)` | 在预算内消费一批事件 | 域，在 `drive` 内，且只有一个线程 |
@@ -1115,7 +1116,9 @@ flowchart LR
 | `begin_shutdown()` / `begin_failure(e)` | 停止接受新请求 / 声明永久故障 | 域，在停机与故障路径 |
 | `quiescent()` | 是否已无未归还的内核引用与完成责任 | 域，在排空等待中 |
 
-注意"三段"里没有 `read`、没有 `recv`、没有 `open`。**抽象层不知道 opcode 语义**，它只知道"有个请求要提交、有个事件要消费"。opcode 的解释权在后端（`opcode_for` 映射）和域（仲裁规则）手里。这是新增后端只需要实现 8 个方法的原因。
+`register_resource` / `unregister_resource` 管理长期资源在后端的登记，不转移原生句柄的所有权。在 reactor 中，首次需要就绪观察时登记 fd 和资源 `key`，后续多次读写复用这份登记；`poll` 返回的就绪事件携带该 `key`。注销后，已经取出的迟到事件仍由域校验 `key` 并丢弃。域的 `detach(resource)` 则用于导出原生句柄，它会调用后端的 `unregister_resource`，并移除域内索引、交出所有权。
+
+注意"三段"里没有 `read`、没有 `recv`、没有 `open`。**抽象层不知道 opcode 语义**，它只知道"有个请求要提交、有个事件要消费"。opcode 的解释权在后端（`opcode_for` 映射）和域（仲裁规则）手里。新增后端实现这些协议方法即可接入。
 
 #### `try_submit` 的三态是必须的
 
@@ -1268,8 +1271,10 @@ class basic_readiness_adapter {
  public:
   explicit basic_readiness_adapter(R reactor) : reactor_(std::move(reactor)) {}
 
-  int attach(int fd, std::uint64_t key) noexcept { return reactor_.attach(fd, key); }
-  void detach(int fd) noexcept { reactor_.detach(fd); }
+  int register_resource(int fd, std::uint64_t key) noexcept {
+    return reactor_.register_resource(fd, key);
+  }
+  void unregister_resource(int fd) noexcept { reactor_.unregister_resource(fd); }
 
   backend_submit_result try_submit(backend_operation) noexcept {
     return {backend_submit_status::rejected, EOPNOTSUPP};   // ①
@@ -1330,7 +1335,8 @@ using backend_box = basic_backend_box<windows::iocp_backend>;
 classDiagram
     class backend_api~Derived~ {
         <<CRTP interface>>
-        +attach(handle, key) int
+        +register_resource(handle, key) int
+        +unregister_resource(handle) void
         +try_submit(op) result
         +flush() result
         +poll(out, timeout) int
@@ -1398,8 +1404,8 @@ inline backend_box make_platform_backend(
 
 | 方法 | uring | iocp | epoll/kqueue（经 adapter） | 说明 |
 | --- | --- | --- | --- | --- |
-| `attach` | 空实现 | 关联完成端口 + 缓存 skip 模式 | `epoll_ctl ADD` / `kevent ADD` | 原生后端不需要就绪注册 |
-| `detach` | 空实现 | 只删用户态缓存 | `DEL` / `EV_DELETE` | IOCP 的内核关联不可解除 |
+| `register_resource` | 空实现 | 关联完成端口 + 缓存 skip 模式 | `epoll_ctl ADD` / `kevent ADD` | 原生后端不需要就绪注册 |
+| `unregister_resource` | 空实现 | 只删用户态缓存 | `DEL` / `EV_DELETE` | IOCP 的内核关联不可解除 |
 | `try_submit` | 写 SQE | 取池节点 + 调原生 API | 恒拒绝 | 见 7.2、7.3、4.5 |
 | `flush` | `io_uring_submit` | 空（原 API 已提交） | 空 | 由 `poll_flushes_submissions` 决定是否调用 |
 | `poll` | 先 flush 再收割 CQE | 先合成完成再取完成包 | `epoll_wait` / `kevent` | 唯一 CQ 消费者 |
@@ -2226,7 +2232,7 @@ void bind(const resource_ptr& resource) {
 void release_resource(resource_state& resource) noexcept {
   std::lock_guard lock(mutex_);                             // 可重入锁，可能已在锁内
   const auto fd = resource.owns_handle ? resource.handle.exchange(-1, acq_rel) : -1;
-  if (resource.registered && fd >= 0) backend_.detach(fd);   // ① 先撤销注册
+  if (resource.registered && fd >= 0) backend_.unregister_resource(fd);   // ① 先撤销注册
   resources_.erase(resource.id);
   if (fd >= 0) descriptors_.erase(fd);
   if (resource.owns_handle && fd >= 0) {
@@ -2562,7 +2568,7 @@ void close_handle(resource_state& resource) noexcept {
   if (resource.close_pending) return;
   const int fd = resource.handle.exchange(-1, std::memory_order_acq_rel);   // ① 唯一接管
   if (fd >= 0) {
-    if (resource.registered) backend_.detach(fd);                            // ② 先撤注册
+    if (resource.registered) backend_.unregister_resource(fd);             // ② 先撤注册
     resource.registered = false;
     descriptors_.erase(fd);
     if (resource.owns_handle) {
@@ -2655,7 +2661,7 @@ void enter_failure(int error) noexcept {
 | --- | --- | --- |
 | fd 类型 | `int` | `intptr_t` + `native_handle_kind` |
 | 注册 | `adopt` 只登记，就绪注册延后到 `ensure_registration` | `adopt` **立即关联完成端口** |
-| 关联可撤销 | 是（`backend_.detach`） | **否**，只删用户态缓存 |
+| 关联可撤销 | 是（`backend_.unregister_resource`） | **否**，只删用户态缓存 |
 | 借用准备 | `FIONBIO` / `O_NONBLOCK` | `FIONBIO`（socket）或无需设置（文件） |
 | 关闭 | 原生 CLOSE SQE 或清理通道 | `CloseHandle`/`closesocket`，先 `forget_native_handle` |
 | 错误编码 | 负 errno | 负值带 Win32/Winsock 来源标签（见 7.4） |
@@ -2677,9 +2683,10 @@ resource_ptr adopt(native_descriptor fd, bool owns = true, bool regular = false)
   r->regular_file = regular;
   r->native_kind = regular ? native_handle_kind::windows_handle
                            : native_handle_kind::windows_socket;   // ①
-  if (const int error = backend_.attach({static_cast<std::uintptr_t>(fd), r->native_kind}, r->id);
+  if (const int error = backend_.register_resource(
+          {static_cast<std::uintptr_t>(fd), r->native_kind}, r->id);
       error)
-    throw std::system_error(-error, std::generic_category(), "IOCP attach");  // ②
+    throw std::system_error(-error, std::generic_category(), "IOCP register_resource");  // ②
   r->registered = true;
   r->socket_family = query_socket_family(fd);
   resources_.emplace(r->id, r);
@@ -2701,14 +2708,14 @@ resource_ptr adopt(native_descriptor fd, bool owns = true, bool regular = false)
 // 所有关闭路径先 forget_native_handle 移除域缓存，再 CloseHandle。
 ```
 
-因为 IOCP 的内核关联**无法解除**，如果句柄数值被复用，新句柄的完成包会带着旧的 `lpCompletionKey`。删除用户态缓存让 `registrations_` 在下次 `attach` 时重建，避免命中旧配置。
+因为 IOCP 的内核关联**无法解除**，如果句柄数值被复用，新句柄的完成包会带着旧的 `lpCompletionKey`。删除用户态缓存让 `registrations_` 在下次 `register_resource` 时重建，避免命中旧配置。
 
 ---
 ## 7. 主线一：原生 Proactor
 
-> **本章依赖**：第 4 章的合同（`attach`/`try_submit`/`flush`/`poll`/`request_cancel`）与三态提交结果；第 6 章的 `submit_native`、`complete_native`、`pump_native_pending`。
+> **本章依赖**：第 4 章的合同（`register_resource`/`try_submit`/`flush`/`poll`/`request_cancel`）与三态提交结果；第 6 章的 `submit_native`、`complete_native`、`pump_native_pending`。
 >
-> **叙述顺序按"实现一个后端要先写什么"排列**：先建内核对象（构造），再写注册（`attach`），然后写提交（`try_submit`），再写推进（`flush`/`poll`），最后写取消与释放。这个顺序也是读源码的顺序。
+> **叙述顺序按"实现一个后端要先写什么"排列**：先建内核对象（构造），再写注册（`register_resource`），然后写提交（`try_submit`），再写推进（`flush`/`poll`），最后写取消与释放。这个顺序也是读源码的顺序。
 
 ### 7.1 两条主线各自要补哪一段
 
@@ -2831,11 +2838,11 @@ explicit uring_backend(unsigned capacity = 256, bool use_extended_wait = true) {
 
 ⑦ 有些能力 opcode probe 反映不出来（同一条 `IORING_OP_URING_CMD` 在不同版本上语义不同），因此补一次版本判定。`parse_kernel_version` 失败时 `socket_commands_` 保持 false——选择等价短 syscall，不假装支持。
 
-#### 7.2.4 attach / detach：原生路径不需要注册
+#### 7.2.4 register_resource / unregister_resource：原生路径不需要注册
 
 ```cpp
-int attach(int, std::uint64_t) noexcept { return 0; }
-void detach(int) noexcept {}
+int register_resource(int, std::uint64_t) noexcept { return 0; }
+void unregister_resource(int) noexcept {}
 ```
 
 这两个空实现不是省略，而是**语义正确**：io_uring 的每个请求自带 fd 参数，不需要像 epoll 那样先把 fd 加入兴趣集。域里的 `ensure_registration` 对原生后端因此是无害的空操作。
@@ -3231,12 +3238,12 @@ explicit iocp_backend(std::size_t capacity = 4096) {
 
 `active_` 是尚未消费的节点数。非零时终止，因为释放意味着内核之后会向已释放内存写完成包。
 
-#### 7.3.4 attach 与"合成完成"
+#### 7.3.4 register_resource 与"合成完成"
 
-IOCP 的句柄必须**先关联完成端口**才能投递重叠操作，因此 `attach` 不是可选的：
+IOCP 的句柄必须**先关联完成端口**才能投递重叠操作，因此 `register_resource` 不是可选的：
 
 ```cpp
-int attach_locked(native_registration handle) noexcept {
+int register_resource_locked(native_registration handle) noexcept {
   // 已缓存且种类一致：直接复用
   // ...
   if (!::CreateIoCompletionPort(native, port_, 0, 0)) {
@@ -3339,7 +3346,7 @@ submit_result try_submit(detail::backend_operation operation) noexcept {
   if (r.fd < 0) return {submit_status::rejected, EBADF};
 
   const native_registration handle{static_cast<std::uintptr_t>(r.fd), r.native_kind};
-  if (int error = attach_locked(handle); error)
+  if (int error = register_resource_locked(handle); error)
     return {submit_status::rejected, -error};                  // ②
 
   auto* node = free_;
@@ -3371,7 +3378,7 @@ submit_result try_submit(detail::backend_operation operation) noexcept {
 
 ① 池节点耗尽返回 `would_queue`，域稍后重试。这是 IOCP 侧唯一的有界背压来源。
 
-② 每次提交都尝试 `attach_locked`，但已缓存的句柄直接命中，不重复关联。
+② 每次提交都尝试 `register_resource_locked`，但已缓存的句柄直接命中，不重复关联。
 
 ③ 必须清空 `OVERLAPPED`。上一代的 `Internal`/`Offset` 残留会让内核行为异常（尤其是文件读写偏移）。
 
@@ -3517,7 +3524,7 @@ inline Error make_io_error(int value, std::uint64_t progress = 0) noexcept {
 
 ```mermaid
 flowchart LR
-    A["epoll_reactor / kqueue_reactor<br/>产出门控事件"] --> B["basic_reactor_box<br/>reactor_api：attach/detach/poll/wake"]
+    A["epoll_reactor / kqueue_reactor<br/>产出门控事件"] --> B["basic_reactor_box<br/>reactor_api：register_resource / unregister_resource<br/>poll / wake"]
     B --> C["basic_readiness_adapter<br/>转成 backend_event{readiness}"]
     C --> D["io_domain<br/>attempt：syscall + 代际缓存"]
     D -->|"EAGAIN"| E["等待下一次 readiness"]
@@ -3541,7 +3548,7 @@ flowchart LR
 | `wake_pending_` | — | 唤醒责任合并门 |
 
 ```cpp
-int attach(int fd, std::uint64_t key) noexcept {
+int register_resource(int fd, std::uint64_t key) noexcept {
   epoll_event event{};
   event.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET;   // ①
   event.data.u64 = key;                                       // ②
@@ -3607,7 +3614,7 @@ void wake() noexcept {
 | 关闭信息 | `EPOLLRDHUP`/`EPOLLHUP` 分方向 | `EV_EOF` 是过滤器特定条件 |
 
 ```cpp
-int attach(int fd, std::uint64_t key) noexcept {
+int register_resource(int fd, std::uint64_t key) noexcept {
   std::array<struct kevent, 2> changes{}, receipts{};
   auto* token = reinterpret_cast<void*>(static_cast<std::uintptr_t>(key));   // ①
   EV_SET(&changes[0], static_cast<uintptr_t>(fd), EVFILT_READ,
@@ -3619,7 +3626,7 @@ int attach(int fd, std::uint64_t key) noexcept {
   for (int i = 0; i < count; ++i)
     if (receipts[static_cast<std::size_t>(i)].data != 0) {                   // ②
       const int error = static_cast<int>(receipts[static_cast<std::size_t>(i)].data);
-      detach(fd);                                                            // ③
+      unregister_resource(fd);                                              // ③
       return -error;
     }
   return 0;
@@ -3630,7 +3637,7 @@ int attach(int fd, std::uint64_t key) noexcept {
 
 ② `EV_RECEIPT` 让每个变化产生一条回执：`data == 0` 表示成功，非零表示该条的 errno。因此两条变化可能一条成功一条失败。
 
-③ 失败时必须 `detach(fd)` 回滚**已经成功的另一条**。否则会留下"只有读方向注册、没有写方向"的半注册状态，之后 `EPOLLOUT` 类事件永远不来，而 `detach` 又要处理不存在的过滤器。
+③ 失败时必须 `unregister_resource(fd)` 回滚**已经成功的另一条**。否则会留下"只有读方向注册、没有写方向"的半注册状态，之后 `EPOLLOUT` 类事件永远不来，而 `unregister_resource` 又要处理不存在的过滤器。
 
 ```cpp
 int poll(std::span<readiness_event> output, std::optional<int> timeout) noexcept {
@@ -3708,7 +3715,7 @@ void attempt(operation_state& op) noexcept {
 
 ⑥ **真实 `EAGAIN` 才清除就绪位**。这是 ET 正确性的关键：只有在确认"上次的提示是假阳性"时才清缓存，否则会丢掉真实的边沿。
 
-⑦ 登记就绪。`ensure_registration` 只在该资源第一次需要等待时调用后端 `attach`，之后复用同一注册。
+⑦ 登记就绪。`ensure_registration` 只在该资源第一次需要等待时调用后端 `register_resource`，之后复用同一注册。
 
 ⑧ 成功、短读、EOF、真实错误都立即建立终态。**短读不重试**——重试是组合算法（`read_exact`）的责任，不是单次 IO 的责任。
 
@@ -3759,7 +3766,7 @@ sequenceDiagram
     participant R as reactor
     C->>D: prepare_submit(recv)
     D->>D: attempt：recv() → EAGAIN
-    D->>R: ensure_registration（首次才 attach）
+    D->>R: ensure_registration（首次才 register_resource）
     D->>D: readiness &= ~readable<br/>observed gen = G1
     D-->>C: token（协程挂起）
     R->>D: poll：readable，gen → G2
@@ -4386,7 +4393,7 @@ Windows 的文件路径不是字节串，因此高层 FS 用 `std::filesystem::p
 
 `RootDirectory` 那个细节值得解释：如果把 `parent + "\\" + name` 拼成一个字符串再打开，会有三个问题——路径长度受限、`..` 可能逃逸、`name` 里的保留名（如 `CON`）行为异常。用 `RootDirectory` 让内核直接按句柄解析，绕开全部字符串层面的坑。
 
-`forget_native_handle` 是 Windows 特有的收尾（见 6.10）：IOCP 的内核关联无法解除，必须删掉用户态缓存，否则句柄数值复用后新的 `attach` 会命中旧配置。
+`forget_native_handle` 是 Windows 特有的收尾（见 6.10）：IOCP 的内核关联无法解除，必须删掉用户态缓存，否则句柄数值复用后新的 `register_resource` 会命中旧配置。
 
 ### 9.7 文件层的平台分叉
 

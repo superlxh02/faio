@@ -19,37 +19,40 @@ class backend_api {
   ~backend_api() = default;
 
  public:
-  /// @brief 向具体后端登记长期资源身份；失败时不接管调用方的原生句柄。
-  int attach(this Derived& self, native_registration handle, std::uint64_t key) noexcept {
+  /// @brief 向具体后端登记长期资源身份；不接管原生句柄的所有权。
+  int register_resource(this Derived& self,
+                        native_registration handle,
+                        std::uint64_t key) noexcept {
     auto& object = self.object();
-    if constexpr (requires { object.attach(handle, key); })
-      return object.attach(handle, key);
+    if constexpr (requires { object.register_resource(handle, key); })
+      return object.register_resource(handle, key);
     else {
       /// @brief 保留完整 Windows handle；仅 POSIX adapter 允许缩窄。
       if (handle.kind != native_handle_kind::posix_descriptor || handle.value > 0x7fffffffU)
         return -22;
-      return object.attach(static_cast<int>(handle.value), key);
+      return object.register_resource(static_cast<int>(handle.value), key);
     }
   }
 
-  /// @brief 向具体后端登记长期资源身份；失败时不接管调用方的原生句柄。
-  int attach(this Derived& self, int handle, std::uint64_t key) noexcept {
-    return self.attach({static_cast<std::uintptr_t>(handle), native_handle_kind::posix_descriptor},
-                       key);
+  /// @brief 向具体后端登记长期资源身份；不接管原生句柄的所有权。
+  int register_resource(this Derived& self, int handle, std::uint64_t key) noexcept {
+    return self.register_resource(
+        {static_cast<std::uintptr_t>(handle), native_handle_kind::posix_descriptor}, key);
   }
 
-  /// @brief 撤销原生资源登记，迟到事件仍须由上层按资源身份过滤。
-  void detach(this Derived& self, native_registration handle) noexcept {
+  /// @brief 撤销后端资源登记而不关闭句柄；迟到事件仍须由上层按资源身份过滤。
+  void unregister_resource(this Derived& self, native_registration handle) noexcept {
     auto& object = self.object();
-    if constexpr (requires { object.detach(handle); })
-      object.detach(handle);
+    if constexpr (requires { object.unregister_resource(handle); })
+      object.unregister_resource(handle);
     else if (handle.kind == native_handle_kind::posix_descriptor && handle.value <= 0x7fffffffU)
-      object.detach(static_cast<int>(handle.value));
+      object.unregister_resource(static_cast<int>(handle.value));
   }
 
-  /// @brief 撤销原生资源登记，迟到事件仍须由上层按资源身份过滤。
-  void detach(this Derived& self, int handle) noexcept {
-    self.detach({static_cast<std::uintptr_t>(handle), native_handle_kind::posix_descriptor});
+  /// @brief 撤销后端资源登记而不关闭句柄；迟到事件仍须由上层按资源身份过滤。
+  void unregister_resource(this Derived& self, int handle) noexcept {
+    self.unregister_resource(
+        {static_cast<std::uintptr_t>(handle), native_handle_kind::posix_descriptor});
   }
 
   /// @brief 尝试接受稳定请求，明确区分已接受、暂时满载与拒绝。

@@ -104,7 +104,7 @@ struct release_reactor_pause {
 };
 #endif
 
-/** @brief 只用于测试的描述符所有者；资源销毁晚于 reactor.detach。 */
+/** @brief 只用于测试的描述符所有者；资源销毁晚于 reactor.unregister_resource。 */
 struct descriptor_pair {
   std::array<int, 2> fds{-1, -1};
 
@@ -181,7 +181,7 @@ TEST(ReactorContract, StableSocketRegistrationReportsBothDirectionsAndHalfClose)
   descriptor_pair pair;
   auto reactor = faio::io::detail::make_platform_reactor();
   constexpr std::uint64_t generation = 0x1'0000'0001ULL;
-  ASSERT_EQ(reactor.attach(pair.fds[0], generation), 0);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], generation), 0);
   EXPECT_TRUE(wait_flag(reactor, generation, faio::io::detail::writable_bit));
   const char byte = 'x';
   ASSERT_EQ(::write(pair.fds[1], &byte, 1), 1);
@@ -192,36 +192,36 @@ TEST(ReactorContract, StableSocketRegistrationReportsBothDirectionsAndHalfClose)
   ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);
   EXPECT_TRUE(wait_flag(reactor, generation, faio::io::detail::closed_bit));
   EXPECT_EQ(::read(pair.fds[0], &received, 1), 0);
-  reactor.detach(pair.fds[0]);
+  reactor.unregister_resource(pair.fds[0]);
 }
 
 TEST(ReactorContract, ReadOnlyPipeRegistrationDoesNotRequireWriteFilter) {
   descriptor_pair pair{true};
   auto reactor = faio::io::detail::make_platform_reactor();
-  ASSERT_EQ(reactor.attach(pair.fds[0], 17), 0);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], 17), 0);
   const char byte = 'p';
   ASSERT_EQ(::write(pair.fds[1], &byte, 1), 1);
   EXPECT_TRUE(wait_flag(reactor, 17, faio::io::detail::readable_bit));
-  reactor.detach(pair.fds[0]);
+  reactor.unregister_resource(pair.fds[0]);
 }
 
 TEST(ReactorContract, InvalidDescriptorFailsWithoutPreventingLaterRegistration) {
   auto reactor = faio::io::detail::make_platform_reactor();
-  EXPECT_LT(reactor.attach(-1, 1), 0);
+  EXPECT_LT(reactor.register_resource(-1, 1), 0);
   descriptor_pair pair;
-  ASSERT_EQ(reactor.attach(pair.fds[0], 2), 0);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], 2), 0);
   EXPECT_TRUE(wait_flag(reactor, 2, faio::io::detail::writable_bit));
-  reactor.detach(pair.fds[0]);
+  reactor.unregister_resource(pair.fds[0]);
 }
 
-TEST(ReactorContract, ReattachPublishesNewGenerationAndDetachDiscardsEvents) {
+TEST(ReactorContract, ReregisterPublishesNewGenerationAndUnregisterDiscardsEvents) {
   descriptor_pair pair;
   auto reactor = faio::io::detail::make_platform_reactor();
-  ASSERT_EQ(reactor.attach(pair.fds[0], 19), 0);
-  reactor.detach(pair.fds[0]);
-  ASSERT_EQ(reactor.attach(pair.fds[0], 20), 0);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], 19), 0);
+  reactor.unregister_resource(pair.fds[0]);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], 20), 0);
   EXPECT_TRUE(wait_flag(reactor, 20, faio::io::detail::writable_bit));
-  reactor.detach(pair.fds[0]);
+  reactor.unregister_resource(pair.fds[0]);
   std::array<readiness_event, 16> events{};
   EXPECT_EQ(reactor.poll(events, 0), 0);
 }
@@ -322,7 +322,7 @@ TEST(ReactorContract, AdapterMapsDirectlyWithoutLosingGenerationDirectionOrBudge
   descriptor_pair pair;
   basic_readiness_adapter adapter{make_platform_reactor()};
   constexpr std::uint64_t generation = 0xf123'4567'89ab'cdefULL;
-  ASSERT_EQ(adapter.attach(pair.fds[0], generation), 0);
+  ASSERT_EQ(adapter.register_resource(pair.fds[0], generation), 0);
   EXPECT_EQ(adapter.poll({}, std::nullopt), 0);
   ASSERT_EQ(::write(pair.fds[1], "x", 1), 1);
   ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);
@@ -341,7 +341,7 @@ TEST(ReactorContract, AdapterMapsDirectlyWithoutLosingGenerationDirectionOrBudge
   }
   EXPECT_NE(flags & readable_bit, 0u);
   EXPECT_NE(flags & read_closed_bit, 0u);
-  adapter.detach(pair.fds[0]);
+  adapter.unregister_resource(pair.fds[0]);
 }
 
 /** @brief 小输出 span 不能丢失内核 batch 中尚未移交的其他资源事件。 */
@@ -351,7 +351,7 @@ TEST(ReactorContract, SingleEventOutputEventuallyReportsEveryReadyResource) {
   constexpr std::size_t count = 80;
   for (std::size_t i = 0; i < count; ++i) {
     pairs.push_back(std::make_unique<descriptor_pair>());
-    ASSERT_EQ(reactor.attach(pairs.back()->fds[0], i + 1), 0);
+    ASSERT_EQ(reactor.register_resource(pairs.back()->fds[0], i + 1), 0);
     const char byte = 'b';
     ASSERT_EQ(::write(pairs.back()->fds[1], &byte, 1), 1);
   }
@@ -365,14 +365,14 @@ TEST(ReactorContract, SingleEventOutputEventuallyReportsEveryReadyResource) {
   }
   EXPECT_EQ(observed.size(), count);
   for (auto& pair : pairs)
-    reactor.detach(pair->fds[0]);
+    reactor.unregister_resource(pair->fds[0]);
 }
 
 /** @brief EOF 提示不能覆盖尚未读取的数据；readiness 只表达状态提示。 */
 TEST(ReactorContract, HalfCloseRetainsUnreadPayload) {
   descriptor_pair pair;
   auto reactor = faio::io::detail::make_platform_reactor();
-  ASSERT_EQ(reactor.attach(pair.fds[0], 33), 0);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], 33), 0);
   constexpr std::array<char, 4> bytes{'d', 'a', 't', 'a'};
   ASSERT_EQ(::write(pair.fds[1], bytes.data(), bytes.size()), 4);
   ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);
@@ -382,7 +382,7 @@ TEST(ReactorContract, HalfCloseRetainsUnreadPayload) {
   EXPECT_EQ(::read(pair.fds[0], received.data(), received.size()), 4);
   EXPECT_EQ(received, bytes);
   EXPECT_EQ(::read(pair.fds[0], received.data(), received.size()), 0);
-  reactor.detach(pair.fds[0]);
+  reactor.unregister_resource(pair.fds[0]);
 }
 
 /**
@@ -394,7 +394,7 @@ TEST(ReactorContract, LocalWriteShutdownDoesNotInventReadReadiness) {
   descriptor_pair pair;
   auto reactor = faio::io::detail::make_platform_reactor();
   constexpr std::uint64_t generation = 47;
-  ASSERT_EQ(reactor.attach(pair.fds[0], generation), 0);
+  ASSERT_EQ(reactor.register_resource(pair.fds[0], generation), 0);
   ASSERT_TRUE(wait_flag(reactor, generation, faio::io::detail::writable_bit));
   ASSERT_EQ(::shutdown(pair.fds[0], SHUT_WR), 0);  // 本地读方向仍然开放。
   std::array<readiness_event, 16> events{};
@@ -423,5 +423,5 @@ TEST(ReactorContract, LocalWriteShutdownDoesNotInventReadReadiness) {
   ASSERT_EQ(::shutdown(pair.fds[1], SHUT_WR), 0);  // peer 写关闭才产生读 EOF。
   EXPECT_TRUE(wait_flag(reactor, generation, faio::io::detail::read_closed_bit));
   EXPECT_EQ(::recv(pair.fds[0], &received, 1, MSG_DONTWAIT), 0);
-  reactor.detach(pair.fds[0]);
+  reactor.unregister_resource(pair.fds[0]);
 }

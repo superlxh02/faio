@@ -10,9 +10,13 @@ faio::task<int> delayed_value(int value) {
 }
 
 faio::task<int> answer() {
-  auto [first, second] = co_await faio::join(
-      delayed_value(20), delayed_value(22));
-  co_return first + second;
+  // spawn 立即提交任务，返回可等待的结果句柄
+  auto first = faio::spawn(delayed_value(20));
+  const auto a = co_await first;
+
+  // join 把多个惰性任务组合成一次并发，按参数顺序返回结果
+  auto [b, c] = co_await faio::join(delayed_value(11), delayed_value(11));
+  co_return a + b + c;
 }
 
 int main() {

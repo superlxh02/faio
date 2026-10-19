@@ -28,13 +28,13 @@ struct backend {
 
   ~backend() { ++observed.destroyed; }
 
-  int attach(int fd, std::uint64_t key) noexcept {
+  int register_resource(int fd, std::uint64_t key) noexcept {
     observed.handle = {static_cast<std::uintptr_t>(fd), native_handle_kind::posix_descriptor};
     observed.key = key;
     return 0;
   }
 
-  void detach(int) noexcept { observed.key = 0; }
+  void unregister_resource(int) noexcept { observed.key = 0; }
 
   backend_submit_result try_submit(backend_operation) noexcept { return {}; }
 
@@ -61,13 +61,13 @@ struct typed_backend : backend<true> {
   using backend::backend;
   static constexpr bool poll_flushes_submissions = true;
 
-  int attach(native_registration handle, std::uint64_t key) noexcept {
+  int register_resource(native_registration handle, std::uint64_t key) noexcept {
     observed.handle = handle;
     observed.key = key;
     return 0;
   }
 
-  void detach(native_registration handle) noexcept { observed.handle = handle; }
+  void unregister_resource(native_registration handle) noexcept { observed.handle = handle; }
 
   void request_cancel(backend_operation op) noexcept { observed.cancelled = op; }
 };
@@ -75,14 +75,14 @@ struct typed_backend : backend<true> {
 TEST(StaticIODispatch, PosixAdapterRejectsWrongKindAndNarrowingBeforeCallingBackend) {
   state observed;
   basic_backend_box<backend<false>> box{std::make_unique<backend<false>>(observed)};
-  EXPECT_EQ(box.attach({42, native_handle_kind::windows_socket}, 7), -22);
-  EXPECT_EQ(box.attach({0x80000000U, native_handle_kind::posix_descriptor}, 7), -22);
+  EXPECT_EQ(box.register_resource({42, native_handle_kind::windows_socket}, 7), -22);
+  EXPECT_EQ(box.register_resource({0x80000000U, native_handle_kind::posix_descriptor}, 7), -22);
   EXPECT_EQ(observed.key, 0u);
-  EXPECT_EQ(box.attach(42, 7), 0);
+  EXPECT_EQ(box.register_resource(42, 7), 0);
   EXPECT_EQ(observed.key, 7u);
-  box.detach({42, native_handle_kind::windows_handle});
+  box.unregister_resource({42, native_handle_kind::windows_handle});
   EXPECT_EQ(observed.key, 7u);
-  box.detach(42);
+  box.unregister_resource(42);
   EXPECT_EQ(observed.key, 0u);
 }
 
@@ -90,7 +90,7 @@ TEST(StaticIODispatch, TypedHandlesAndCancellationPreserveFullIdentity) {
   state observed;
   basic_backend_box<typed_backend> box{std::make_unique<typed_backend>(observed)};
   const native_registration handle{~std::uintptr_t{}, native_handle_kind::windows_handle};
-  EXPECT_EQ(box.attach(handle, 9), 0);
+  EXPECT_EQ(box.register_resource(handle, 9), 0);
   EXPECT_EQ(observed.handle.value, handle.value);
   EXPECT_EQ(observed.handle.kind, handle.kind);
   int payload{};

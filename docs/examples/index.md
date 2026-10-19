@@ -6,7 +6,7 @@
 
 | 顺序 | 程序 | 学习目标 | 运行行为 |
 | --- | --- | --- | --- |
-| 0 | `quickstart` | 任务、sleep、join、block_on | 打印 42 后退出 |
+| 0 | `quickstart` | 任务、sleep、spawn、join、block_on | 打印 42 后退出 |
 | 1 | [coroutine_basics](coroutines.md) | 等待、并发、后台任务、汇合、竞速 | 自动退出 |
 | 2 | [coroutine_sync](synchronization.md) | 六类协程同步原语 | 自动退出 |
 | 3 | [tcp_echo_server](network.md) | 每连接一个协程的 TCP 回显 | 监听 8080，常驻 |

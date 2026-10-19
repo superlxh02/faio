@@ -1,0 +1,91 @@
+# Build and Release Folders
+build/
+cmake-build-*/
+vcpkg_installed/
+CMakeUserPresets.json
+benchmark/tcp/tokio-benchmark/target/
+benchmark/coro/tokio-benchmark/target/
+bin-debug/
+bin-release/
+[Oo]bj/
+[Bb]in/
+!benchmark/coro/tokio-benchmark/src/bin/
+!benchmark/coro/tokio-benchmark/src/bin/current_thread.rs
+
+# Other files and folders
+.settings/
+
+# Executables
+*.swf
+*.air
+*.ipa
+*.apk
+
+# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
+# should NOT be excluded as they contain compiler settings and other important
+# information for Eclipse / Flash Builder.
+
+# Python benchmark scripts
+__pycache__/
+
+# Documentation sources, dependencies and generated website
+!.github/
+.github/site/node_modules/
+
+# Local dotfiles and directories; repository configuration stays published.
+.*
+!.gitignore
+!.clang-format
+!.gitattributes
+!.github/
+
+# Build directories, dependencies, caches and package-manager output.
+**/*[Bb][Uu][Ii][Ll][Dd]*/
+node_modules/
+target/
+vcpkg_installed/
+_deps/
+CMakeFiles/
+CMakeScratch/
+Testing/
+venv/
+dist/
+out/
+obj/
+*.dSYM/
+*.egg-info/
+*.dist-info/
+
+# Compiled artifacts and generated build metadata.
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+*.pdb
+*.ilk
+*.exp
+*.pch
+*.gch
+*.pyc
+*.pyo
+*.class
+*.rlib
+*.rmeta
+*.gcda
+*.gcno
+CMakeCache.txt
+compile_commands.json
+build.ninja
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+
+# Local plans and benchmark results.
+/plan/
+/benchmark/result/

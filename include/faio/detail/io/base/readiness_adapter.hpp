@@ -27,10 +27,12 @@ class basic_readiness_adapter {
   explicit basic_readiness_adapter(R reactor) : reactor_(std::move(reactor)) {}
 
   /// @brief 控制面转发持久资源注册；fd 关闭责任与资源代际仍由域拥有。
-  int attach(int fd, std::uint64_t key) noexcept { return reactor_.attach(fd, key); }
+  int register_resource(int fd, std::uint64_t key) noexcept {
+    return reactor_.register_resource(fd, key);
+  }
 
   /// @brief 转发注销，迟到 readiness 由域核对单调资源 key。
-  void detach(int fd) noexcept { reactor_.detach(fd); }
+  void unregister_resource(int fd) noexcept { reactor_.unregister_resource(fd); }
 
   /// @brief 明确拒绝原生 typed 提交，reactor 的 syscall attempt 只在域内执行。
   backend_submit_result try_submit(backend_operation) noexcept {

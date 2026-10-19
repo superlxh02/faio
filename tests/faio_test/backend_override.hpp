@@ -5,8 +5,8 @@ namespace faio::io::detail {
 class test_backend_interface {
  public:
   virtual ~test_backend_interface() = default;
-  virtual int attach(native_registration h, std::uint64_t key) noexcept = 0;
-  virtual void detach(native_registration h) noexcept = 0;
+  virtual int register_resource(native_registration h, std::uint64_t key) noexcept = 0;
+  virtual void unregister_resource(native_registration h) noexcept = 0;
   virtual backend_submit_result try_submit(backend_operation op) noexcept = 0;
   virtual backend_flush_result flush() noexcept = 0;
   virtual int poll(std::span<backend_event> out, std::optional<int> timeout) noexcept = 0;
@@ -27,11 +27,13 @@ class test_backend_model final : public test_backend_interface {
  public:
   explicit test_backend_model(basic_backend_box<B> object) : object_(std::move(object)) {}
 
-  int attach(native_registration h, std::uint64_t key) noexcept override {
-    return object_.attach(h, key);
+  int register_resource(native_registration h, std::uint64_t key) noexcept override {
+    return object_.register_resource(h, key);
   }
 
-  void detach(native_registration h) noexcept override { return object_.detach(h); }
+  void unregister_resource(native_registration h) noexcept override {
+    return object_.unregister_resource(h);
+  }
 
   backend_submit_result try_submit(backend_operation op) noexcept override {
     return object_.try_submit(op);
@@ -85,9 +87,13 @@ class backend_box {
   backend_box& operator=(const backend_box&) = delete;
   ~backend_box() = default;
 
-  int attach(native_registration h, std::uint64_t key) noexcept { return object_->attach(h, key); }
+  int register_resource(native_registration h, std::uint64_t key) noexcept {
+    return object_->register_resource(h, key);
+  }
 
-  void detach(native_registration h) noexcept { return object_->detach(h); }
+  void unregister_resource(native_registration h) noexcept {
+    return object_->unregister_resource(h);
+  }
 
   backend_submit_result try_submit(backend_operation op) noexcept {
     return object_->try_submit(op);
@@ -119,12 +125,13 @@ class backend_box {
 
   backend_statistics statistics() const noexcept { return object_->statistics(); }
 
-  int attach(int fd, std::uint64_t key) noexcept {
-    return attach({static_cast<std::uintptr_t>(fd), native_handle_kind::posix_descriptor}, key);
+  int register_resource(int fd, std::uint64_t key) noexcept {
+    return register_resource(
+        {static_cast<std::uintptr_t>(fd), native_handle_kind::posix_descriptor}, key);
   }
 
-  void detach(int fd) noexcept {
-    detach({static_cast<std::uintptr_t>(fd), native_handle_kind::posix_descriptor});
+  void unregister_resource(int fd) noexcept {
+    unregister_resource({static_cast<std::uintptr_t>(fd), native_handle_kind::posix_descriptor});
   }
 
  private:

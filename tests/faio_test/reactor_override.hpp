@@ -5,8 +5,8 @@ namespace faio::io::detail {
 class test_reactor_interface {
  public:
   virtual ~test_reactor_interface() = default;
-  virtual int attach(int fd, std::uint64_t key) noexcept = 0;
-  virtual void detach(int fd) noexcept = 0;
+  virtual int register_resource(int fd, std::uint64_t key) noexcept = 0;
+  virtual void unregister_resource(int fd) noexcept = 0;
   virtual int poll(std::span<readiness_event> out, std::optional<int> timeout) noexcept = 0;
   virtual void wake() const noexcept = 0;
   virtual const char* name() const noexcept = 0;
@@ -17,9 +17,11 @@ class test_reactor_model final : public test_reactor_interface {
  public:
   explicit test_reactor_model(std::unique_ptr<R> object) : object_(std::move(object)) {}
 
-  int attach(int fd, std::uint64_t key) noexcept override { return object_.attach(fd, key); }
+  int register_resource(int fd, std::uint64_t key) noexcept override {
+    return object_.register_resource(fd, key);
+  }
 
-  void detach(int fd) noexcept override { return object_.detach(fd); }
+  void unregister_resource(int fd) noexcept override { return object_.unregister_resource(fd); }
 
   int poll(std::span<readiness_event> out, std::optional<int> timeout) noexcept override {
     return object_.poll(out, timeout);
@@ -45,9 +47,11 @@ class reactor_box {
   reactor_box& operator=(const reactor_box&) = delete;
   ~reactor_box() = default;
 
-  int attach(int fd, std::uint64_t key) noexcept { return object_->attach(fd, key); }
+  int register_resource(int fd, std::uint64_t key) noexcept {
+    return object_->register_resource(fd, key);
+  }
 
-  void detach(int fd) noexcept { return object_->detach(fd); }
+  void unregister_resource(int fd) noexcept { return object_->unregister_resource(fd); }
 
   int poll(std::span<readiness_event> out, std::optional<int> timeout) noexcept {
     return object_->poll(out, timeout);

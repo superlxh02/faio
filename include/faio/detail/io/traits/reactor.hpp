@@ -17,8 +17,8 @@ concept reactor_implementation = requires(R& object,
                                           std::span<readiness_event> out,
                                           std::optional<int> timeout) {
   { R::backend_name } -> std::convertible_to<const char*>;
-  { object.attach(fd, key) } noexcept -> std::same_as<int>;
-  { object.detach(fd) } noexcept;
+  { object.register_resource(fd, key) } noexcept -> std::same_as<int>;
+  { object.unregister_resource(fd) } noexcept;
   { object.poll(out, timeout) } noexcept -> std::same_as<int>;
   { object.wake() } noexcept;
 };

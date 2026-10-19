@@ -72,7 +72,7 @@ class kqueue_reactor {
   /// @brief 一次提交两个过滤器并逐一检查 EV_RECEIPT，避免半注册资源。
   /// @param fd 已由域保证非阻塞的业务描述符，本函数不接管其关闭责任。
   /// @param key 单调资源代际，内核事件只返回该数值，不保存协程地址。
-  int attach(int fd, std::uint64_t key) noexcept {
+  int register_resource(int fd, std::uint64_t key) noexcept {
     /// @brief 变更与逐方向回执分开存储，一次失败可回滚已成功的另一过滤器。
     std::array<struct kevent, 2> changes{}, receipts{};
     /// @brief udata 是数值 token，绝不解引用。
@@ -109,7 +109,7 @@ class kqueue_reactor {
       if (receipts[static_cast<std::size_t>(i)].data != 0) {
         const int error = static_cast<int>(receipts[static_cast<std::size_t>(i)].data);
         /// @brief 回滚已经成功的另一过滤器，失败不留下半注册状态。
-        detach(fd);
+        unregister_resource(fd);
         return -error;
       }
     /// @brief 只有回执均成功才让域发布 registered，业务 fd 仍归资源 owner。
@@ -117,7 +117,7 @@ class kqueue_reactor {
   }
 
   /// @brief 每个 EV_DELETE 独立取得回执，允许已关闭的方向返回 ENOENT。
-  void detach(int fd) noexcept {
+  void unregister_resource(int fd) noexcept {
     /// @brief READ/WRITE 的删除各有回执，某个方向已经不存在不妨碍另一个注销。
     std::array<struct kevent, 2> changes{}, receipts{};
     /// @brief 删除读过滤器，只提交控制面变更，不把其回执当作 readable。

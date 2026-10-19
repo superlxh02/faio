@@ -138,10 +138,10 @@ class uring_backend {
   const char* name() const noexcept { return backend_name; }
 
   /// @brief 原生普通 fd 请求直接进入 SQE，无需额外的长期 readiness 注册。
-  int attach(int, std::uint64_t) noexcept { return 0; }
+  int register_resource(int, std::uint64_t) noexcept { return 0; }
 
   /// @brief 本后端未安装 fd readiness；原生操作的引用通过最终 CQE 独立排空。
-  void detach(int) noexcept {}
+  void unregister_resource(int) noexcept {}
 
   /// @brief 查询构造时固定的 opcode/flag 能力，不调用业务 syscall
   /// 或启动服务线程。

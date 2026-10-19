@@ -74,7 +74,7 @@ class epoll_reactor {
   /// @return 零或负 errno；失败不改变 resource 的 registered 标记。
   /// @param fd 已由域保证非阻塞的业务描述符，本函数不接管其关闭责任。
   /// @param key 单调资源代际，内核事件只返回该数值，不保存协程地址。
-  int attach(int fd, std::uint64_t key) noexcept {
+  int register_resource(int fd, std::uint64_t key) noexcept {
     /// @brief 一次初始化持久双方向注册，不在每个 read/write 后 MOD 或重建 key。
     epoll_event event{};
     /// @brief 永久 ET 双方向消除逐次 MOD/rearm。
@@ -86,7 +86,7 @@ class epoll_reactor {
   }
 
   /// @brief 在原生 fd 关闭/导出前注销；迟到事件仍由资源 key 校验拒绝。
-  void detach(int fd) noexcept {
+  void unregister_resource(int fd) noexcept {
     /// @brief 注销控制面允许原 fd 已失效；迟到事件仍按不复用的资源代际拒绝。
     (void)::epoll_ctl(poll_fd_, EPOLL_CTL_DEL, fd, nullptr);
   }

@@ -301,7 +301,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     const int fd =
         resource.handle.exchange(-1, std::memory_order_acq_rel);
     if (resource.registered && fd >= 0)
-      backend_.detach(fd);
+      backend_.unregister_resource(fd);
     resources_.erase(resource.id);
     if (fd >= 0)
       descriptors_.erase(fd);
@@ -332,7 +332,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       return std::unexpected{make_error(EBADF)};
     /// @brief 已有持久就绪登记时复用该登记，避免逐次修改内核兴趣集。
     if (resource.registered)
-      backend_.detach(fd);
+      backend_.unregister_resource(fd);
     resource.registered = false;
     /// @brief 先发布 closing，后续 syscall 无法跨关闭边界取得执行权。
     resource.closing = true;
@@ -1604,7 +1604,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     if (resource.regular_file)
       return -ENOTSUP;
     /// @brief 把原生句柄与单调资源键关联到后端，事件不携带协程地址。
-    const int result = backend_.attach(resource.fd(), resource.id);
+    const int result = backend_.register_resource(resource.fd(), resource.id);
     /// @brief 仅成功登记后才允许发布 registered 标志。
     if (!result)
       /// @brief 固定持久登记状态，后续暂不可用的操作沿用同一内核注册。
@@ -1885,7 +1885,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     if (fd >= 0) {
       /// @brief 已有持久就绪登记时复用该登记，避免逐次修改内核兴趣集。
       if (resource.registered)
-        backend_.detach(fd);
+        backend_.unregister_resource(fd);
       resource.registered = false;
       descriptors_.erase(fd);
       if (resource.owns_handle) {

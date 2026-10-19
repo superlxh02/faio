@@ -58,9 +58,9 @@ struct scripted_proactor {
 
   const char* name() const noexcept { return "scripted-proactor"; }
 
-  int attach(int, std::uint64_t) noexcept { return 0; }
+  int register_resource(int, std::uint64_t) noexcept { return 0; }
 
-  void detach(int) noexcept {}
+  void unregister_resource(int) noexcept {}
 
   bool supports(std::uint32_t kind) const noexcept {
     // Cancel是domain稳定资源控制协议，不是借用request的native原操作；真实backend同样不提交它。

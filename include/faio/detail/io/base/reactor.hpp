@@ -22,13 +22,15 @@ class reactor_api {
   ~reactor_api() = default;
 
  public:
-  /// @brief 向具体后端登记长期资源身份；失败时不接管调用方的原生句柄。
-  int attach(this Derived& self, int fd, std::uint64_t key) noexcept {
-    return self.object().attach(fd, key);
+  /// @brief 登记长期资源及其事件 key；不接管原生句柄的所有权。
+  int register_resource(this Derived& self, int fd, std::uint64_t key) noexcept {
+    return self.object().register_resource(fd, key);
   }
 
-  /// @brief 撤销原生资源登记，迟到事件仍须由上层按资源身份过滤。
-  void detach(this Derived& self, int fd) noexcept { self.object().detach(fd); }
+  /// @brief 撤销资源登记而不关闭 fd；迟到事件仍须由上层按资源 key 过滤。
+  void unregister_resource(this Derived& self, int fd) noexcept {
+    self.object().unregister_resource(fd);
+  }
 
   /// @brief 在给定输出容量与等待预算内消费一批事件，保留后续未消费事件。
   int poll(this Derived& self,
