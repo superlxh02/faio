@@ -1,11 +1,24 @@
-#include "faio/faio.hpp"
-#include "faio/log.hpp"
+/**
+ * @file benchmark/tcp/faio_tcp_benchmark.cpp
+ * @brief faio TCP 回显性能基准。
+ */
+#include "faio/detail/io/core/context.hpp"
+#include "faio/log/logger.hpp"
+#include "faio/net/tcp.hpp"
+#include "faio/runtime/default.hpp"
 
+#include <chrono>
+#include <cstdint>
+#include <span>
+#include <stdexcept>
+#include <string_view>
+#include <utility>
 #include <array>
 #include <cstdlib>
 #include <string>
 
 namespace {
+/** @brief TCP 基准的监听地址与回显模式配置。 */
 struct TcpBenchmarkConfig {
   std::string host = "0.0.0.0";
   uint16_t port = 18081;
@@ -13,9 +26,9 @@ struct TcpBenchmarkConfig {
   bool inline_echo_write = false;
 };
 
+/** @brief 处理基准连接的字节回显或 HTTP 持久响应。 */
 auto handle_connection(faio::net::TcpStream stream, bool echo, bool inline_echo_write)
     -> faio::task<void> {
-  // 公平比较：两种实现都关闭 Nagle，并使用相同的 64 KiB 接收缓冲。
   (void)stream.set_nodelay(true);
   std::array<char, 65536> buf{};
   std::string request_buffer;
@@ -42,8 +55,6 @@ auto handle_connection(faio::net::TcpStream stream, bool echo, bool inline_echo_
     }
 
     if (echo) {
-      // 诊断模式把完整写循环内联于连接任务，量化 write_all 子协程帧的开销。
-      // 仍处理短写和零写，不改变回包字节、套接字设置或每连接请求数量。
       if (inline_echo_write) {
         std::size_t offset = 0;
         while (offset < len) {
@@ -83,6 +94,7 @@ auto handle_connection(faio::net::TcpStream stream, bool echo, bool inline_echo_
   co_return;
 }
 
+/** @brief 绑定基准端口并提交各连接处理任务。 */
 auto run_server(const TcpBenchmarkConfig& config) -> faio::task<int> {
   const auto capabilities = faio::io::io_context::current().domain()->capabilities();
   faio::log::logger()->info("faio tcp benchmark IO backend: {} (native files={})",
@@ -115,8 +127,9 @@ auto run_server(const TcpBenchmarkConfig& config) -> faio::task<int> {
         handle_connection(std::move(stream), config.echo, config.inline_echo_write));
   }
 }
-}  // namespace
+}
 
+/** @brief 解析参数并启动 faio TCP 回显或 HTTP 基准服务。 */
 int main(int argc, char** argv) {
   faio::log::logger()->set_level(spdlog::level::info);
 
@@ -131,17 +144,22 @@ int main(int argc, char** argv) {
       argc > 4
       && (std::string_view(argv[4]) == "echo" || std::string_view(argv[4]) == "echo_inline");
   config.inline_echo_write = argc > 4 && std::string_view(argv[4]) == "echo_inline";
-  // 压测线程数由脚本统一传入，避免各语言默认线程数不同。
   const auto workers = argc > 3 ? std::strtoul(argv[3], nullptr, 10) : 4;
   auto builder = faio::ConfigBuilder{}.set_num_workers(workers);
-  // 显式诊断配置由统一比较脚本记录；正式验收不传入这些环境变量。
   if (const auto* value = std::getenv("FAIO_BENCH_IO_INTERVAL"))
     builder.set_io_interval(static_cast<uint32_t>(std::stoul(value)));
   if (const auto* value = std::getenv("FAIO_BENCH_IDLE_SPIN_COUNT"))
     builder.set_idle_spin_count(static_cast<uint32_t>(std::stoul(value)));
-  // 第六个参数只控制本次服务后端，比较脚本会验证实际选择的名称。
-  if (argc > 5) {
-    const std::string_view selected{argv[5]};
+  bool current_thread = false;
+  int backend_arg = argc;
+  for (int index = 5; index < argc; ++index) {
+    if (std::string_view{argv[index]} == "--current-thread")
+      current_thread = true;
+    else if (backend_arg == argc)
+      backend_arg = index;
+  }
+  if (backend_arg < argc) {
+    const std::string_view selected{argv[backend_arg]};
 #if defined(__linux__)
     if (selected == "--io-backend=epoll")
       builder.set_io_backend(faio::runtime::io_backend::IO_EPOLL);
@@ -157,11 +175,16 @@ int main(int argc, char** argv) {
     throw std::invalid_argument("explicit Linux IO backend is unavailable on this platform");
 #endif
   }
+  if (current_thread) {
+    if (workers != 1)
+      throw std::invalid_argument("--current-thread requires workers=1");
+    builder.set_mode(faio::runtime::mode::current_thread);
+  }
   auto runtime_config = builder.build();
-  // 持续就绪任务下的诊断时间预算；未显式设置时保留运行时默认值。
-  // 原始参数、环境和源码均由比较脚本留存，不能将扫描结果冒充默认配置验收。
   if (const auto* value = std::getenv("FAIO_BENCH_MAX_IO_DELAY_US"))
     runtime_config._max_io_delay = std::chrono::microseconds(std::stoll(value));
   faio::runtime::configure(runtime_config);
+  if (current_thread)
+    faio::log::logger()->info("faio tcp benchmark runtime: current_thread");
   return faio::block_on(run_server(config));
 }

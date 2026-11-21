@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/core/file_descriptor.hpp
- * @brief 跨平台异步 IO：原生描述符所有权。
- * @details 核心层维护长期资源身份、稳定操作代际和生命周期。资源首次绑定后保持所属域，关闭、取消、完成与槽位复用必须遵循同一排空协议。
+ * @brief 原生描述符所有权。
  */
 #pragma once
 #include "faio/detail/io/awaiter/close.hpp"
@@ -9,9 +8,10 @@
 
 namespace faio::io::detail {
 
-/** @brief 资源包装所有者；移动/共享不改变 IO 归属，析构只请求非阻塞关闭。 */
+/**  @brief 持有资源所有权的包装对象；移动/共享不改变 IO 归属，析构只请求非阻塞关闭。 */
 class FileDescriptor {
  protected:
+  /** @brief 构造持有所有权的文件描述符。 */
   explicit FileDescriptor(native_descriptor fd,
                           io_context context = io_context::current(),
                           bool regular = false)
@@ -19,18 +19,23 @@ class FileDescriptor {
     resource_->wrappers.fetch_add(1, std::memory_order_relaxed);
   }
 
+  /** @brief 构造持有所有权的文件描述符。 */
   explicit FileDescriptor(io_context context, native_descriptor fd, bool regular = false)
       : FileDescriptor(fd, std::move(context), regular) {}
 
+  /** @brief 构造持有所有权的文件描述符。 */
   explicit FileDescriptor(resource_ptr resource) : resource_(std::move(resource)) {
     if (resource_)
       resource_->wrappers.fetch_add(1, std::memory_order_relaxed);
   }
 
+  /** @brief 销毁持有所有权的文件描述符。 */
   ~FileDescriptor() { release(); }
 
+  /** @brief 移动构造持有所有权的文件描述符。 */
   FileDescriptor(FileDescriptor&& other) noexcept : resource_(std::move(other.resource_)) {}
 
+  /** @brief 移动赋值。 */
   FileDescriptor& operator=(FileDescriptor&& other) noexcept {
     if (this != &other) {
       release();
@@ -39,26 +44,28 @@ class FileDescriptor {
     return *this;
   }
 
+  /** @brief 禁止复制构造持有所有权的文件描述符。 */
   FileDescriptor(const FileDescriptor&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   FileDescriptor& operator=(const FileDescriptor&) = delete;
 
  public:
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   native_descriptor fd() const noexcept { return resource_ ? resource_->fd() : -1; }
 
-  /// @brief 取得底层共享资源控制块，以保持句柄身份与所属域。
+  /** @brief 取得底层共享资源控制块，保持句柄身份及所属域有效。 */
   const resource_ptr& resource() const noexcept { return resource_; }
 
-  /// @brief 取得当前对象关联的 IO 上下文租约。
+  /** @brief 取得该对象关联的 I/O 上下文租约。 */
   io_context context() const noexcept {
     return resource_ ? io_context{resource_->owner} : io_context{};
   }
 
-  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
+  /** @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。 */
   auto close() noexcept { return Close{resource_}; }
 
-  /// @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。
+  /** @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。 */
   expected<native_descriptor> into_native() noexcept {
     if (!resource_)
       return std::unexpected{make_error(EBADF)};
@@ -71,12 +78,14 @@ class FileDescriptor {
     return value;
   }
 
+  /** @brief 转出原生描述符及其关闭责任。 */
   native_descriptor take_fd() noexcept {
     auto value = into_native();
     return value ? *value : -1;
   }
 
-  /** @brief 设置异步句柄为非阻塞；关闭非阻塞模式会返回 EINVAL。
+  /**
+   *  @brief 设置异步句柄为非阻塞；关闭非阻塞模式会返回 EINVAL。
    * @details 后端直接尝试系统调用，O_NONBLOCK 是保障 worker
    * 不被内核阻塞的前提。 如需原生阻塞句柄，应先通过 into_native
    * 导出所有权再修改 flags。
@@ -87,14 +96,14 @@ class FileDescriptor {
     });
   }
 
-  /// @brief 配置原生描述符的非阻塞状态，错误按平台原生约定转换。
+  /** @brief 查询原生描述符的非阻塞状态，错误按平台原生约定转换。 */
   expected<bool> nonblocking() const noexcept {
     return with_resource(
         resource_, Interest::none, [&] { return native_operations::nonblocking(fd()); });
   }
 
  private:
-  /// @brief 转出或归还当前类型约定的资源责任，并把源对象变为空状态。
+  /** @brief 按本类型的约定转出或归还资源责任，并将源对象置空。 */
   void release() noexcept {
     if (!resource_)
       return;
@@ -103,7 +112,7 @@ class FileDescriptor {
     resource_.reset();
   }
 
-  resource_ptr resource_;  ///< 共享资源控制块租约，跨挂起固定句柄身份及 IO 域归属。
+  resource_ptr resource_; /**< 共享资源控制块的租约，在挂起期间保持句柄身份及所属 I/O 域不变。 */
 };
 
-}
+}  // namespace faio::io::detail

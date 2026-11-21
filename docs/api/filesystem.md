@@ -2,9 +2,11 @@
 
 [查看此模块的 Doxygen 逐项接口：签名、形参、返回值与重载 →](../../api/group__filesystem.html)
 
-入口：`<faio/fs.hpp>`。类型与路径操作位于 `faio::fs`。
+文件句柄、路径操作与目录枚举位于 `faio::fs`，分别使用下文的功能头。
 
 ## 文件句柄
+
+包含 `<faio/fs/file.hpp>`。
 
 | 接口 | 完成结果 / 用途 |
 | --- | --- |
@@ -31,6 +33,8 @@ if (!opened) co_return;
 
 ## 路径操作
 
+包含 `<faio/fs/path.hpp>`。
+
 | 接口 | 用途 |
 | --- | --- |
 | `create_dir()` / `create_dir_all()` | 创建单层 / 多层目录 |
@@ -42,6 +46,8 @@ if (!opened) co_return;
 这些接口通常返回 `task<expected<T>>`，便利重载会选择默认上下文。删除或复制可能已经产生部分副作用；失败时需要检查错误和进度后再决定重试。
 
 ## 逐条枚举目录
+
+包含 `<faio/fs/directory.hpp>`。
 
 `read_dir(path)` 返回 `expected<ReadDir>`。对 `directory.next_entry()` 执行等待后得到 `expected<optional<DirEntry>>`：
 
@@ -55,4 +61,4 @@ if (!opened) co_return;
 
 文件句柄移动独占，传入读写操作的借用缓冲区必须存活到操作完成。需要明确的关闭结果时执行 `co_await file.close()` 并检查返回值；不要把提交关闭当作已经完成关闭。
 
-完整程序：[文件与目录例程](../examples/files.md)。
+完整程序见 [文件与目录例程](../../examples/fs/file_and_directory.cpp)。

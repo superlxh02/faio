@@ -2,7 +2,7 @@
 
 [查看此模块的 Doxygen 逐项接口：签名、形参、返回值与重载 →](../../api/group__sync.html)
 
-入口：`<faio/faio.hpp>`。同步原语位于 `faio::sync`，等待时挂起协程，通知后恢复到所属调度域。
+同步原语位于 `faio::sync`，等待时挂起协程，通知后恢复到所属调度域。互斥锁和条件变量使用 `<faio/sync/mutex.hpp>`，信号量、闩和屏障使用 `<faio/sync/coordination.hpp>`，MPSC 通道使用 `<faio/sync/channel.hpp>`。
 
 ## 原语选择
 
@@ -45,4 +45,4 @@ auto [sender, receiver] = faio::sync::mpsc<int>::make(16);
 
 单消费者意味着同一时刻只能有一个未完成的 recv。停止、关闭和普通通知均需要唯一恢复权；原语对象不能在等待者仍借用它时销毁。
 
-完整程序：[同步例程](../examples/synchronization.md)。
+完整程序见 [同步上：共享状态与限流](../../examples/sync/shared_state.cpp)和 [同步下：任务协调与通道](../../examples/sync/coordination.cpp)。

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Install the pinned Fedora compiler beside Rawhide's system compiler.
-# All RPM payloads and runtime libraries come from the same Fedora build.
+## @file docker/bootstrap_gcc16.1.sh
+## @brief 安装固定版本的 GCC 16.1 编译器及配套运行库。
 set -euo pipefail
 
 readonly faio_gcc_nvr='16.1.1-2.fc44'
@@ -16,8 +16,6 @@ esac
 
 faio_gcc_curl_args=(--fail --silent --show-error --location --retry 3
                     --retry-all-errors --connect-timeout 20 --max-time 240)
-# An optional DNS override keeps HTTPS hostname/certificate verification intact.
-# This is useful behind a local DNS proxy; normal builds use public DNS.
 if [[ -n "${KOJI_ADDRESS:-}" ]]; then
     faio_gcc_curl_args+=(--resolve "kojipkgs.fedoraproject.org:443:${KOJI_ADDRESS}")
 fi
@@ -48,17 +46,12 @@ while read -r faio_gcc_sha faio_gcc_relative; do
     faio_gcc_file="${faio_gcc_cache}/${faio_gcc_relative}"
     test "$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "${faio_gcc_file}")" = "${faio_gcc_nvr}"
     test "$(rpm -qp --queryformat '%{ARCH}' "${faio_gcc_file}")" = "${faio_gcc_arch}"
-    # Avoid an rpm2cpio SIGPIPE when cpio stops at the archive trailer before
-    # reading all padded bytes; verify both commands through a temporary file.
     rpm2cpio "${faio_gcc_file}" > "${faio_gcc_cache}/payload.cpio"
     (cd "${faio_gcc_prefix}" && cpio --extract --make-directories --unconditional --quiet \
         < "${faio_gcc_cache}/payload.cpio")
     rm "${faio_gcc_cache}/payload.cpio"
 done < "${faio_gcc_selected_manifest}"
 
-# Fedora's libgcc/TSan linker scripts embed absolute distro paths. Relocate
-# those local packaging paths so the isolated compiler never links Rawhide's
-# libraries. Relative RPM symlinks already resolve within the isolated tree.
 python3 - <<'PY'
 import pathlib
 import re

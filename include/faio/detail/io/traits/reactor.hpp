@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/traits/reactor.hpp
- * @brief 跨平台异步 IO：就绪反应器。
- * @details 以编译期约束检查接口形状及返回类型；概念检查本身不执行 IO，也不承担资源生命周期。
+ * @brief 就绪反应器。
  */
 #pragma once
 #include "faio/detail/io/protocol/reactor.hpp"
@@ -23,4 +22,4 @@ concept reactor_implementation = requires(R& object,
   { object.wake() } noexcept;
 };
 
-}
+}  // namespace faio::io::detail

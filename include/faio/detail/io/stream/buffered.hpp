@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/stream/buffered.hpp
- * @brief 跨平台异步 IO：读写缓冲与分隔符读取。
- * @details 统一 IO 通过上下文、资源租约与等待器连接运行时；组合操作保留部分进度并在安全完成后归还负载及方向执行权。
+ * @brief 读写缓冲与分隔符读取。
  */
 #pragma once
 #include "faio/detail/io/stream/algorithms.hpp"
@@ -9,20 +8,22 @@
 #include <optional>
 
 namespace faio::io {
-/** @brief 有界预读适配器；底层 Reader 必须覆盖适配器和全部等待操作。
- * @details 不允许直接从底层读取绕过尚未消费的预读内容。fill_buf 返回的借用
- * 视图在 consume 或下一次读取后失效。单方向使用，与底层相同地禁止并发读。
+/**
+ *  @brief 有界预读适配器；底层 Reader 须在适配器及所有等待操作期间保持有效。
+ * @details 仍有未消费的预读内容时，不允许绕过适配器直接读取底层流。fill_buf 返回的借用
+ * 视图在 consume 或下一次读取后失效。仅用于读方向，和底层一样禁止并发读取。
  */
 template <borrowed_async_reader Reader>
 class BufReader {
  public:
+  /** @brief 构造缓冲读取适配器。 */
   explicit BufReader(Reader& reader, std::size_t capacity = 8192)
       : reader_(reader), buffer_(capacity) {
     if (!capacity)
       throw std::invalid_argument("BufReader容量必须大于零");
   }
 
-  /// @brief 提供尚未消费的读缓冲区视图，必要时先推进底层读取。
+  /** @brief 提供尚未消费的读缓冲区视图，必要时先推进底层读取。 */
   task<expected<std::span<const char>>> fill_buf() {
     if (position_ == end_) {
       auto count = co_await reader_.read(buffer_);
@@ -36,14 +37,14 @@ class BufReader {
     co_return std::span<const char>{buffer_}.subspan(position_, end_ - position_);
   }
 
-  /// @brief 确认已消费缓冲区前缀，并推进读取位置。
+  /** @brief 确认已消费缓冲区前缀，并推进读取位置。 */
   void consume(std::size_t count) {
     if (count > end_ - position_)
       throw std::out_of_range("BufReader消费超过已填充范围");
     position_ += count;
   }
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   task<expected<std::size_t>> read(std::span<char> output) {
     if (output.empty())
       co_return std::size_t{0};
@@ -59,7 +60,7 @@ class BufReader {
     co_return count;
   }
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   task<expected<io_transfer>> read(io_buffer output) {
     auto count = co_await read(output.writable_bytes());
     if (!count)
@@ -68,26 +69,29 @@ class BufReader {
     co_return io_transfer{std::move(output), *count};
   }
 
+  /** @brief 读取当前缓冲内容。 */
   [[nodiscard]] std::span<const char> buffered() const noexcept {
     return std::span<const char>{buffer_}.subspan(position_, end_ - position_);
   }
 
+  /** @brief 取得底层对象引用。 */
   Reader& get_ref() noexcept { return reader_; }
 
  private:
-  Reader& reader_;  ///< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。
-  std::vector<char> buffer_;  ///< 对象拥有的字节缓冲区，跨异步挂起保持内容与地址要求。
-  std::size_t position_{},  ///< 当前读写游标的字节偏移。
-      end_{};  ///< 读缓冲区有效数据的结束偏移，不含该位置。
+  Reader& reader_;           /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  std::vector<char> buffer_; /**< 对象持有的字节缓冲区，在挂起期间保持所需内容和地址有效。 */
+  std::size_t position_{}, end_{}; /**< 读缓冲区有效数据的结束偏移，不含该位置。 */
 };
 
-/** @brief 有界缓冲写适配器；必须显式 flush/shutdown，析构不执行异步 IO。
+/**
+ *  @brief 有界缓冲写适配器；必须显式 flush/shutdown，析构不执行异步 IO。
  * @details 写成功表示字节进入缓冲或底层；flush 出错保留未写出的字节。
- * pending_bytes/take_pending 可恢复未提交内容，析构不会冒充 flush 成功。
+ * pending_bytes/take_pending 可恢复未提交内容，析构不代表 flush 成功。
  */
 template <borrowed_async_writer Writer>
 class BufWriter {
  public:
+  /** @brief 构造缓冲写入适配器。 */
   explicit BufWriter(Writer& writer, std::size_t capacity = 8192)
       : writer_(writer), capacity_(capacity) {
     if (!capacity)
@@ -95,7 +99,7 @@ class BufWriter {
     buffer_.reserve(capacity);
   }
 
-  /// @brief 提交缓冲的写入或已准备的后端请求，失败保留尚未完成的责任。
+  /** @brief 刷新缓冲写入，失败时保留尚未写出的字节。 */
   task<expected<void>> flush() {
     std::size_t total = 0;
     while (total != buffer_.size()) {
@@ -105,7 +109,7 @@ class BufWriter {
         const auto committed =
             total + std::min<std::size_t>(error.progress(), buffer_.size() - total);
         buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(committed));
-        co_return std::unexpected{Error{error.value(), total + error.progress(), error.domain()}};
+        co_return std::unexpected{error.with_progress(total + error.progress())};
       }
       total += *count;
       co_await this_coro::yield_if_needed();
@@ -116,7 +120,7 @@ class BufWriter {
     co_return expected<void>{};
   }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。 */
   task<expected<std::size_t>> write(std::span<const char> input) {
     if (input.empty())
       co_return std::size_t{0};
@@ -131,7 +135,7 @@ class BufWriter {
     co_return input.size();
   }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。 */
   task<expected<io_transfer>> write(io_buffer input) {
     auto count = co_await write(input.bytes());
     if (!count)
@@ -139,7 +143,7 @@ class BufWriter {
     co_return io_transfer{std::move(input), *count};
   }
 
-  /// @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。
+  /** @brief 先刷新缓冲写入，再关闭底层写方向。 */
   task<expected<void>> shutdown() {
     auto flushed = co_await flush();
     if (!flushed)
@@ -151,8 +155,10 @@ class BufWriter {
     co_return expected<void>{};
   }
 
+  /** @brief 借用尚未写出的缓冲字节。 */
   [[nodiscard]] std::span<const char> pending_bytes() const noexcept { return buffer_; }
 
+  /** @brief 取走尚未写出的缓冲字节。 */
   std::vector<char> take_pending() {
     auto bytes = std::move(buffer_);
     buffer_.clear();
@@ -160,53 +166,56 @@ class BufWriter {
     return bytes;
   }
 
+  /** @brief 取得底层对象引用。 */
   Writer& get_ref() noexcept { return writer_; }
 
  private:
-  Writer& writer_;  ///< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。
-  std::size_t capacity_;  ///< 缓冲区或请求可用的容量上限，单位遵循所属接口。
-  std::vector<char> buffer_;  ///< 对象拥有的字节缓冲区，跨异步挂起保持内容与地址要求。
+  Writer& writer_;           /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  std::size_t capacity_;     /**< 写入缓冲区的字节容量。 */
+  std::vector<char> buffer_; /**< 对象持有的字节缓冲区，在挂起期间保持所需内容和地址有效。 */
 };
 
+/** @brief 组合缓冲读写流。 */
 template <class Stream>
   requires borrowed_async_reader<Stream> && borrowed_async_writer<Stream>
 class BufStream {
  public:
+  /** @brief 构造组合缓冲读写流。 */
   explicit BufStream(Stream& stream,
                      std::size_t read_capacity = 8192,
                      std::size_t write_capacity = 8192)
       : reader_(stream, read_capacity), writer_(stream, write_capacity) {}
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   auto read(std::span<char> bytes) { return reader_.read(bytes); }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。 */
   auto write(std::span<const char> bytes) { return writer_.write(bytes); }
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   auto read(io_buffer bytes) { return reader_.read(std::move(bytes)); }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。 */
   auto write(io_buffer bytes) { return writer_.write(std::move(bytes)); }
 
-  /// @brief 提供尚未消费的读缓冲区视图，必要时先推进底层读取。
+  /** @brief 提供尚未消费的读缓冲区视图，必要时先推进底层读取。 */
   auto fill_buf() { return reader_.fill_buf(); }
 
-  /// @brief 确认已消费缓冲区前缀，并推进读取位置。
+  /** @brief 确认已消费缓冲区前缀，并推进读取位置。 */
   void consume(std::size_t count) { reader_.consume(count); }
 
-  /// @brief 提交缓冲的写入或已准备的后端请求，失败保留尚未完成的责任。
+  /** @brief 刷新缓冲写入，失败时保留尚未写出的字节。 */
   auto flush() { return writer_.flush(); }
 
-  /// @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。
+  /** @brief 先刷新缓冲写入，再关闭底层写方向。 */
   auto shutdown() { return writer_.shutdown(); }
 
  private:
-  BufReader<Stream> reader_;  ///< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。
-  BufWriter<Stream> writer_;  ///< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。
+  BufReader<Stream> reader_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  BufWriter<Stream> writer_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
 };
 
-/** @brief 读取到分隔字节（含分隔符）；max_bytes 明确约束单条记录的内存。 */
+/**  @brief 读取到分隔字节（含分隔符）；max_bytes 明确约束单条记录的内存。 */
 template <borrowed_async_reader Reader>
 task<expected<std::size_t>> read_until(Reader& reader,
                                        char delimiter,
@@ -220,8 +229,7 @@ task<expected<std::size_t>> read_until(Reader& reader,
                   }) {
       auto available = co_await reader.fill_buf();
       if (!available)
-        co_return std::unexpected{
-            Error{available.error().value(), total, available.error().domain()}};
+        co_return std::unexpected{available.error().with_progress(total)};
       if (available->empty())
         co_return total;
       const auto end = std::find(available->begin(), available->end(), delimiter);
@@ -240,7 +248,7 @@ task<expected<std::size_t>> read_until(Reader& reader,
       std::array<char, 1> byte;
       auto count = co_await reader.read(byte);
       if (!count)
-        co_return std::unexpected{Error{count.error().value(), total, count.error().domain()}};
+        co_return std::unexpected{count.error().with_progress(total)};
       if (!*count)
         co_return total;
       if (*count != 1)
@@ -255,6 +263,7 @@ task<expected<std::size_t>> read_until(Reader& reader,
   co_return std::unexpected{Error{EMSGSIZE, total}};
 }
 
+/** @brief 读取一行文本。 */
 template <borrowed_async_reader Reader>
 task<expected<std::size_t>> read_line(Reader& reader,
                                       std::string& output,
@@ -265,12 +274,15 @@ task<expected<std::size_t>> read_line(Reader& reader,
   co_return result;
 }
 
+/** @brief 按行读取的流适配器。 */
 template <borrowed_async_reader Reader>
 class Lines {
  public:
+  /** @brief 构造按行读取的流适配器。 */
   explicit Lines(Reader& reader, std::size_t max_bytes = 1024 * 1024)
       : reader_(reader), max_bytes_(max_bytes) {}
 
+  /** @brief 读取下一行。 */
   task<expected<std::optional<std::string>>> next_line() {
     std::string line;
     auto count = co_await read_line(reader_, line, max_bytes_);
@@ -287,20 +299,24 @@ class Lines {
   }
 
  private:
-  Reader& reader_;  ///< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。
-  std::size_t max_bytes_;  ///< 逐段读取允许累计的最大字节数，防止无界增长。
+  Reader& reader_;        /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  std::size_t max_bytes_; /**< 逐段读取允许累计的最大字节数，防止无界增长。 */
 };
 
+/** @brief 创建按行读取适配器。 */
 template <borrowed_async_reader Reader>
 auto lines(Reader& reader, std::size_t max_bytes = 1024 * 1024) {
   return Lines<Reader>{reader, max_bytes};
 }
 
+/** @brief 按分隔字节读取的流适配器。 */
 template <borrowed_async_reader Reader>
 class SplitByDelimiter {
  public:
+  /** @brief 构造按分隔字节读取的流适配器。 */
   SplitByDelimiter(Reader& reader, char delimiter) : reader_(reader), delimiter_(delimiter) {}
 
+  /** @brief 读取下一个分隔片段。 */
   task<expected<std::optional<std::vector<char>>>> next_segment() {
     std::vector<char> bytes;
     auto count = co_await read_until(reader_, delimiter_, bytes);
@@ -314,12 +330,13 @@ class SplitByDelimiter {
   }
 
  private:
-  Reader& reader_;  ///< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。
-  char delimiter_;  ///< 按行或分隔符读取时用于识别边界的字节。
+  Reader& reader_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  char delimiter_; /**< 按行或分隔符读取时用于识别边界的字节。 */
 };
 
+/** @brief 创建按分隔字节读取的适配器。 */
 template <borrowed_async_reader Reader>
 auto split_by_delimiter(Reader& reader, char delimiter) {
   return SplitByDelimiter<Reader>{reader, delimiter};
 }
-}
+}  // namespace faio::io

@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/platform/linux/backend_selection.hpp
- * @brief 跨平台异步 IO：编译期后端选择。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 编译期后端选择。
  */
 #pragma once
 #include <cstdint>
@@ -15,17 +14,17 @@
 #include <system_error>
 
 namespace faio::runtime {
-/** @brief Linux 后端标识；构建时固定一种，显式配置仅验证与构建匹配。 */
+/**  @brief Linux 后端标识；构建时固定一种，显式配置仅验证与构建匹配。 */
 enum class io_backend : std::uint8_t { IO_EPOLL, IO_URING };
-}
+}  // namespace faio::runtime
 
 namespace faio::io::detail {
+/** @brief Linux 内核版本号。 */
 struct kernel_version {
-  unsigned major{},  ///< 内核版本主版本号，用于初始化阶段能力判断。
-      minor{};  ///< 内核版本次版本号，用于初始化阶段能力判断。
+  unsigned major{}, minor{}; /**< 内核的次版本号，用于初始化阶段判断能力。 */
 };
 
-/** @brief 按数字读取 uname release；用于验证固定 uring 构建的最低内核版本。 */
+/**  @brief 按数字读取 uname release；用于验证固定 uring 构建的最低内核版本。 */
 inline kernel_version parse_kernel_version(std::string_view release) {
   kernel_version result;
   const auto first = std::from_chars(release.data(), release.data() + release.size(), result.major);
@@ -43,6 +42,7 @@ inline constexpr auto compiled_io_backend = runtime::io_backend::IO_URING;
 inline constexpr auto compiled_io_backend = runtime::io_backend::IO_EPOLL;
 #endif
 
+/** @brief 解析当前平台的 I/O 后端配置。 */
 inline runtime::io_backend resolve_io_backend(std::optional<runtime::io_backend> requested,
                                               [[maybe_unused]] kernel_version version) {
   if (requested && *requested != compiled_io_backend)
@@ -56,9 +56,9 @@ inline runtime::io_backend resolve_io_backend(std::optional<runtime::io_backend>
   return compiled_io_backend;
 }
 
+/** @brief 解析当前平台的 I/O 后端配置。 */
 inline runtime::io_backend resolve_io_backend(std::optional<runtime::io_backend> requested) {
 #if !defined(FAIO_HAS_IO_URING) || !FAIO_HAS_IO_URING
-  /// @brief epoll 构建不需要运行时探测。
   return resolve_io_backend(requested, {});
 #else
   utsname info{};
@@ -67,5 +67,5 @@ inline runtime::io_backend resolve_io_backend(std::optional<runtime::io_backend>
   return resolve_io_backend(requested, parse_kernel_version(info.release));
 #endif
 }
-}
+}  // namespace faio::io::detail
 #endif

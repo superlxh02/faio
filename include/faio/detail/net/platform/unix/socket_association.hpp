@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/net/platform/unix/socket_association.hpp
- * @brief 网络地址、socket 与传输协议：socket 所属后端关联。
- * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ * @brief socket 所属后端关联。
  */
 #pragma once
 #include "faio/detail/io/core/context.hpp"
@@ -9,24 +8,30 @@
 #include <utility>
 
 namespace faio::net::detail {
-/** @brief Unix 原生 socket 没有不可迁移的完成端口关联；不增加拥有者大小。 */
+/**  @brief Unix 原生 socket 没有不可迁移的完成端口关联；不增加拥有者大小。 */
 struct native_socket_association {
+  /** @brief 构造无需完成端口关联的 Unix 适配对象。 */
   native_socket_association() noexcept = default;
 
+  /** @brief 构造无需完成端口关联的 Unix 适配对象。 */
   explicit native_socket_association(io::io_context) noexcept {}
 
+  /** @brief Unix socket 无需完成端口归属校验。 */
   expected<void> validate(const io::io_context&) const noexcept { return {}; }
 
+  /** @brief Unix socket 无需额外清理完成端口关联。 */
   void forget(native_socket_type) noexcept {}
 
+  /** @brief Unix 导入不保存额外完成端口登记。 */
   void release_imported() noexcept {}
 
+  /** @brief 返回无需完成端口关联的 Unix 适配值。 */
   static native_socket_association capture(const io::detail::resource_ptr&) noexcept { return {}; }
 
-  /// @brief 撤销原生资源登记，迟到事件仍须由上层按资源身份过滤。
+  /** @brief 将句柄转出交给调用方提供的 Unix 移交路径。 */
   template <class F>
   static auto detach(const io::detail::resource_ptr&, F&& fallback) {
     return std::forward<F>(fallback)();
   }
 };
-}
+}  // namespace faio::net::detail

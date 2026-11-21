@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/platform/native_operations.hpp
- * @brief 跨平台异步 IO：原生操作适配。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 原生操作适配。
  */
 #pragma once
 #if defined(_WIN32)

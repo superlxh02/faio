@@ -1,11 +1,12 @@
 /**
  * @file faio/detail/net/base/datagram_send.hpp
- * @brief 网络地址、socket 与传输协议：数据报发送与负载租约。
- * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ * @brief 数据报发送与负载租约。
  */
 #ifndef FAIO_DETAIL_NET_BASE_DATAGRAM_SEND_HPP
 #define FAIO_DETAIL_NET_BASE_DATAGRAM_SEND_HPP
 #include "faio/detail/net/platform/select.hpp"
+#include "faio/detail/io/awaiter/send.hpp"
+#include "faio/detail/io/awaiter/sendmsg.hpp"
 #include "faio/detail/coroutine/task.hpp"
 #include "faio/detail/io/base/buffer.hpp"
 #include "faio/detail/net/base/awaiter_options.hpp"
@@ -16,11 +17,11 @@
 #include <span>
 
 namespace faio::net::detail {
-/** @brief 地址按值持有的 sendmsg awaiter，临时 SocketAddr 可安全用于 co_await。
- */
+/**  @brief 地址按值持有的 sendmsg awaiter，临时 SocketAddr 可安全用于 co_await。 */
 template <class Addr>
 class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
  public:
+  /** @brief 构造单包发送请求并保存目标与缓冲区描述。 */
   SendDatagram(std::shared_ptr<io::detail::resource_state> resource,
                std::span<const char> buffer,
                Addr address)
@@ -42,6 +43,7 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
     message_.msg_iovlen = 1;
   }
 
+  /** @brief 构造单包发送请求并保存目标与缓冲区描述。 */
   SendDatagram(std::shared_ptr<io::detail::resource_state> resource,
                std::span<const iovec> vectors,
                std::optional<Addr> address,
@@ -71,9 +73,10 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
     message_.msg_controllen = static_cast<decltype(msghdr{}.msg_controllen)>(control.size());
   }
 
+  /** @brief 禁止复制此对象。 */
   SendDatagram(const SendDatagram&) = delete;
 
-  /** @brief 登记前移动，区分内置单个 iovec 与调用者借用的 iovec 数组。 */
+  /**  @brief 登记前移动，区分内置单个 iovec 与调用者借用的 iovec 数组。 */
   SendDatagram(SendDatagram&& other) noexcept
       : AwaiterOptions<SendDatagram<Addr>>{std::move(other)},
         resource_{std::move(other.resource_)},
@@ -99,92 +102,102 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
       message_.msg_iov = &vector_;
   }
 
-  /// @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。
+  /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
   auto reservation(void* owner) & noexcept -> SendDatagram& {
     owner_ = owner;
     return *this;
   }
 
-  /// @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。
+  /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
   auto reservation(void* owner) && noexcept -> SendDatagram&& {
     owner_ = owner;
     return std::move(*this);
   }
 
-  /// @brief 检查等待是否已经满足；返回 true 时编译器跳过挂起登记。
+  /** @brief 检查等待是否已经满足；返回 true 时编译器跳过挂起登记。 */
   auto await_ready() noexcept { return operation_.await_ready(); }
 
-  /// @brief 登记恢复目标，并按当前等待协议交接挂起与完成责任。
-  auto await_suspend(std::coroutine_handle<> continuation) {
+  /** @brief 登记恢复目标，按等待协议交接挂起与完成责任。 */
+  template <class Promise>
+  auto await_suspend(std::coroutine_handle<Promise> continuation) {
     this->configure(operation_);
     operation_.reservation(owner_);
     return operation_.await_suspend(continuation);
   }
 
-  /// @brief 在完成交接后领取结果，按该接口约定传播失败或取消。
+  /** @brief 完成交接后领取结果，并按接口约定传播失败或取消。 */
   auto await_resume() noexcept { return operation_.await_resume(); }
 
  private:
-  std::shared_ptr<io::detail::resource_state> resource_;  ///< 共享资源控制块租约，跨挂起固定句柄身份及 IO 域归属。
-  void* owner_{};  ///< 组合操作的稳定身份，用于验证读写方向的排他预留。
-  int flags_{};  ///< 本次原生操作的标志位，按对应系统调用语义解释。
-  std::optional<Addr> address_;  ///< 拥有的本地或对端 socket 地址，提交期间不借用临时对象。
-  iovec vector_{};  ///< 分散聚集 IO 的缓冲区描述，负载仍须由调用方保持有效。
-  msghdr message_{};  ///< 稳定保存的消息描述及缓冲区引用，安全完成前不得迁移。
+  std::shared_ptr<io::detail::resource_state>
+      resource_;  /**< 共享资源控制块的租约，在挂起期间保持句柄身份及所属 I/O 域不变。 */
+  void* owner_{}; /**< 组合操作的稳定身份，用于验证读写方向的排他预留。 */
+  int flags_{};   /**< 本次原生操作的标志位，按对应系统调用语义解释。 */
+  std::optional<Addr> address_; /**< 拥有的本地或对端 socket 地址，提交期间不借用临时对象。 */
+  iovec vector_{};              /**< 分散/聚集 I/O 的缓冲区描述，调用方仍须保持负载有效。 */
+  msghdr message_{};            /**< 稳定保存的消息描述及缓冲区引用，安全完成前不得迁移。 */
   decltype(io::sendmsg(
-      std::declval<std::shared_ptr<io::detail::resource_state>>(), nullptr, 0)) operation_;  ///< 地址稳定的底层异步操作，当前包装负责其启动、等待与结果交付。
+      std::declval<std::shared_ptr<io::detail::resource_state>>(),
+      nullptr,
+      0)) operation_; /**< 地址固定的底层异步操作，由包装器负责启动、等待和交付结果。 */
 };
 
-/** @brief 批量发送的一项；借用 payload，可为 connected socket 省略地址。 */
+/**  @brief 批量发送的一项；借用 payload，可为 connected socket 省略地址。 */
 template <class Addr>
 struct DatagramSend {
-  std::span<const char> bytes;  ///< 发送时借用的只读字节区，完成前保持有效。
-  std::optional<Addr> peer;  ///< 拥有的本地或对端 socket 地址，提交期间不借用临时对象。
+  std::span<const char> bytes; /**< 发送时借用的只读字节区，完成前保持有效。 */
+  std::optional<Addr> peer;    /**< 拥有的本地或对端 socket 地址，提交期间不借用临时对象。 */
 };
 
-/** @brief 消息型发送，不使用 write_all 合并/拆分数据报。 */
+/**  @brief 消息型发送，不使用 write_all 合并或拆分数据报。 */
 template <class T, class Addr>
 struct ImplSend {
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 向已连接的对端发送一条数据报。 */
   auto send(std::span<const char> buffer) const noexcept {
     return io::send(
         static_cast<const T*>(this)->resource(), buffer.data(), buffer.size(), no_signal_flags);
   }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 向已连接的对端发送一条数据报。 */
   auto send(io::borrowed_const_buffer buffer) const noexcept { return send(buffer.bytes); }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 向已连接的对端发送一条数据报。 */
   auto send(io::io_buffer buffer) const -> task<expected<io::io_transfer>> {
     return send_owned_impl(
         static_cast<const T*>(this)->resource(), std::move(buffer), std::nullopt);
   }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 向已连接的对端发送一条数据报。 */
   auto send(io::shared_const_buffer buffer) const -> task<expected<std::size_t>> {
     return send_shared_impl(static_cast<const T*>(this)->resource(), std::move(buffer));
   }
 
+  /** @brief 向指定对端发送一条完整数据报。 */
   auto send_to(std::span<const char> buffer, Addr address) const noexcept {
     return SendDatagram<Addr>{static_cast<const T*>(this)->resource(), buffer, std::move(address)};
   }
 
+  /** @brief 向指定对端发送一条完整数据报。 */
   auto send_to(io::borrowed_const_buffer buffer, Addr address) const noexcept {
     return send_to(buffer.bytes, std::move(address));
   }
 
+  /** @brief 向指定对端发送一条完整数据报。 */
   auto send_to(io::io_buffer buffer, Addr address) const -> task<expected<io::io_transfer>> {
     return send_owned_impl(
         static_cast<const T*>(this)->resource(), std::move(buffer), std::move(address));
   }
 
-  /** @brief 有界批量发送，逐消息保持边界；失败时 progress
-   * 表示已发出的消息数量。 */
+  /**
+   *  @brief 有界批量发送，逐消息保持边界；失败时 progress
+   * 表示已发出的消息数量。
+   */
   auto send_many(std::span<const DatagramSend<Addr>> messages) const
       -> task<expected<std::size_t>> {
     return send_many_impl(static_cast<const T*>(this)->resource(), messages);
   }
 
+  /** @brief 发送带缓冲区和附属控制信息的一条数据报。 */
   auto send_message(std::span<const iovec> vectors,
                     std::optional<Addr> address = {},
                     std::span<const std::byte> control = {},
@@ -193,6 +206,7 @@ struct ImplSend {
         static_cast<const T*>(this)->resource(), vectors, std::move(address), control, flags};
   }
 
+  /** @brief 即时向已连接对端发送一条数据报。 */
   [[nodiscard]] auto try_send(std::span<const char> buffer) const -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
@@ -205,6 +219,7 @@ struct ImplSend {
         });
   }
 
+  /** @brief 即时向指定对端发送一条数据报。 */
   [[nodiscard]] auto try_send_to(std::span<const char> buffer, const Addr& address) const
       -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
@@ -222,6 +237,7 @@ struct ImplSend {
         });
   }
 
+  /** @brief 即时发送带控制信息的数据报。 */
   [[nodiscard]] auto try_send_message(std::span<const iovec> vectors,
                                       std::optional<Addr> address = {},
                                       std::span<const std::byte> control = {},
@@ -248,7 +264,7 @@ struct ImplSend {
   }
 
  private:
-  /** @brief 整个批次持有写方向 token，短挂起或协作让步期间仍保持调用顺序。 */
+  /**  @brief 整个批次持有写方向 token，短挂起或协作让步期间仍保持调用顺序。 */
   static auto send_many_impl(std::shared_ptr<io::detail::resource_state> resource,
                              std::span<const DatagramSend<Addr>> messages)
       -> task<expected<std::size_t>> {
@@ -269,14 +285,14 @@ struct ImplSend {
                     resource, message.bytes.data(), message.bytes.size(), no_signal_flags)
                     .reservation(&owner_identity);
       if (!result)
-        co_return std::unexpected{
-            Error{result.error().value(), completed, result.error().domain()}};
+        co_return std::unexpected{result.error().with_progress(completed)};
       ++completed;
       co_await this_coro::yield_if_needed();
     }
     co_return completed;
   }
 
+  /** @brief 持有负载所有权直至数据报发送完成。 */
   static auto send_owned_impl(std::shared_ptr<io::detail::resource_state> resource,
                               io::io_buffer buffer,
                               std::optional<Addr> address) -> task<expected<io::io_transfer>> {
@@ -288,11 +304,12 @@ struct ImplSend {
     co_return io::io_transfer{std::move(buffer), *result};
   }
 
+  /** @brief 共享持有不可变负载直至数据报发送完成。 */
   static auto send_shared_impl(std::shared_ptr<io::detail::resource_state> resource,
                                io::shared_const_buffer buffer) -> task<expected<std::size_t>> {
     co_return co_await io::send(
         std::move(resource), buffer.bytes().data(), buffer.size(), no_signal_flags);
   }
 };
-}
+}  // namespace faio::net::detail
 #endif

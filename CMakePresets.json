@@ -7,223 +7,481 @@
   },
   "configurePresets": [
     {
-      "name": "windows-base",
-      "description": "Windows 公共模板：Ninja、Release、IOCP，关闭 io_uring；启用相邻 faio-deps 固定源码依赖，每个编译器分别构建 spdlog/GoogleTest，避免混用 ABI。",
+      "name": "common",
       "hidden": true,
       "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "FAIO_BUILD_EXAMPLES": "ON",
+        "FAIO_BUILD_TESTS": "ON",
+        "FAIO_BUILD_BENCHMARKS": "ON",
+        "FAIO_INSTALL": "ON",
+        "FAIO_ENABLE_TLS": "ON",
+        "FAIO_ENABLE_PROCESS": "ON",
+        "FAIO_SANITIZERS": ""
+      }
+    },
+    {
+      "name": "main",
+      "hidden": true,
+      "cacheVariables": {
+        "FAIO_ENABLE_EXPERIMENTAL": "OFF",
+        "FAIO_EXPERIMENTAL_REFLECTION": "OFF",
+        "FAIO_EXPERIMENTAL_EXECUTION": "OFF"
+      }
+    },
+    {
+      "name": "all",
+      "hidden": true,
+      "cacheVariables": {
+        "FAIO_ENABLE_EXPERIMENTAL": "ON",
+        "FAIO_EXPERIMENTAL_REFLECTION": "ON",
+        "FAIO_EXPERIMENTAL_EXECUTION": "ON",
+        "FAIO_EXPERIMENTAL_ENTRY_MODE": "NORMAL"
+      }
+    },
+    {
+      "name": "release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "debug",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux",
+      "hidden": true,
+      "inherits": "common",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "ON",
+        "FAIO_USE_WORKSPACE_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "mac",
+      "hidden": true,
+      "inherits": "common",
+      "cacheVariables": {
+        "FAIO_ENABLE_IO_URING": "OFF",
+        "FAIO_USE_WORKSPACE_DEPS": "OFF"
+      }
+    },
+    {
+      "name": "windows",
+      "hidden": true,
+      "inherits": "common",
+      "cacheVariables": {
         "FAIO_ENABLE_IO_URING": "OFF",
         "FAIO_USE_WORKSPACE_DEPS": "ON",
         "FAIO_DEPENDENCY_ROOT": "${sourceDir}/../faio-deps"
       }
     },
     {
-      "name": "windows-msvc",
-      "displayName": "windows-msvc",
-      "description": "Windows MSVC：C/C++ 编译器均为 cl；/O2 优化，/DNDEBUG 关闭断言。继承 IOCP 与固定依赖；根配置添加 /W4、/utf-8、/permissive- 和 /Zc:__cplusplus。",
-      "inherits": "windows-base",
-      "binaryDir": "${sourceDir}/build/windows-msvc",
+      "name": "linux-all-release",
+      "displayName": "linux-all-release",
+      "description": "linux release：GCC 16.1，全特性；实验组件要求 Linux 平台。",
+      "inherits": [
+        "linux",
+        "all",
+        "release"
+      ],
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "cl",
-        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG",
-        "CMAKE_C_COMPILER": "cl"
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
       }
     },
     {
-      "name": "windows-clang",
-      "displayName": "windows-clang",
-      "description": "Windows clang-cl：C/C++ 编译器均为 clang-cl，使用 Microsoft ABI 和 /O2 /DNDEBUG；继承 IOCP、固定依赖以及根配置的 MSVC 风格警告、UTF-8 与标准一致性参数。",
-      "inherits": "windows-base",
-      "binaryDir": "${sourceDir}/build/windows-clang",
+      "name": "linux-all-debug",
+      "displayName": "linux-all-debug",
+      "description": "linux debug：GCC 16.1，全特性；实验组件要求 Linux 平台。",
+      "inherits": [
+        "linux",
+        "all",
+        "debug"
+      ],
       "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    },
+    {
+      "name": "linux-main-release",
+      "displayName": "linux-main-release",
+      "description": "linux release：Clang 23，稳定特性。",
+      "inherits": [
+        "linux",
+        "main",
+        "release"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-23",
+        "CMAKE_CXX_COMPILER": "clang++-23"
+      }
+    },
+    {
+      "name": "linux-main-debug",
+      "displayName": "linux-main-debug",
+      "description": "linux debug：Clang 23，稳定特性。",
+      "inherits": [
+        "linux",
+        "main",
+        "debug"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-23",
+        "CMAKE_CXX_COMPILER": "clang++-23"
+      }
+    },
+    {
+      "name": "mac-all-release",
+      "displayName": "mac-all-release",
+      "description": "mac release：GCC 16.1，全特性；实验组件要求 Linux 平台。",
+      "inherits": [
+        "mac",
+        "all",
+        "release"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc-16",
+        "CMAKE_CXX_COMPILER": "g++-16"
+      }
+    },
+    {
+      "name": "mac-all-debug",
+      "displayName": "mac-all-debug",
+      "description": "mac debug：GCC 16.1，全特性；实验组件要求 Linux 平台。",
+      "inherits": [
+        "mac",
+        "all",
+        "debug"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc-16",
+        "CMAKE_CXX_COMPILER": "g++-16"
+      }
+    },
+    {
+      "name": "mac-main-release",
+      "displayName": "mac-main-release",
+      "description": "mac release：Clang 23，稳定特性。macOS 使用 PATH 中的 Homebrew LLVM。",
+      "inherits": [
+        "mac",
+        "main",
+        "release"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "mac-main-debug",
+      "displayName": "mac-main-debug",
+      "description": "mac debug：Clang 23，稳定特性。macOS 使用 PATH 中的 Homebrew LLVM。",
+      "inherits": [
+        "mac",
+        "main",
+        "debug"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "windows-clang-all-release",
+      "displayName": "windows-clang-all-release",
+      "description": "Windows clang release：全特性请求；实验组件当前要求 Linux + GCC 16.1，配置阶段报告平台限制。",
+      "inherits": [
+        "windows",
+        "all",
+        "release"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
         "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG",
-        "CMAKE_C_COMPILER": "clang-cl"
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
       }
     },
     {
-      "name": "windows-mingw",
-      "displayName": "windows-mingw",
-      "description": "Windows MinGW-w64：使用 faio-deps 中 MSYS2 UCRT64 的 gcc/g++，-O2 优化、-DNDEBUG 关闭断言；根配置添加 GNU 警告、检查 native TLS 并启用精确对象适配，不使用 GCC LTO。",
-      "inherits": "windows-base",
-      "binaryDir": "${sourceDir}/build/windows-mingw",
+      "name": "windows-clang-all-debug",
+      "displayName": "windows-clang-all-debug",
+      "description": "Windows clang debug：全特性请求；实验组件当前要求 Linux + GCC 16.1，配置阶段报告平台限制。",
+      "inherits": [
+        "windows",
+        "all",
+        "debug"
+      ],
       "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
+      }
+    },
+    {
+      "name": "windows-clang-main-release",
+      "displayName": "windows-clang-main-release",
+      "description": "Windows clang release：稳定特性；依赖由当前编译器独立构建。",
+      "inherits": [
+        "windows",
+        "main",
+        "release"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
+      }
+    },
+    {
+      "name": "windows-clang-main-debug",
+      "displayName": "windows-clang-main-debug",
+      "description": "Windows clang debug：稳定特性；依赖由当前编译器独立构建。",
+      "inherits": [
+        "windows",
+        "main",
+        "debug"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
+      }
+    },
+    {
+      "name": "windows-mingw-all-release",
+      "displayName": "windows-mingw-all-release",
+      "description": "Windows mingw release：全特性请求；实验组件当前要求 Linux + GCC 16.1，配置阶段报告平台限制。",
+      "inherits": [
+        "windows",
+        "all",
+        "release"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/gcc.exe",
         "CMAKE_CXX_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/g++.exe",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
-        "CMAKE_C_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/gcc.exe"
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
       }
     },
     {
-      "name": "windows-clang-asan",
-      "displayName": "Windows Clang AddressSanitizer",
-      "description": "Windows 地址检测：继承 clang-cl Release，FAIO_SANITIZERS=address 启用 ASan 及依赖一致注解；关闭 benchmark 和安装规则，只用于内存安全验证。",
-      "inherits": "windows-clang",
-      "binaryDir": "${sourceDir}/build/windows-clang-asan",
+      "name": "windows-mingw-all-debug",
+      "displayName": "windows-mingw-all-debug",
+      "description": "Windows mingw debug：全特性请求；实验组件当前要求 Linux + GCC 16.1，配置阶段报告平台限制。",
+      "inherits": [
+        "windows",
+        "all",
+        "debug"
+      ],
       "cacheVariables": {
-        "FAIO_SANITIZERS": "address",
-        "FAIO_BUILD_BENCHMARKS": "OFF",
-        "FAIO_INSTALL": "OFF"
+        "CMAKE_C_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/g++.exe",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
       }
     },
     {
-      "name": "linux-clang22-uring",
-      "displayName": "Linux static io_uring, Clang 22",
-      "description": "Linux Clang 22：编译期固定 io_uring，Release；epoll 使用独立构建。",
-      "generator": "Ninja",
+      "name": "windows-mingw-main-release",
+      "displayName": "windows-mingw-main-release",
+      "description": "Windows mingw release：稳定特性；依赖由当前编译器独立构建。",
+      "inherits": [
+        "windows",
+        "main",
+        "release"
+      ],
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_CXX_COMPILER": "clang++-22",
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
-        "FAIO_ENABLE_IO_URING": "ON"
-      },
-      "binaryDir": "${sourceDir}/build/linux-clang22-uring"
-    },
-    {
-      "name": "linux-clang22-epoll",
-      "displayName": "Linux epoll only, Clang 22",
-      "description": "Linux Clang 22：编译期固定 epoll，无 liburing 依赖。",
-      "inherits": "linux-clang22-uring",
-      "binaryDir": "${sourceDir}/build/linux-clang22-epoll",
-      "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "OFF"
+        "CMAKE_C_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/g++.exe",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
       }
     },
     {
-      "name": "macos-clang23",
-      "displayName": "macOS kqueue, Homebrew Clang 23",
-      "description": "macOS kqueue：使用 Homebrew LLVM 的 clang++；Release 采用 -O2/-DNDEBUG，/opt/homebrew 用于查找依赖，关闭 Linux 专用 io_uring。",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/macos-clang23",
+      "name": "windows-mingw-main-debug",
+      "displayName": "windows-mingw-main-debug",
+      "description": "Windows mingw debug：稳定特性；依赖由当前编译器独立构建。",
+      "inherits": [
+        "windows",
+        "main",
+        "debug"
+      ],
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "/opt/homebrew/opt/llvm/bin/clang++",
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
-        "CMAKE_PREFIX_PATH": "/opt/homebrew",
-        "FAIO_ENABLE_IO_URING": "OFF"
+        "CMAKE_C_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "${sourceDir}/../faio-deps/tools/msys2-ucrt64/ucrt64/bin/g++.exe",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG"
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-base",
-      "hidden": true,
-      "generator": "Ninja",
+      "name": "windows-msvc-all-release",
+      "displayName": "windows-msvc-all-release",
+      "description": "Windows msvc release：全特性请求；实验组件当前要求 Linux + GCC 16.1，配置阶段报告平台限制。",
+      "inherits": [
+        "windows",
+        "all",
+        "release"
+      ],
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "/opt/gcc-16.1/usr/bin/g++",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "FAIO_ENABLE_EXPERIMENTAL": "ON",
-        "FAIO_EXPERIMENTAL_REFLECTION": "ON",
-        "FAIO_EXPERIMENTAL_EXECUTION": "ON",
-        "FAIO_BUILD_BENCHMARKS": "OFF"
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-epoll",
-      "displayName": "linux-gcc16.1-experimental-epoll",
-      "inherits": "linux-gcc16.1-experimental-base",
-      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-epoll",
+      "name": "windows-msvc-all-debug",
+      "displayName": "windows-msvc-all-debug",
+      "description": "Windows msvc debug：全特性请求；实验组件当前要求 Linux + GCC 16.1，配置阶段报告平台限制。",
+      "inherits": [
+        "windows",
+        "all",
+        "debug"
+      ],
       "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "OFF",
-        "FAIO_SANITIZERS": ""
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-dual",
-      "displayName": "linux-gcc16.1-experimental-dual",
-      "inherits": "linux-gcc16.1-experimental-base",
-      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-dual",
+      "name": "windows-msvc-main-release",
+      "displayName": "windows-msvc-main-release",
+      "description": "Windows msvc release：稳定特性；依赖由当前编译器独立构建。",
+      "inherits": [
+        "windows",
+        "main",
+        "release"
+      ],
       "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "ON",
-        "FAIO_SANITIZERS": ""
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-asan",
-      "displayName": "linux-gcc16.1-experimental-asan",
-      "inherits": "linux-gcc16.1-experimental-base",
-      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-asan",
+      "name": "windows-msvc-main-debug",
+      "displayName": "windows-msvc-main-debug",
+      "description": "Windows msvc debug：稳定特性；依赖由当前编译器独立构建。",
+      "inherits": [
+        "windows",
+        "main",
+        "debug"
+      ],
       "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "OFF",
-        "FAIO_SANITIZERS": "address,undefined"
-      }
-    },
-    {
-      "name": "linux-gcc16.1-experimental-tsan",
-      "displayName": "linux-gcc16.1-experimental-tsan",
-      "inherits": "linux-gcc16.1-experimental-base",
-      "binaryDir": "${sourceDir}/build/linux-gcc16.1-experimental-tsan",
-      "cacheVariables": {
-        "FAIO_ENABLE_IO_URING": "OFF",
-        "FAIO_SANITIZERS": "thread"
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "windows-msvc",
-      "description": "构建 windows-msvc 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
-      "configurePreset": "windows-msvc",
+      "name": "linux-all-release",
+      "configurePreset": "linux-all-release",
       "jobs": 4
     },
     {
-      "name": "windows-clang",
-      "description": "构建 windows-clang 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
-      "configurePreset": "windows-clang",
+      "name": "linux-all-debug",
+      "configurePreset": "linux-all-debug",
       "jobs": 4
     },
     {
-      "name": "windows-mingw",
-      "description": "构建 windows-mingw 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
-      "configurePreset": "windows-mingw",
+      "name": "linux-main-release",
+      "configurePreset": "linux-main-release",
       "jobs": 4
     },
     {
-      "name": "windows-clang-asan",
-      "description": "构建 windows-clang-asan 配置中已生成的全部目标。并行任务数固定为 4，控制三编译器验证的内存与 CPU 占用。",
-      "configurePreset": "windows-clang-asan",
+      "name": "linux-main-debug",
+      "configurePreset": "linux-main-debug",
       "jobs": 4
     },
     {
-      "name": "linux-clang22-uring",
-      "description": "Linux Clang 22：编译期固定 io_uring，Release；epoll 使用独立构建。",
-      "configurePreset": "linux-clang22-uring"
-    },
-    {
-      "name": "linux-clang22-epoll",
-      "description": "Linux Clang 22：编译期固定 epoll，无 liburing 依赖。",
-      "configurePreset": "linux-clang22-epoll"
-    },
-    {
-      "name": "macos-clang23",
-      "description": "构建 macos-clang23 配置中已生成的全部目标。",
-      "configurePreset": "macos-clang23"
-    },
-    {
-      "name": "linux-gcc16.1-experimental-epoll",
-      "configurePreset": "linux-gcc16.1-experimental-epoll",
+      "name": "mac-all-release",
+      "configurePreset": "mac-all-release",
       "jobs": 4
     },
     {
-      "name": "linux-gcc16.1-experimental-dual",
-      "configurePreset": "linux-gcc16.1-experimental-dual",
+      "name": "mac-all-debug",
+      "configurePreset": "mac-all-debug",
       "jobs": 4
     },
     {
-      "name": "linux-gcc16.1-experimental-asan",
-      "configurePreset": "linux-gcc16.1-experimental-asan",
+      "name": "mac-main-release",
+      "configurePreset": "mac-main-release",
       "jobs": 4
     },
     {
-      "name": "linux-gcc16.1-experimental-tsan",
-      "configurePreset": "linux-gcc16.1-experimental-tsan",
+      "name": "mac-main-debug",
+      "configurePreset": "mac-main-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-clang-all-release",
+      "configurePreset": "windows-clang-all-release",
+      "jobs": 4
+    },
+    {
+      "name": "windows-clang-all-debug",
+      "configurePreset": "windows-clang-all-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-clang-main-release",
+      "configurePreset": "windows-clang-main-release",
+      "jobs": 4
+    },
+    {
+      "name": "windows-clang-main-debug",
+      "configurePreset": "windows-clang-main-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-mingw-all-release",
+      "configurePreset": "windows-mingw-all-release",
+      "jobs": 4
+    },
+    {
+      "name": "windows-mingw-all-debug",
+      "configurePreset": "windows-mingw-all-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-mingw-main-release",
+      "configurePreset": "windows-mingw-main-release",
+      "jobs": 4
+    },
+    {
+      "name": "windows-mingw-main-debug",
+      "configurePreset": "windows-mingw-main-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-msvc-all-release",
+      "configurePreset": "windows-msvc-all-release",
+      "jobs": 4
+    },
+    {
+      "name": "windows-msvc-all-debug",
+      "configurePreset": "windows-msvc-all-debug",
+      "jobs": 4
+    },
+    {
+      "name": "windows-msvc-main-release",
+      "configurePreset": "windows-msvc-main-release",
+      "jobs": 4
+    },
+    {
+      "name": "windows-msvc-main-debug",
+      "configurePreset": "windows-msvc-main-debug",
       "jobs": 4
     }
   ],
   "testPresets": [
     {
-      "name": "windows-msvc",
-      "description": "运行 windows-msvc 构建目录的 CTest，失败时输出诊断。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
-      "configurePreset": "windows-msvc",
+      "name": "linux-all-release",
+      "configurePreset": "linux-all-release",
       "output": {
         "outputOnFailure": true
       },
@@ -232,9 +490,8 @@
       }
     },
     {
-      "name": "windows-clang",
-      "description": "运行 windows-clang 构建目录的 CTest，失败时输出诊断。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
-      "configurePreset": "windows-clang",
+      "name": "linux-all-debug",
+      "configurePreset": "linux-all-debug",
       "output": {
         "outputOnFailure": true
       },
@@ -243,9 +500,8 @@
       }
     },
     {
-      "name": "windows-mingw",
-      "description": "运行 windows-mingw 构建目录的 CTest，失败时输出诊断。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
-      "configurePreset": "windows-mingw",
+      "name": "linux-main-release",
+      "configurePreset": "linux-main-release",
       "output": {
         "outputOnFailure": true
       },
@@ -254,112 +510,170 @@
       }
     },
     {
-      "name": "windows-clang-asan",
-      "description": "运行 windows-clang-asan 构建目录的 CTest，失败时输出诊断。ASAN_OPTIONS=halt_on_error=1 使地址检测错误立即失败。单个测试超时 120 秒；目标自身更短的 CTest 超时仍保持原设置。",
-      "configurePreset": "windows-clang-asan",
+      "name": "linux-main-debug",
+      "configurePreset": "linux-main-debug",
       "output": {
         "outputOnFailure": true
       },
       "execution": {
         "timeout": 120
-      },
-      "environment": {
-        "ASAN_OPTIONS": "halt_on_error=1"
       }
     },
     {
-      "name": "linux-clang22-epoll",
-      "description": "Linux Clang 22：编译期固定 epoll，无 liburing 依赖。",
-      "configurePreset": "linux-clang22-epoll",
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
-      },
+      "name": "mac-all-release",
+      "configurePreset": "mac-all-release",
       "output": {
         "outputOnFailure": true
-      }
-    },
-    {
-      "name": "linux-clang22-uring",
-      "description": "Linux Clang 22：编译期固定 io_uring，Release；epoll 使用独立构建。",
-      "configurePreset": "linux-clang22-uring",
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "uring"
-      },
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "macos-clang23",
-      "description": "运行 macos-clang23 构建目录的 CTest，失败时输出诊断。",
-      "configurePreset": "macos-clang23",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "linux-gcc16.1-experimental-epoll",
-      "configurePreset": "linux-gcc16.1-experimental-epoll",
-      "output": {
-        "outputOnFailure": true
-      },
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
       },
       "execution": {
         "timeout": 120
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-dual",
-      "configurePreset": "linux-gcc16.1-experimental-epoll",
+      "name": "mac-all-debug",
+      "configurePreset": "mac-all-debug",
       "output": {
         "outputOnFailure": true
-      },
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll"
       },
       "execution": {
         "timeout": 120
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-dual-uring",
-      "configurePreset": "linux-gcc16.1-experimental-dual",
+      "name": "mac-main-release",
+      "configurePreset": "mac-main-release",
       "output": {
         "outputOnFailure": true
-      },
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "uring"
       },
       "execution": {
         "timeout": 120
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-asan",
-      "configurePreset": "linux-gcc16.1-experimental-asan",
+      "name": "mac-main-debug",
+      "configurePreset": "mac-main-debug",
       "output": {
         "outputOnFailure": true
-      },
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll",
-        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
-        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
       },
       "execution": {
         "timeout": 120
       }
     },
     {
-      "name": "linux-gcc16.1-experimental-tsan",
-      "configurePreset": "linux-gcc16.1-experimental-tsan",
+      "name": "windows-clang-all-release",
+      "configurePreset": "windows-clang-all-release",
       "output": {
         "outputOnFailure": true
       },
-      "environment": {
-        "FAIO_TEST_IO_BACKEND": "epoll",
-        "TSAN_OPTIONS": "halt_on_error=1"
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-clang-all-debug",
+      "configurePreset": "windows-clang-all-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-clang-main-release",
+      "configurePreset": "windows-clang-main-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-clang-main-debug",
+      "configurePreset": "windows-clang-main-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-mingw-all-release",
+      "configurePreset": "windows-mingw-all-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-mingw-all-debug",
+      "configurePreset": "windows-mingw-all-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-mingw-main-release",
+      "configurePreset": "windows-mingw-main-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-mingw-main-debug",
+      "configurePreset": "windows-mingw-main-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-msvc-all-release",
+      "configurePreset": "windows-msvc-all-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-msvc-all-debug",
+      "configurePreset": "windows-msvc-all-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-msvc-main-release",
+      "configurePreset": "windows-msvc-main-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 120
+      }
+    },
+    {
+      "name": "windows-msvc-main-debug",
+      "configurePreset": "windows-msvc-main-debug",
+      "output": {
+        "outputOnFailure": true
       },
       "execution": {
         "timeout": 120

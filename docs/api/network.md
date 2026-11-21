@@ -2,9 +2,11 @@
 
 [查看此模块的 Doxygen 逐项接口：签名、形参、返回值与重载 →](../../api/group__network.html)
 
-入口：`<faio/net.hpp>`，常见程序可直接包含 `<faio/faio.hpp>`。类型位于 `faio::net`。
+类型位于 `faio::net`。按下文的网络操作选择功能头。
 
 ## 地址与解析
+
+单独构造或解析地址时包含 `<faio/net/address.hpp>`。TCP 和 UDP 的功能头也提供各自用到的地址类型。
 
 | 接口 | 完成结果 / 用途 |
 | --- | --- |
@@ -13,6 +15,8 @@
 | `local_addr()` / `peer_addr()` | 获取绑定地址 / 对端地址 |
 
 ## TCP
+
+包含 `<faio/net/tcp.hpp>`。
 
 | 接口 | 完成结果 / 行为 |
 | --- | --- |
@@ -30,9 +34,11 @@
 
 同一 stream 可以同时执行一个读和一个写；同方向冲突返回 `EBUSY`。借用 buffer 在操作最终完成之前必须存活。需要交付缓冲区所有权时，使用接收 `io_buffer` 的重载；`split()` / `into_split()` 分别得到借用式 / 拥有式的读写半部。
 
-TCP 是字节流，没有消息边界。一次 `read()` 不一定得到一个完整应用消息，发送一次也不意味着接收一次。需要应用协议的分帧、累积缓冲和大小限制，示例见 [共享计数器](../examples/counter.md)。
+TCP 是字节流。对于按换行分帧的协议，把每次读取追加到接收缓冲，逐条消费完整行，并保留最后一条未完成的行供下一次读取。为帧设置大小上限和读取期限。本机回显使用固定长度消息，调用 `read_exact()` 读满一条已知长度的帧。
 
 ## UDP
+
+包含 `<faio/net/udp.hpp>`。
 
 | 接口 | 完成结果 / 行为 |
 | --- | --- |
@@ -45,8 +51,8 @@ UDP 的零长度数据报是有效消息，不应按 TCP EOF 处理。数据报�
 
 ## 平台扩展与错误
 
-Unix domain socket、pipe 等按平台能力提供；Windows 的原生句柄与扩展接口遵循 IOCP 生命周期协议。普通网络错误返回 `expected`，错误域可区分 POSIX / Winsock / Win32 / resolver。
+Unix 域套接字和本地管道由 `<faio/net/local.hpp>` 按平台能力提供。Windows 的原生句柄与扩展接口遵循 IOCP 生命周期协议。普通网络错误返回 `expected`，错误域可区分 POSIX / Winsock / Win32 / resolver。
 
 可在受支持的可等待读写操作上配置超时，见 [时间与超时](time.md)；组合 task 不一定满足同一 timeout 约束。
 
-完整程序：[TCP / UDP 例程](../examples/network.md)。
+完整程序见 [TCP 回显](../../examples/net/tcp_echo.cpp)和 [UDP 回显](../../examples/net/udp_echo.cpp)。

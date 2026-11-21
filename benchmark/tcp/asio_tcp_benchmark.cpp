@@ -1,9 +1,13 @@
+/**
+ * @file benchmark/tcp/asio_tcp_benchmark.cpp
+ * @brief Asio TCP 回显对照基准。
+ */
 #include <asio.hpp>
 #include <asio/awaitable.hpp>
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 #include <asio/use_awaitable.hpp>
-#include "faio/log.hpp"
+#include "faio/log/logger.hpp"
 
 #include <array>
 #include <cstdlib>
@@ -17,6 +21,7 @@ using asio::detached;
 using asio::use_awaitable;
 
 namespace {
+/** @brief 处理 Asio 基准连接的字节回显或 HTTP 响应。 */
 auto handle_session(tcp::socket socket) -> awaitable<void> {
   std::array<char, 8192> buf{};
   std::string request_buffer;
@@ -56,6 +61,7 @@ auto handle_session(tcp::socket socket) -> awaitable<void> {
   co_return;
 }
 
+/** @brief 接受 Asio 连接并启动独立会话协程。 */
 auto listener(tcp::acceptor acceptor) -> awaitable<void> {
   try {
     while (true) {
@@ -67,8 +73,9 @@ auto listener(tcp::acceptor acceptor) -> awaitable<void> {
   }
   co_return;
 }
-}  // namespace
+}
 
+/** @brief 解析参数并启动 Asio TCP 回显或 HTTP 基准服务。 */
 int main(int argc, char** argv) {
   std::string host = "0.0.0.0";
   uint16_t port = 18082;
@@ -85,7 +92,6 @@ int main(int argc, char** argv) {
   faio::log::logger()->info("asio tcp benchmark listening on {}:{}", host, port);
   co_spawn(io, listener(std::move(acceptor)), detached);
 
-  // host、port、workers；所有对照服务使用同样的线程数。
   const std::size_t workers = argc > 3 ? std::max(1ul, std::strtoul(argv[3], nullptr, 10)) : 4;
   std::vector<std::thread> pool;
   pool.reserve(workers > 0 ? workers - 1 : 0);

@@ -2,7 +2,7 @@
 
 [查看此模块的 Doxygen 逐项接口：签名、形参、返回值与重载 →](../../api/group__io.html)
 
-入口：`<faio/io.hpp>`。公开接口位于 `faio::io`；这些工具可以组合到文件、网络流及其他满足读写能力约束的对象上。
+使用通用流算法、缓冲区和内存流时包含 `<faio/io/stream.hpp>`。这些工具位于 `faio::io`，可用于文件、网络流及其他满足读写约束的对象。TCP、UDP 和文件的功能头已提供其接口所需的缓冲区类型。
 
 ## io_buffer：拥有字节缓冲区
 
@@ -55,6 +55,6 @@ if (!sent) co_return;
 
 ## Unix 原生描述符
 
-Unix 平台提供 `faio::io::unix::AsyncFd`，适配可执行非阻塞操作的原生描述符。普通磁盘文件应使用 `faio::fs::File`。就绪提示仍需通过实际非阻塞调用确认，不能据此推断数据一定可读或可写。
+包含 `<faio/io/native.hpp>` 以使用 Unix 平台的 `faio::io::unix::AsyncFd`。它适配可执行非阻塞操作的原生描述符。普通磁盘文件应使用 `faio::fs::File`。就绪提示仍需通过实际非阻塞调用确认，不能据此推断数据一定可读或可写。
 
-[网络接口](network.md) · [文件接口](filesystem.md) · [文件操作例程](../examples/files.md)
+[网络接口](network.md) · [文件接口](filesystem.md) · [内存流例程](../../examples/io/stream.cpp) · [文件操作例程](../../examples/fs/file_and_directory.cpp)

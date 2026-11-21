@@ -1,0 +1,8 @@
+{
+  "name": "faio-stdexec",
+  "version-date": "2026-05-01",
+  "description": "Locked stdexec header source for faio experimental execution",
+  "homepage": "https://github.com/NVIDIA/stdexec",
+  "license": "Apache-2.0",
+  "supports": "linux"
+}

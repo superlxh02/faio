@@ -1,4 +1,17 @@
-#include "faio/faio.hpp"
+/**
+ * @file benchmark/coro/current_thread_benchmark.cpp
+ * @brief 单线程运行时性能基准。
+ */
+#include "faio/detail/io/awaiter/recv.hpp"
+#include "faio/detail/io/awaiter/send.hpp"
+#include "faio/detail/runtime/context.hpp"
+#include "faio/log/logger.hpp"
+#include "faio/runtime/default.hpp"
+#include "faio/time/timer.hpp"
+#include <cstddef>
+#include <ratio>
+#include <string>
+#include <utility>
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
@@ -15,21 +28,26 @@ using namespace std::chrono_literals;
 using context = faio::runtime::detail::runtime_context;
 bool sampling;
 
+/** @brief 计算指定时刻以来的纳秒耗时。 */
 double ns(clock_type::time_point start) {
   return std::chrono::duration<double, std::nano>(clock_type::now() - start).count();
 }
 
+/** @brief 按采样模式读取单次操作的起始时刻。 */
 clock_type::time_point stamp() {
   return sampling ? clock_type::now() : clock_type::time_point{};
 }
 
+/** @brief 保存当前线程基准的摊销成本与单次延迟样本。 */
 struct result {
+  /** @brief 为指定操作数量预分配延迟样本。 */
   explicit result(std::size_t n) : samples(n) {}
 
   double cost{};
   std::vector<double> samples;
 };
 
+/** @brief 输出摊销成本、延迟分位数与样本数量。 */
 void report(std::string_view name, result r) {
   std::sort(r.samples.begin(), r.samples.end());
   const auto percentile = [&](double p) {
@@ -40,10 +58,12 @@ void report(std::string_view name, result r) {
             << r.samples.size() << '\n';
 }
 
+/** @brief 返回固定整数的惰性协程，用作测试负载。 */
 faio::task<int> one() {
   co_return 42;
 }
 
+/** @brief 测量让出执行权、直接等待和提交任务的单线程成本。 */
 faio::task<result> coro(std::size_t n, int kind) {
   result r{n};
   const auto start = clock_type::now();
@@ -66,6 +86,7 @@ faio::task<result> coro(std::size_t n, int kind) {
   co_return r;
 }
 
+/** @brief 测量逐次提交并等待阻塞任务的成本。 */
 faio::task<result> blocking_serial(std::size_t n) {
   result r{n};
   const auto start = clock_type::now();
@@ -81,6 +102,7 @@ faio::task<result> blocking_serial(std::size_t n) {
   co_return r;
 }
 
+/** @brief 测量批量提交阻塞任务的耗时与完成延迟。 */
 faio::task<result> blocking_burst(std::size_t n) {
   result r{n};
   std::vector<faio::join_handle<int>> handles;
@@ -89,7 +111,6 @@ faio::task<result> blocking_burst(std::size_t n) {
   for (std::size_t i = 0; i < n; ++i) {
     const auto t = stamp();
     handles.push_back(faio::spawn_blocking([&, i, t] {
-      // Each worker owns a different sample; joining publishes its write.
       if (sampling)
         r.samples[i] = ns(t);
       return 42;
@@ -102,24 +123,30 @@ faio::task<result> blocking_burst(std::size_t n) {
   co_return r;
 }
 
+/** @brief 拥有本地往返测试所用的双向套接字对。 */
 struct socket_pair {
   int fds[2];
 
+  /** @brief 创建用于本地往返的套接字对。 */
   socket_pair() {
     if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0)
       throw std::runtime_error("socketpair");
   }
 
+  /** @brief 关闭往返负载拥有的两个本地套接字。 */
   ~socket_pair() {
     ::close(fds[0]);
     ::close(fds[1]);
   }
 
+  /** @brief 禁止复制本地套接字对的所有权。 */
   socket_pair(const socket_pair&) = delete;
 
+  /** @brief 禁止复制本地套接字对的所有权。 */
   socket_pair& operator=(const socket_pair&) = delete;
 };
 
+/** @brief 逐个读取并回写本地套接字上的单字节请求。 */
 faio::task<void> echo(int fd, std::size_t n) {
   char byte;
   for (std::size_t i = 0; i < n; ++i) {
@@ -130,6 +157,7 @@ faio::task<void> echo(int fd, std::size_t n) {
   }
 }
 
+/** @brief 测量本地套接字单字节请求的逐次往返延迟。 */
 faio::task<result> io_roundtrip(std::size_t n) {
   socket_pair pair;
   auto peer = faio::spawn(echo(pair.fds[1], n));
@@ -150,11 +178,13 @@ faio::task<result> io_roundtrip(std::size_t n) {
   co_return r;
 }
 
+/** @brief 在定时基准运行期间持续让出协程执行权。 */
 faio::task<void> busy(bool& done) {
   while (!done)
     co_await faio::this_coro::yield();
 }
 
+/** @brief 在持续就绪任务干扰下测量定时器完成延迟。 */
 faio::task<result> timer_busy(std::size_t n) {
   bool done = false;
   auto worker = faio::spawn(busy(done));
@@ -172,12 +202,14 @@ faio::task<result> timer_busy(std::size_t n) {
   co_return r;
 }
 
+/** @brief 等待并校验一组已提交任务的返回值。 */
 faio::task<void> drain(std::vector<faio::join_handle<int>>& handles) {
   for (auto& h : handles)
     if (co_await h != 42)
       throw std::runtime_error("external result");
 }
 
+/** @brief 测量外部线程批量提交任务的完成延迟。 */
 result external_burst(context& ctx, std::size_t n) {
   result r{n};
   std::vector<faio::join_handle<int>> handles;
@@ -187,10 +219,11 @@ result external_burst(context& ctx, std::size_t n) {
     handles.push_back(ctx.spawn_observed(one()));
   ctx.block_on(drain(handles));
   r.cost = ns(start) / n;
-  return r;  // Batch throughput only; no per-task sampling in this scenario.
+  return r;
 }
-}  // namespace
+}
 
+/** @brief 执行当前线程运行时的协程、阻塞与 I/O 基准。 */
 int main(int argc, char** argv) {
   const std::size_t n = argc > 1 ? std::stoull(argv[1]) : 20000;
   if (n < 32)

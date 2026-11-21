@@ -3,7 +3,7 @@
 下载并校验 Windows 构建依赖，后续构建可以完全离线。
 .DESCRIPTION
 所有软件包、工具链与 Cargo 下载缓存集中保存到工作区相邻的 faio-deps；
-归档版本、提交和 SHA256 由 windows-dependencies.json 固定，不读取 latest。
+归档版本、提交和 SHA256 由 windows-dependencies.json 定义。
 #>
 [CmdletBinding()]
 param([string]$DependencyRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) '..\faio-deps'), [switch]$Offline, [switch]$SkipMinGW)
@@ -15,10 +15,7 @@ foreach ($name in @('spdlog', 'googletest', 'asio', 'mingw')) {
     if ($name -eq 'mingw' -and $SkipMinGW) { continue }
     $item = $manifest.$name
     if ($name -eq 'mingw') {
-        # 验证矩阵只支持固定的 MSYS2 native TLS 工具链；不再保留旧 WinLibs 分支。
         if ($item.kind -ne 'msys2-native-tls') { throw "Unsupported MinGW manifest kind: $($item.kind)" }
-        # GCC native TLS、CRT、libstdc++、libgcc 和 pthread 来自同一固定发行版。
-        # 只解压原生 ucrt64 包，无需安装 MSYS shell 或修改系统 PATH。
         $packages = Get-Content (Join-Path $PSScriptRoot $item.packages) -Raw | ConvertFrom-Json
         $toolchainRoot = Join-Path "$DependencyRoot\tools" $item.install_subdir
         $markerRoot = Join-Path $toolchainRoot '.faio-packages'
@@ -41,7 +38,6 @@ foreach ($name in @('spdlog', 'googletest', 'asio', 'mingw')) {
         }
         continue
     }
-    # 剩余三项是测试/benchmark 使用的固定版本第三方源码，均采用 tar.gz 归档。
     $archive = Join-Path "$DependencyRoot\archives" "$name.tar.gz"
     if (-not (Test-Path -LiteralPath $archive)) {
         if ($Offline) { throw "Offline dependency archive missing: $archive" }

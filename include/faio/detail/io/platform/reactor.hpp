@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/platform/reactor.hpp
- * @brief 跨平台异步 IO：就绪反应器。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 就绪反应器。
  */
 #pragma once
 #include "faio/detail/io/base/reactor.hpp"
@@ -11,17 +10,20 @@
 #else
 namespace faio::io::detail {
 #if defined(__linux__)
+/** @brief Linux epoll 就绪反应器。 */
 class epoll_reactor;
 using reactor_box = basic_reactor_box<epoll_reactor>;
 #elif defined(__APPLE__) || defined(__FreeBSD__)
+/** @brief BSD kqueue 就绪反应器。 */
 class kqueue_reactor;
 using reactor_box = basic_reactor_box<kqueue_reactor>;
 #endif
-}
+}  // namespace faio::io::detail
 #endif
 
 #if !defined(_WIN32)
 namespace faio::io::detail {
+/** @brief 构造当前平台的就绪反应器。 */
 reactor_box make_platform_reactor();
-}
+}  // namespace faio::io::detail
 #endif

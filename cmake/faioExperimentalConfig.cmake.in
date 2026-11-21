@@ -1,9 +1,13 @@
-# Loaded only when a caller explicitly requests an experimental component.
+#[[
+@file cmake/faioExperimentalConfig.cmake.in
+@brief 导入实验组件安装包的依赖与目标。
+]]
 include("${CMAKE_CURRENT_LIST_DIR}/FaioExperimentalToolchain.cmake")
 set(_faio_requested_reflection FALSE)
 set(_faio_requested_execution FALSE)
 foreach(_faio_component IN LISTS faio_FIND_COMPONENTS)
-    if(_faio_component STREQUAL "experimental_reflection")
+    if(_faio_component STREQUAL "experimental_reflection" OR
+       _faio_component STREQUAL "experimental_lifecycle")
         set(_faio_requested_reflection TRUE)
     elseif(_faio_component STREQUAL "experimental_execution")
         set(_faio_requested_execution TRUE)
@@ -14,6 +18,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/faioExperimentalTargets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/FaioExperimentalEntry.cmake")
 set(faio_experimental_runtime_FOUND TRUE)
 set(faio_experimental_reflection_FOUND @FAIO_EXPERIMENTAL_REFLECTION@)
+set(faio_experimental_lifecycle_FOUND @FAIO_EXPERIMENTAL_REFLECTION@)
 set(faio_experimental_execution_FOUND @FAIO_EXPERIMENTAL_EXECUTION@)
 if(_faio_requested_execution AND faio_experimental_execution_FOUND)
     get_target_property(_faio_stdexec_include faio::experimental_stdexec INTERFACE_INCLUDE_DIRECTORIES)

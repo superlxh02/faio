@@ -1,0 +1,18 @@
+#[[
+@file cmake/faioProtocolsConfig.cmake.in
+@brief 导入可选模块安装包的依赖与目标。
+]]
+if(NOT "tls" IN_LIST faio_FIND_COMPONENTS)
+    return()
+endif()
+
+if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/faioTlsTargets.cmake")
+    set(faio_tls_FOUND FALSE)
+    set(faio_NOT_FOUND_MESSAGE "faio component tls was not installed")
+    return()
+endif()
+
+include(CMakeFindDependencyMacro)
+find_dependency(OpenSSL 3.5 COMPONENTS SSL Crypto)
+include("${CMAKE_CURRENT_LIST_DIR}/faioTlsTargets.cmake")
+set(faio_tls_FOUND TRUE)

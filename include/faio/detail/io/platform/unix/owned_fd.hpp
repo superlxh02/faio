@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/platform/unix/owned_fd.hpp
- * @brief 跨平台异步 IO：描述符 RAII 所有者。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 描述符 RAII 所有者。
  */
 #pragma once
 #if !defined(_WIN32)
@@ -12,17 +11,22 @@
 #undef unix
 #endif
 namespace faio::io::unix {
-/** @brief POSIX描述符的移动独占所有者，析构只close一次，不重试复用的整数fd。 */
+/**  @brief 可移动的 POSIX 描述符独占所有者；析构仅关闭一次，避免重试时误关已复用的 fd。 */
 class OwnedFd {
  public:
+  /** @brief 构造独占原生描述符。 */
   explicit OwnedFd(int descriptor = -1) noexcept : descriptor_(descriptor) {}
 
+  /** @brief 禁止复制构造独占原生描述符。 */
   OwnedFd(const OwnedFd&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   OwnedFd& operator=(const OwnedFd&) = delete;
 
+  /** @brief 移动构造独占原生描述符。 */
   OwnedFd(OwnedFd&& other) noexcept : descriptor_(other.release()) {}
 
+  /** @brief 移动赋值。 */
   OwnedFd& operator=(OwnedFd&& other) noexcept {
     if (this != &other) {
       if (descriptor_ >= 0)
@@ -32,20 +36,21 @@ class OwnedFd {
     return *this;
   }
 
+  /** @brief 销毁独占原生描述符。 */
   ~OwnedFd() {
     if (descriptor_ >= 0)
       ::close(descriptor_);
   }
 
-  /// @brief 取得当前对象保存的值或借用句柄，是否转交所有权由返回类型决定。
+  /** @brief 借用持有的 POSIX 描述符。 */
   [[nodiscard]] int get() const noexcept { return descriptor_; }
 
-  /// @brief 转出或归还当前类型约定的资源责任，并把源对象变为空状态。
+  /** @brief 转出描述符及关闭责任，并将源对象置空。 */
   int release() noexcept { return std::exchange(descriptor_, -1); }
 
  private:
-  int descriptor_;  ///< 独占拥有的 POSIX 描述符，转出后置为无效值。
+  int descriptor_; /**< 独占拥有的 POSIX 描述符，转出后置为无效值。 */
 };
 
-}
+}  // namespace faio::io::unix
 #endif

@@ -1,12 +1,11 @@
 /**
  * @file faio/detail/io/platform/unix/async_fd.hpp
- * @brief 跨平台异步 IO：异步描述符就绪守卫。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 异步描述符就绪守卫。
  */
 #pragma once
 #if !defined(_WIN32)
 #include "faio/detail/coroutine/task.hpp"
-#include "faio/detail/io/awaiter/operations.hpp"
+#include "faio/detail/io/awaiter/ready.hpp"
 #include "faio/detail/io/core/file_descriptor.hpp"
 #include "faio/detail/io/platform/unix/owned_fd.hpp"
 #include "faio/detail/io/traits/native_fd_owner.hpp"
@@ -20,9 +19,10 @@
 #include <utility>
 
 namespace faio::io::unix {
-/** @brief 一次就绪观察的代际guard；假就绪仍需真实非阻塞syscall确认。 */
+/**  @brief 按代际保护一次就绪观察；假就绪仍须通过真实的非阻塞系统调用确认。 */
 class AsyncFdReadyGuard {
  public:
+  /** @brief 构造描述符就绪状态保护。 */
   AsyncFdReadyGuard(detail::resource_ptr resource,
                     Interest interest,
                     Ready ready,
@@ -32,15 +32,16 @@ class AsyncFdReadyGuard {
         ready_(ready),
         generation_(generation) {}
 
+  /** @brief 检查资源或操作的就绪状态。 */
   [[nodiscard]] Ready ready() const noexcept { return ready_; }
 
-  /** @brief 只清除本次观察代际；更新的内核事件不会被旧guard抹除。 */
+  /**  @brief 仅清除本次观察代际的就绪提示，保留后来到达的内核事件。 */
   void clear_ready() noexcept {
     if (resource_->owner)
       resource_->owner->clear_readiness(resource_, interest_, generation_);
   }
 
-  /** @brief callback只可执行同方向非阻塞调用；EAGAIN原子清除对应readiness。 */
+  /**  @brief 回调只能执行同方向的非阻塞调用；EAGAIN 会原子地清除对应就绪提示。 */
   template <class F>
   auto try_io(F&& function) -> std::invoke_result_t<F, int> {
     return detail::with_resource(resource_, interest_, [&] {
@@ -49,13 +50,15 @@ class AsyncFdReadyGuard {
   }
 
  private:
-  detail::resource_ptr resource_;  ///< 共享资源控制块租约，跨挂起固定句柄身份及 IO 域归属。
-  Interest interest_;  ///< 当前等待或预留关注的读写方向集合。
-  Ready ready_;  ///< 待交付的就绪结果或就绪条目链表头。
-  std::uint64_t generation_;  ///< 获取就绪提示时的资源代际，清除旧提示时不得覆盖新事件。
+  detail::resource_ptr
+      resource_;             /**< 共享资源控制块的租约，在挂起期间保持句柄身份及所属 I/O 域不变。 */
+  Interest interest_;        /**< 当前等待或预留关注的读写方向集合。 */
+  Ready ready_;              /**< 本次观察到的就绪结果。 */
+  std::uint64_t generation_; /**< 获取就绪提示时的资源代际，清除旧提示时不得覆盖新事件。 */
 };
 
 namespace detail_fd {
+/** @brief 设置原生描述符的异步访问标志。 */
 inline int prepare_fd(int descriptor) {
   struct stat attributes;
   if (::fstat(descriptor, &attributes))
@@ -70,30 +73,36 @@ inline int prepare_fd(int descriptor) {
   return descriptor;
 }
 
+/** @brief 观察已发布的完成状态。 */
 inline task<expected<AsyncFdReadyGuard>> observe(detail::resource_ptr resource, Interest interest) {
   auto observed = co_await io::ready(resource, interest);
   if (!observed)
     co_return std::unexpected{observed.error()};
   co_return AsyncFdReadyGuard{std::move(resource), interest, *observed, observed->generation};
 }
-}
+}  // namespace detail_fd
 
-/** @brief 泛型可非阻塞描述符的就绪注册；不把普通文件readiness解释成异步磁盘IO。
- * @details 资源长期归属一个IO domain，协程移动不会改变注册。实际IO由调用者
- * 的非阻塞syscall执行，借用内存必须覆盖调用。guard不拥有数据方向执行权。
+/**
+ *  @brief 为可设为非阻塞的描述符注册就绪观察；普通文件就绪不代表异步磁盘 I/O。
+ * @details 资源长期归属同一 I/O 域，协程移动不改变注册。实际 I/O 由调用者执行
+ * 非阻塞系统调用，借用内存须在调用期间保持有效。就绪守卫不持有数据方向执行权。
  */
 template <native_fd_owner Owner = OwnedFd>
 class AsyncFd : public detail::FileDescriptor {
  public:
+  /** @brief 构造异步原生描述符。 */
   explicit AsyncFd(Owner owner, io_context context = io_context::current())
       : FileDescriptor(detail_fd::prepare_fd(owner.get()), std::move(context)) {
     (void)owner.release();
   }
 
+  /** @brief 移动构造异步原生描述符。 */
   AsyncFd(AsyncFd&&) noexcept = default;
 
+  /** @brief 移动赋值。 */
   AsyncFd& operator=(AsyncFd&&) noexcept = default;
 
+  /** @brief 注册原生描述符并创建异步访问封装。 */
   static expected<AsyncFd> create(io_context context, Owner owner) {
     try {
       return AsyncFd{std::move(owner), std::move(context)};
@@ -104,21 +113,26 @@ class AsyncFd : public detail::FileDescriptor {
     }
   }
 
+  /** @brief 检查资源或操作的就绪状态。 */
   auto ready(Interest interest) { return detail_fd::observe(resource(), interest); }
 
+  /** @brief 等待或查询资源可读状态。 */
   auto readable() { return ready(Interest::readable); }
 
+  /** @brief 等待或查询资源可写状态。 */
   auto writable() { return ready(Interest::writable); }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] int native_handle() const noexcept { return fd(); }
 
+  /** @brief 尝试立即完成 I/O 操作。 */
   template <class F>
   auto try_io(Interest interest, F&& function) -> std::invoke_result_t<F, int> {
     return detail::with_resource(
         resource(), interest, [&] { return std::invoke(std::forward<F>(function), fd()); });
   }
 
+  /** @brief 取回底层流对象。 */
   expected<Owner> into_inner() {
     auto descriptor = into_native();
     if (!descriptor)
@@ -126,5 +140,5 @@ class AsyncFd : public detail::FileDescriptor {
     return Owner{*descriptor};
   }
 };
-}
+}  // namespace faio::io::unix
 #endif

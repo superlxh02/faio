@@ -1,0 +1,48 @@
+{
+  "name": "faio · GCC 16.1 / C++26",
+  "build": {
+    "dockerfile": "../docker/dev-image.dockerfile",
+    "context": ".."
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/faio,type=bind,consistency=cached",
+  "workspaceFolder": "/workspace/faio",
+  "mounts": [
+    "source=faio-build-${devcontainerId},target=/workspace/faio/build,type=volume"
+  ],
+  "containerEnv": {
+    "CC": "/opt/gcc-16.1/usr/bin/gcc",
+    "CXX": "/opt/gcc-16.1/usr/bin/g++"
+  },
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt=seccomp=unconfined"
+  ],
+  "init": true,
+  "remoteUser": "root",
+  "postCreateCommand": ["cmake", "--preset", "linux-all-debug"],
+  "waitFor": "postCreateCommand",
+  "customizations": {
+    "jetbrains": {
+      "backend": "CLion"
+    },
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools"
+      ],
+      "settings": {
+        "clangd.path": "/usr/local/bin/clangd",
+        "clangd.arguments": [
+          "--background-index",
+          "--enable-config",
+          "--query-driver=/opt/gcc-16.1/usr/bin/g++,/usr/bin/g++,/usr/lib64/ccache/g++,/usr/local/bin/g++-16,/usr/local/bin/clang++-23,/usr/local/bin/faio-cxx"
+        ],
+        "C_Cpp.intelliSenseEngine": "disabled",
+        "cmake.useCMakePresets": "always",
+        "cmake.configureOnOpen": false,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

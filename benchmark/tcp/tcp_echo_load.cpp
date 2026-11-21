@@ -1,22 +1,19 @@
 /**
  * @file tcp_echo_load.cpp
  * @brief 独立 TCP 闭环负载发生器；同一个可执行文件用于测量 faio 与 Tokio。
- *
- * 每条连接只有一个在途请求，收到完整且逐字节一致的回包才发下一包。
- * 计时覆盖发送开始至回包完整到达；不包含连接建立。预热样本不进入统计。
- * 输出真实请求延迟的 p50/p95/p99/p99.9，保留客户端与服务端分离的线程数。
  */
+#include <cstddef>
 #include <algorithm>
-#include <array>
-#include <atomic>
 #include <barrier>
 #include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <numeric>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -31,6 +28,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
+#ifdef __linux__
+#include <sched.h>
+#endif
 
 namespace {
 using clock_type = std::chrono::steady_clock;
@@ -42,26 +42,34 @@ using socket_length = int;
 using poll_descriptor = WSAPOLLFD;
 constexpr socket_handle invalid_socket = INVALID_SOCKET;
 
-/** @brief 所有客户端线程结束后才清理 Winsock，确保不会失效仍被线程引用的套接字。 */
+/**  @brief 所有客户端线程结束后才清理 Winsock，避免清理时使线程仍在使用的套接字失效。 */
 struct socket_system {
+  /** @brief 初始化 Windows 套接字子系统。 */
   socket_system() {
     WSADATA data{};
     if (::WSAStartup(MAKEWORD(2, 2), &data))
       throw std::runtime_error("WSAStartup failed");
   }
 
+  /** @brief 释放 Windows 套接字子系统使用计数。 */
   ~socket_system() { ::WSACleanup(); }
 };
 
+/** @brief 关闭一个平台原生套接字描述符。 */
 void close_socket(socket_handle fd) noexcept {
   ::closesocket(fd);
 }
 
+/** @brief 检查当前套接字错误是否允许重试。 */
 bool retry_socket_error() noexcept {
   const auto code = ::WSAGetLastError();
   return code == WSAEINTR || code == WSAEWOULDBLOCK;
 }
 
+/** @brief 判断套接字调用是否被中断。 */
+bool interrupted_socket_call() noexcept { return ::WSAGetLastError() == WSAEINTR; }
+
+/** @brief 等待负载连接的读写就绪事件。 */
 int poll_sockets(poll_descriptor* events, std::size_t count, int timeout) {
   return ::WSAPoll(events, static_cast<ULONG>(count), timeout);
 }
@@ -71,35 +79,46 @@ using socket_length = socklen_t;
 using poll_descriptor = pollfd;
 constexpr socket_handle invalid_socket = -1;
 
+/** @brief 管理平台套接字子系统的进程级初始化。 */
 struct socket_system {};
 
+/** @brief 关闭一个平台原生套接字描述符。 */
 void close_socket(socket_handle fd) noexcept {
   ::close(fd);
 }
 
+/** @brief 检查当前套接字错误是否允许重试。 */
 bool retry_socket_error() noexcept {
   return errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK;
 }
 
+/** @brief 判断套接字调用是否被中断。 */
+bool interrupted_socket_call() noexcept { return errno == EINTR; }
+
+/** @brief 等待负载连接的读写就绪事件。 */
 int poll_sockets(poll_descriptor* events, std::size_t count, int timeout) {
   return ::poll(events, count, timeout);
 }
 #endif
 
-/** @brief 每连接的部分发送/接收状态；描述符在退出时关闭。 */
+/**  @brief 各连接在部分发送或接收后的状态；描述符在退出时关闭。 */
 struct connection {
   socket_handle fd{invalid_socket};
   std::size_t sent{0}, received{0};
-  bool active{false};  ///< 首次 send 尝试开始计时；EAGAIN 重试不得重置时钟。
+  bool active{false};  /**< 首次 send 尝试开始计时；EAGAIN 重试不得重置时钟。 */
   clock_type::time_point started{};
   std::vector<char> input;
 
+  /** @brief 为连接的响应负载预分配接收缓冲。 */
   explicit connection(std::size_t payload) : input(payload) {}
 
+  /** @brief 禁止复制套接字描述符的所有权。 */
   connection(const connection&) = delete;
 
+  /** @brief 禁止复制套接字描述符的所有权。 */
   connection& operator=(const connection&) = delete;
 
+  /** @brief 转交连接描述符与未完成传输状态。 */
   connection(connection&& other) noexcept
       : fd(std::exchange(other.fd, invalid_socket)),
         sent(other.sent),
@@ -108,20 +127,22 @@ struct connection {
         started(other.started),
         input(std::move(other.input)) {}
 
+  /** @brief 关闭当前连接拥有的套接字描述符。 */
   ~connection() {
     if (fd != invalid_socket)
       close_socket(fd);
   }
 };
 
-/** @brief 每个负载线程只写自己的统计，join 后主线程合并。 */
+/**  @brief 每个负载线程只写自己的统计，join 后主线程合并。 */
 struct thread_result {
   std::vector<std::int64_t> latency_ns;
   std::size_t errors{0};
+  std::size_t completed_in_window{0};
   std::string failure;
 };
 
-/** @brief 建立连接后设置非阻塞；连接时间不计入请求延迟。 */
+/** @brief 建立 TCP 连接并配置无延迟与非阻塞模式。 */
 socket_handle connect_to(const sockaddr* address, socket_length length) {
   const auto fd = ::socket(address->sa_family, SOCK_STREAM, 0);
   if (fd == invalid_socket)
@@ -155,19 +176,56 @@ socket_handle connect_to(const sockaddr* address, socket_length length) {
   return fd;
 }
 
-/** @brief 驱动部分 IO；poll 的就绪是假就绪时保留当前偏移。 */
-template <class Completion>
+/** @brief 发送请求的剩余字节，返回下一次需要等待的事件。 */
+template <bool Immediate>
+short send_request(connection& item, const std::vector<char>& payload) {
+#ifdef MSG_NOSIGNAL
+  constexpr int flags = MSG_NOSIGNAL;
+#else
+  constexpr int flags = 0;
+#endif
+  do {
+    const auto n = ::send(item.fd,
+                          payload.data() + item.sent,
+                          static_cast<int>(payload.size() - item.sent),
+                          flags);
+    if (n > 0) {
+      item.sent += static_cast<std::size_t>(n);
+      if (item.sent == payload.size())
+        return POLLIN;
+      continue;
+    }
+    if (n == 0 || !retry_socket_error())
+      throw std::runtime_error("send failed");
+    if (!Immediate || !interrupted_socket_call())
+      break;
+  } while (Immediate);
+  return POLLOUT;
+}
+
+/** @brief 驱动持久连接并记录请求时延，部分发送或接收后保留当前偏移。 */
+template <bool Immediate, class Completion>
 void measure(const sockaddr_storage& address,
              socket_length length,
              std::size_t count,
              const std::vector<char>& payload,
              double duration,
              double warmup,
+             [[maybe_unused]] int cpu,
              std::barrier<Completion>& start_gate,
              clock_type::time_point& epoch,
              thread_result& result) {
   bool joined_gate = false;
   try {
+#ifdef __linux__
+    if (cpu >= 0) {
+      cpu_set_t affinity;
+      CPU_ZERO(&affinity);
+      CPU_SET(cpu, &affinity);
+      if (::sched_setaffinity(0, sizeof(affinity), &affinity) < 0)
+        throw std::runtime_error(std::string{"sched_setaffinity: "} + std::strerror(errno));
+    }
+#endif
     std::vector<connection> sockets;
     std::vector<poll_descriptor> events;
     sockets.reserve(count);
@@ -182,7 +240,32 @@ void measure(const sockaddr_storage& address,
     start_gate.arrive_and_wait();
     const auto measured_begin = epoch + std::chrono::duration<double>(warmup);
     const auto end = measured_begin + std::chrono::duration<double>(duration);
-    while (clock_type::now() < end) {
+    std::size_t outstanding{};
+    const auto drain_deadline = end + std::chrono::seconds{3};
+    const auto send = [&](std::size_t i) {
+      auto& item = sockets[i];
+      if (!item.active) {
+        item.started = clock_type::now();
+        if (item.started >= end) {
+          events[i].events = 0;
+          return false;
+        }
+        item.active = true;
+        ++outstanding;
+      }
+      events[i].events = send_request<Immediate>(item, payload);
+      return true;
+    };
+    if constexpr (Immediate) {
+      for (std::size_t i = 0; i < sockets.size(); ++i)
+        send(i);
+    }
+    while (true) {
+      const auto before_poll = clock_type::now();
+      if (before_poll >= end && outstanding == 0)
+        break;
+      if (before_poll >= drain_deadline)
+        throw std::runtime_error("unfinished request after measurement drain timeout");
       const int ready = poll_sockets(events.data(), events.size(), 20);
       if (ready < 0) {
         if (retry_socket_error())
@@ -195,28 +278,8 @@ void measure(const sockaddr_storage& address,
         auto& item = sockets[i];
         if (events[i].revents & (POLLERR | POLLHUP | POLLNVAL))
           throw std::runtime_error("connection closed during measurement");
-        if ((events[i].revents & POLLOUT) && item.sent < payload.size()) {
-          if (!item.active) {
-            item.started = clock_type::now();
-            item.active = true;
-          }
-#ifdef MSG_NOSIGNAL
-          constexpr int flags = MSG_NOSIGNAL;
-#else
-          constexpr int flags = 0;
-#endif
-          // 参数上限已限制为 1 MiB；显式转 int 同时符合 Winsock 的长度签名。
-          const auto n = ::send(item.fd,
-                                payload.data() + item.sent,
-                                static_cast<int>(payload.size() - item.sent),
-                                flags);
-          if (n > 0)
-            item.sent += static_cast<std::size_t>(n);
-          else if (n == 0 || !retry_socket_error())
-            throw std::runtime_error("send failed");
-          if (item.sent == payload.size())
-            events[i].events = POLLIN;
-        }
+        if ((events[i].revents & POLLOUT) && item.sent < payload.size() && !send(i))
+          continue;
         if ((events[i].revents & POLLIN) && item.received < payload.size()) {
           const auto n = ::recv(item.fd,
                                 item.input.data() + item.received,
@@ -230,7 +293,9 @@ void measure(const sockaddr_storage& address,
             const auto now = clock_type::now();
             if (std::memcmp(item.input.data(), payload.data(), payload.size()) != 0)
               throw std::runtime_error("echo payload mismatch");
-            if (item.started >= measured_begin && now <= end) {
+            if (item.started >= measured_begin && item.started < end) {
+              if (now <= end)
+                ++result.completed_in_window;
               if (result.latency_ns.size() == sample_limit_per_thread)
                 throw std::runtime_error("sample limit reached; reduce measurement duration");
               result.latency_ns.push_back(
@@ -238,7 +303,11 @@ void measure(const sockaddr_storage& address,
             }
             item.sent = item.received = 0;
             item.active = false;
-            events[i].events = POLLOUT;
+            --outstanding;
+            if constexpr (Immediate)
+              send(i);
+            else
+              events[i].events = now < end ? POLLOUT : 0;
           }
         }
       }
@@ -246,19 +315,31 @@ void measure(const sockaddr_storage& address,
   } catch (const std::exception& error) {
     result.failure = error.what();
     ++result.errors;
-    // 建连失败也退出 barrier，避免其他负载线程永久等候。
     if (!joined_gate)
       start_gate.arrive_and_drop();
   }
 }
-}  // namespace
+}
 
+/** @brief 生成持久 TCP 连接负载并汇总 QPS 及延迟分位数。 */
 int main(int argc, char** argv) {
   try {
     [[maybe_unused]] socket_system system;
-    if (argc != 8)
+    if (argc < 8)
       throw std::invalid_argument(
-          "usage: tcp_echo_load host port client_threads connections payload_bytes seconds warmup_seconds");
+          "usage: tcp_echo_load host port client_threads connections payload_bytes seconds warmup_seconds "
+          "[--immediate] [--pin-clients]");
+    bool immediate = false;
+    bool pin_clients = false;
+    for (int i = 8; i < argc; ++i) {
+      const std::string_view option{argv[i]};
+      if (option == "--immediate" && !immediate)
+        immediate = true;
+      else if (option == "--pin-clients" && !pin_clients)
+        pin_clients = true;
+      else
+        throw std::invalid_argument("unknown or duplicate option: " + std::string{option});
+    }
     const auto threads = std::stoul(argv[3]);
     const auto connections = std::stoul(argv[4]);
     const auto bytes = std::stoul(argv[5]);
@@ -267,6 +348,23 @@ int main(int argc, char** argv) {
     if (!threads || threads > 256 || connections < threads || connections > 100'000 || !bytes
         || bytes > 1'048'576 || seconds <= 0 || seconds > 600 || warmup < 0)
       throw std::invalid_argument("invalid load configuration");
+    std::vector<int> client_cpus;
+    if (pin_clients) {
+#ifdef __linux__
+      cpu_set_t allowed;
+      CPU_ZERO(&allowed);
+      if (::sched_getaffinity(0, sizeof(allowed), &allowed) < 0)
+        throw std::runtime_error(std::string{"sched_getaffinity: "} + std::strerror(errno));
+      for (int cpu = 0; cpu < CPU_SETSIZE && client_cpus.size() < threads; ++cpu) {
+        if (CPU_ISSET(cpu, &allowed))
+          client_cpus.push_back(cpu);
+      }
+      if (client_cpus.size() < threads)
+        throw std::invalid_argument("--pin-clients requires one allowed CPU per client thread");
+#else
+      throw std::invalid_argument("--pin-clients requires Linux");
+#endif
+    }
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -281,30 +379,35 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < bytes; ++i)
       payload[i] = static_cast<char>(i % 251);
     clock_type::time_point epoch;
-    std::barrier start_gate(static_cast<std::ptrdiff_t>(threads + 1),
-                            [&]() noexcept { epoch = clock_type::now(); });
+    auto set_epoch = [&]() noexcept { epoch = clock_type::now(); };
+    std::barrier start_gate(static_cast<std::ptrdiff_t>(threads + 1), set_epoch);
     std::vector<thread_result> results(threads);
     std::vector<std::jthread> clients;
+    const auto run_measure =
+        immediate ? &measure<true, decltype(set_epoch)> : &measure<false, decltype(set_epoch)>;
     for (std::size_t i = 0; i < threads; ++i) {
       const auto count = connections / threads + (i < connections % threads ? 1 : 0);
-      clients.emplace_back([&, i, count] {
-        measure(address,
-                address_length,
-                count,
-                payload,
-                seconds,
-                warmup,
-                start_gate,
-                epoch,
-                results[i]);
+      const auto cpu = client_cpus.empty() ? -1 : client_cpus[i];
+      clients.emplace_back([&, i, count, cpu] {
+        run_measure(address,
+                    address_length,
+                    count,
+                    payload,
+                    seconds,
+                    warmup,
+                    cpu,
+                    start_gate,
+                    epoch,
+                    results[i]);
       });
     }
     start_gate.arrive_and_wait();
     clients.clear();
     std::vector<std::int64_t> samples;
-    std::size_t errors = 0;
+    std::size_t errors = 0, completed_in_window = 0;
     for (auto& result : results) {
       errors += result.errors;
+      completed_in_window += result.completed_in_window;
       if (!result.failure.empty())
         std::cerr << result.failure << '\n';
       samples.insert(samples.end(), result.latency_ns.begin(), result.latency_ns.end());
@@ -316,11 +419,13 @@ int main(int argc, char** argv) {
       return samples[static_cast<std::size_t>(p * (samples.size() - 1))];
     };
     std::cout
-        << "requests,requests_per_sec,payload_bytes,connections,client_threads,p50_ns,p95_ns,p99_ns,p999_ns,max_ns,errors\n";
-    std::cout << samples.size() << ',' << samples.size() / seconds << ',' << bytes << ','
+        << "requests,requests_per_sec,payload_bytes,connections,client_threads,p50_ns,p95_ns,p99_ns,p999_ns,max_ns,errors,avg_ns,latency_samples\n";
+    std::cout << completed_in_window << ',' << completed_in_window / seconds << ',' << bytes << ','
               << connections << ',' << threads << ',' << percentile(.50) << ',' << percentile(.95)
               << ',' << percentile(.99) << ',' << percentile(.999) << ',' << samples.back() << ','
-              << errors << '\n';
+              << errors << ','
+              << std::accumulate(samples.begin(), samples.end(), 0.0) / samples.size() << ','
+              << samples.size() << '\n';
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

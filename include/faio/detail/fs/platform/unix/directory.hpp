@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/fs/platform/unix/directory.hpp
- * @brief 文件与目录异步接口：目录项与异步枚举。
- * @details 文件操作保持共享资源与游标归属；原生异步路径和阻塞服务路径遵循相同完成契约。关闭与析构清理须等待已经接受的借用操作排空。
+ * @brief 目录项与异步枚举。
  */
 #pragma once
 #include "faio/detail/fs/operations.hpp"
@@ -9,25 +8,29 @@
 #include <dirent.h>
 
 namespace faio::fs {
-/** @brief 拥有目录条目路径；不借用 readdir 临时内存，metadata
- * 按需另行异步获取。 */
+/**
+ *  @brief 持有目录项路径，不借用 readdir 的临时内存；metadata 按需另行异步获取。
+ */
 class DirEntry {
  public:
+  /** @brief 保存目录项的名称、路径和文件类型。 */
   DirEntry(io::io_context context, fs::path filename, unsigned char type)
       : context_(std::move(context)), path_(std::move(filename)), type_(type) {}
 
+  /** @brief 返回对象保存的文件系统路径。 */
   [[nodiscard]] fs::path path() const { return path_; }
 
+  /** @brief 返回目录项的末级文件名。 */
   [[nodiscard]] fs::path file_name() const { return path_.filename(); }
 
+  /** @brief 取得文件或目录项的元数据快照。 */
   auto metadata() const { return fs::metadata(context_, path_); }
 
-  /** @brief d_type 已知时立即完成；未知时异步 lstat，不预先 stat 整个目录。 */
+  /**  @brief d_type 已知时立即返回；未知时异步调用 lstat，无需预先查询整个目录的属性。 */
   auto file_type() const { return determine_type(context_, path_, type_); }
 
  private:
-  /** @brief 创建task时拥有路径/context/type，临时DirEntry销毁后仍可安全等待。
-   */
+  /**  @brief 创建 task 时持有路径、context 和 type，临时 DirEntry 销毁后仍可安全等待。 */
   static task<expected<std::filesystem::file_type>> determine_type(io::io_context context,
                                                                    fs::path filename,
                                                                    unsigned char type) {
@@ -56,36 +59,37 @@ class DirEntry {
   }
 
  private:
-  io::io_context context_;  ///< 持有所属 IO 上下文租约，用于资源归属、服务选择与安全排空。
-  fs::path path_;  ///< 拥有的文件系统路径，覆盖异步提交与执行期间。
-  unsigned char type_;  ///< 目录项的原生类型提示，完整元数据查询仍以系统结果为准。
+  io::io_context context_; /**< 持有所属 I/O 上下文租约，用于确定资源归属、选择服务并安全排空。 */
+  fs::path path_;          /**< 持有文件系统路径，保证其在异步提交和执行期间有效。 */
+  unsigned char type_;     /**< 目录项的原生类型提示，完整元数据查询仍以系统结果为准。 */
 };
 
 namespace detail {
-/** @brief 独占目录游标；最多缓存64条或64KiB名称，取消后已枚举条目仍可领取。 */
+/**  @brief 独占目录游标，最多缓存 64 个条目或 64 KiB 的名称；取消后仍可领取已枚举的条目。 */
 struct directory_state {
-  std::uint64_t shutdown_registration{};  ///< 向 IO 域登记的停机清理编号，正常关闭时撤销。
-  io::io_context context;  ///< 持有所属 IO 上下文租约，用于资源归属、服务选择与安全排空。
-  fs::path path;  ///< 拥有的文件系统路径，覆盖异步提交与执行期间。
-  DIR* native{};  ///< 本次遍历拥有的原生目录枚举句柄。
+  std::uint64_t shutdown_registration{}; /**< 向 IO 域登记的停机清理编号，正常关闭时撤销。 */
+  io::io_context context; /**< 持有所属 I/O 上下文租约，用于确定资源归属、选择服务并安全排空。 */
+  fs::path path;          /**< 持有文件系统路径，保证其在异步提交和执行期间有效。 */
+  DIR* native{};          /**< 本次遍历拥有的原生目录枚举句柄。 */
 #if defined(__linux__)
-  std::shared_ptr<native_directory_cursor> native_cursor;  ///< 共享持有 Linux 原生目录游标，异步批次与关闭期间保持枚举状态稳定。
+  std::shared_ptr<native_directory_cursor> native_cursor;
 #endif
-  std::mutex mutex;  ///< 串行保护所属对象的共享状态；调度与用户回调应遵循该对象的锁外调用协议。
-  bool busy{},  ///< 是否已有目录枚举或相关操作正在推进。
-      closing{},  ///< 资源已经进入关闭阶段，拒绝新的业务操作。
-      eof{},  ///< 目录或输入是否已到末尾，后续读取据此立即返回。
-      shutdown_pending{},  ///< 域停机是否已登记本资源的关闭请求。
-      shutdown_close_started{};  ///< 停机关闭操作是否已真正启动，防止重复关闭。
-  std::optional<Error> error;  ///< 保存的操作错误，供完成或重复查询返回。
-  std::optional<Error> close_error;  ///< 关闭过程保存的错误，供重复关闭等待者取得同一结果。
-  ::faio::detail::completion_event close_completion;  ///< 带记忆的关闭完成事件，所有关闭等待者共享同一完成通知。
-  std::deque<DirEntry> entries;  ///< 已解析但尚未交付给调用者的目录项队列。
-  std::shared_ptr<::faio::detail::completion_event> pending;  ///< 当前在途目录批次的共享完成事件。
+  std::mutex mutex; /**< 保护目录枚举的共享状态；调度与用户回调应遵循锁外调用协议。 */
+  bool busy{}, closing{}, eof{}, shutdown_pending{},
+      shutdown_close_started{};     /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
+  std::optional<Error> error;       /**< 保存操作错误，供操作完成或重复查询时返回。 */
+  std::optional<Error> close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
+  ::faio::detail::completion_event
+      close_completion;         /**< 保留关闭完成状态的事件，所有关闭等待者共享该通知。 */
+  std::deque<DirEntry> entries; /**< 已解析但尚未交付给调用者的目录项队列。 */
+  std::shared_ptr<::faio::detail::completion_event>
+      pending; /**< 当前在途目录批次的共享完成事件。 */
 
+  /** @brief 保存目录句柄、路径和 I/O 上下文。 */
   directory_state(io::io_context owner, fs::path name, DIR* directory)
       : context(std::move(owner)), path(std::move(name)), native(directory) {}
 
+  /** @brief 回收目录枚举的原生句柄。 */
   ~directory_state() {
     context.unregister_shutdown_cleanup(shutdown_registration);
     auto* directory = std::exchange(native, nullptr);
@@ -94,7 +98,7 @@ struct directory_state {
   }
 };
 
-/** @brief 最后一个枚举租约结束后发起关闭；没有线程等待busy条件变量。 */
+/**  @brief 在最后一个枚举租约结束后发起关闭，无需线程等待 busy 条件变量。 */
 inline void finish_shutdown_directory(const std::shared_ptr<directory_state>& state) noexcept {
   DIR* directory;
   int fd = -1;
@@ -131,7 +135,7 @@ inline void finish_shutdown_directory(const std::shared_ptr<directory_state>& st
   }
 }
 
-/** @brief 注册弱目录清理；实际关闭交由最后一个lease或当前空闲状态触发。 */
+/**  @brief 通过弱引用登记目录清理，实际关闭由最后一个租约结束或当前空闲状态触发。 */
 inline void register_directory_shutdown(const std::shared_ptr<directory_state>& state) {
   std::weak_ptr<directory_state> weak = state;
   state->shutdown_registration = state->context.register_shutdown_cleanup([weak] {
@@ -149,11 +153,14 @@ inline void register_directory_shutdown(const std::shared_ptr<directory_state>& 
   });
 }
 
-/** @brief 请求租约保证 close 等待批量 syscall 和缓存更新全部结束。 */
+/**  @brief 请求租约保证 close 等待批量系统调用和缓存更新全部结束。 */
 struct directory_lease {
-  std::shared_ptr<directory_state> state;  ///< 共享持有操作状态，使异步执行与结果领取期间地址保持稳定。
-  std::shared_ptr<::faio::detail::completion_event> completion;  ///< 带记忆的完成事件，通知后晚到等待者也可直接继续。
+  std::shared_ptr<directory_state>
+      state; /**< 共享持有操作状态，保证其在异步执行和领取结果期间地址不变。 */
+  std::shared_ptr<::faio::detail::completion_event>
+      completion; /**< 保留完成状态的事件；通知后才到达的等待者也可直接继续执行。 */
 
+  /** @brief 归还目录操作租约并通知关闭等待者。 */
   ~directory_lease() {
     bool shutdown_ready;
     {
@@ -167,6 +174,7 @@ struct directory_lease {
   }
 };
 
+/** @brief 异步读取下一个目录项，枚举结束返回空值。 */
 inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<directory_state> state) {
   if (!state)
     co_return std::unexpected{make_error(EBADF)};
@@ -186,7 +194,6 @@ inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<direct
     if (state->native_cursor) {
       std::size_t count = 0, bytes = 0;
       while (count < 64 && bytes < 65536) {
-        /// @brief 仅解析已拥有的缓存。
         auto entry = state->native_cursor->take();
         if (!entry) {
           state->error = entry.error();
@@ -199,9 +206,8 @@ inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<direct
             break;
           }
           auto cursor = state->native_cursor;
-          /// @brief 唯一缺少原生opcode的getdents64在服务线程填充4KiB缓存。
           auto filled =
-              co_await execution::execute(state->context, [cursor] { return cursor->fill(); });
+              co_await blocking::call(state->context, [cursor] { return cursor->fill(); });
           if (!filled)
             co_return std::unexpected{filled.error()};
           continue;
@@ -214,10 +220,9 @@ inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<direct
     } else
 #endif
     {
-      auto batch = co_await execution::execute(state->context, [state]() -> expected<void> {
+      auto batch = co_await blocking::call(state->context, [state]() -> expected<void> {
         std::size_t count = 0, bytes = 0;
         while (count < 64 && bytes < 65536) {
-          /// @brief readdir 的空指针既可能 EOF，也可能发生错误。
           errno = 0;
           auto* entry = ::readdir(state->native);
           if (!entry) {
@@ -229,14 +234,12 @@ inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<direct
           std::string_view name{entry->d_name};
           if (name == "." || name == "..")
             continue;
-          /// @brief 复制完整名称和类型，下一次 readdir 可以复用原生内存。
           state->entries.emplace_back(state->context, state->path / fs::path{name}, entry->d_type);
           ++count;
           bytes += name.size();
         }
         return {};
       });
-      /// @brief 取消只取消本次领取；job 更新的拥有型缓存留在 directory_state 中。
       if (!batch)
         co_return std::unexpected{batch.error()};
     }
@@ -251,6 +254,7 @@ inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<direct
   co_return std::optional<DirEntry>{};
 }
 
+/** @brief 关闭目录枚举并排空正在执行的读取。 */
 inline task<expected<void>> close_directory(std::shared_ptr<directory_state> state) {
   if (!state)
     co_return expected<void>{};
@@ -260,7 +264,6 @@ inline task<expected<void>> close_directory(std::shared_ptr<directory_state> sta
     std::lock_guard lock(state->mutex);
     if (!state->closing) {
       owner = true;
-      /// @brief 先拒绝新next_entry，再等已有枚举job完全结束。
       state->closing = true;
       state->context.domain()->retain_cleanup_wait();
       if (state->busy)
@@ -268,7 +271,6 @@ inline task<expected<void>> close_directory(std::shared_ptr<directory_state> sta
     }
   }
   if (!owner) {
-    /// @brief 并发close也等同一真实CLOSE完成。
     co_await state->close_completion.wait();
     if (state->close_error)
       co_return std::unexpected{*state->close_error};
@@ -285,7 +287,7 @@ inline task<expected<void>> close_directory(std::shared_ptr<directory_state> sta
       result = std::unexpected{closed.error()};
   } else
 #endif
-    result = co_await execution::execute_cleanup(state->context, [state]() -> expected<void> {
+    result = co_await blocking::call_cleanup(state->context, [state]() -> expected<void> {
       state->context.unregister_shutdown_cleanup(state->shutdown_registration);
       DIR* native;
       {
@@ -302,30 +304,38 @@ inline task<expected<void>> close_directory(std::shared_ptr<directory_state> sta
   state->context.domain()->release_cleanup_wait();
   co_return result;
 }
-}
+}  // namespace detail
 
-/** @brief 有界批量异步目录迭代器；外部目录变化不提供快照语义。 */
+/**  @brief 按有界批次枚举的异步目录迭代器，无法在目录被外部修改时保证快照语义。 */
 class ReadDir {
  public:
+  /** @brief 持有目录枚举的共享状态。 */
   explicit ReadDir(std::shared_ptr<detail::directory_state> state) : state_(std::move(state)) {}
 
+  /** @brief 转移目录枚举状态和资源租约。 */
   ReadDir(ReadDir&&) noexcept = default;
 
+  /** @brief 转移目录枚举资源和状态的所有权。 */
   ReadDir& operator=(ReadDir&&) noexcept = default;
 
+  /** @brief 禁止复制此对象。 */
   ReadDir(const ReadDir&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   ReadDir& operator=(const ReadDir&) = delete;
 
+  /** @brief 异步读取下一个目录项，枚举结束返回空值。 */
   auto next_entry() { return detail::next_entry(state_); }
 
-  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
+  /** @brief 停止目录枚举，等待在途读取后关闭原生句柄。 */
   auto close() { return detail::close_directory(state_); }
 
  private:
-  std::shared_ptr<detail::directory_state> state_;  ///< 共享持有操作状态，使异步执行与结果领取期间地址保持稳定。
+  std::shared_ptr<detail::directory_state>
+      state_; /**< 共享持有操作状态，保证其在异步执行和领取结果期间地址不变。 */
 };
 
+/** @brief 异步打开目录，返回目录枚举器。 */
 inline task<expected<ReadDir>> read_dir(io::io_context context, fs::path filename) {
 #if defined(__linux__)
   if (io::supports_native(context, io::detail::operation_kind::open)) {
@@ -339,7 +349,7 @@ inline task<expected<ReadDir>> read_dir(io::io_context context, fs::path filenam
     co_return ReadDir{std::move(state)};
   }
 #endif
-  co_return co_await execution::execute(
+  co_return co_await blocking::call(
       context, [context, filename = std::move(filename)]() -> expected<ReadDir> {
         auto* native = ::opendir(filename.c_str());
         if (!native)
@@ -356,7 +366,8 @@ inline task<expected<ReadDir>> read_dir(io::io_context context, fs::path filenam
       });
 }
 
+/** @brief 异步打开目录，返回目录枚举器。 */
 inline auto read_dir(fs::path filename) {
   return read_dir(io::io_context::current(), std::move(filename));
 }
-}
+}  // namespace faio::fs

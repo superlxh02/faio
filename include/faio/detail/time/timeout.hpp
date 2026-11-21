@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/time/timeout.hpp
- * @brief 异步时间操作：超时竞争与安全排空。
- * @details 使用单调时钟推进异步等待；停止与到期共享唯一完成仲裁。组合超时在返回前排空已启动的分支，避免协程帧和借用参数提前失效。
+ * @brief 超时适配器、超时竞争与安全排空。
  */
 #pragma once
 #include "faio/detail/io/awaiter/request.hpp"
@@ -10,17 +9,18 @@
 #include <utility>
 
 namespace faio::time::detail {
-/** @brief 兼容超时拥有包装；deadline 已在 request 中，后端不借用 timer 指针。
- * @tparam T 公开继承某个完整或紧凑 IORegistrantAwaiter 的无 cv/ref 操作类型。
- * @details 包装按值移动拥有 operation，右值源对象可在真实挂起后销毁。
- *          约束读取公共基类别名，不假定 Request
- * 策略；本头直接包含唯一模板定义。
+/**
+ *  @brief 持有操作对象的超时包装，兼容既有接口；deadline 保存在 request 中，后端不借用 timer 指针。
+ * @tparam T 公开继承完整或紧凑 IORegistrantAwaiter 的操作类型，不含 const、volatile 或引用限定。
+ * @details 通过移动按值持有 operation，右值源对象可在实际挂起后销毁。
+ *          通过公共基类别名检查类型约束，不预设 Request 策略；本头文件直接包含该模板的唯一定义。
  */
 template <class T>
   requires io::detail::io_registrant_operation<T> && std::same_as<T, std::remove_cvref_t<T>>
 class Timeout : public T {
  public:
+  /** @brief 构造异步超时适配器。 */
   explicit Timeout(T&& operation) noexcept(std::is_nothrow_move_constructible_v<T>)
       : T(std::move(operation)) {}
 };
-}
+}  // namespace faio::time::detail

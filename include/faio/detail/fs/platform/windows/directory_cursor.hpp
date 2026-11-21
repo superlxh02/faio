@@ -10,35 +10,41 @@
 #include <optional>
 
 namespace faio::fs::detail {
-/** @brief 一次原生枚举最多 16 KiB，take 只解析缓存，不调用系统枚举。 */
+/**  @brief 一次原生枚举最多 16 KiB，take 只解析缓存，不调用系统枚举。 */
 struct native_directory_cursor {
+  /** @brief 原生目录枚举返回的名称和文件类型记录。 */
   struct entry {
-    std::wstring name;  ///< 拥有的目录项名称，避免借用下一批枚举将覆盖的存储。
-    DWORD attributes{};  ///< Windows 原生文件属性，用于分类与权限映射。
+    std::wstring name;  /**< 持有目录项名称，避免借用会被下一批枚举覆盖的存储。 */
+    DWORD attributes{}; /**< Windows 原生文件属性，用于分类与权限映射。 */
   };
 
-  static constexpr std::size_t buffer_size = 16 * 1024;  ///< 原生目录枚举缓冲区的固定字节容量。
-  io::io_context context;  ///< 析构固定交给创建时的清理通道。
-  io::windows::owned_file_handle handle;  ///< 目录真实对象，重命名不改变枚举锚点。
-  alignas(FILE_ID_BOTH_DIR_INFO) std::array<std::byte, buffer_size> buffer{};  ///< 对象拥有的字节缓冲区，跨异步挂起保持内容与地址要求。
-  std::size_t position{buffer_size};  ///< 耗尽使用固定哨兵，避免解析旧批次。
-  bool eof{};  ///< 目录或输入是否已到末尾，后续读取据此立即返回。
+  static constexpr std::size_t buffer_size = 16 * 1024; /**< 原生目录枚举缓冲区的固定字节容量。 */
+  io::io_context context;                               /**< 析构固定交给创建时的清理通道。 */
+  io::windows::owned_file_handle handle; /**< 指向目录对象的句柄，重命名不改变枚举锚点。 */
+  alignas(FILE_ID_BOTH_DIR_INFO) std::array<
+      std::byte,
+      buffer_size> buffer{}; /**< 对象持有的字节缓冲区，在异步挂起期间保持内容并满足地址要求。 */
+  std::size_t position{buffer_size}; /**< 缓存耗尽时使用固定哨兵，避免解析旧批次。 */
+  bool eof{};                        /**< 目录或输入是否已到末尾，后续读取据此立即返回。 */
 
+  /** @brief 初始化原生目录枚举游标。 */
   native_directory_cursor(io::io_context owner, HANDLE directory)
       : context(std::move(owner)), handle(directory) {}
 
+  /** @brief 禁止复制此对象。 */
   native_directory_cursor(const native_directory_cursor&) = delete;
 
+  /** @brief 关闭原生目录搜索句柄。 */
   ~native_directory_cursor() {
     const HANDLE directory = handle.release();
     if (valid_handle(directory))
       context.defer_cleanup([directory] { ::CloseHandle(directory); });
   }
 
-  /// @brief 转出或归还当前类型约定的资源责任，并把源对象变为空状态。
+  /** @brief 移交目录句柄的关闭责任，并将原句柄置空。 */
   HANDLE release() noexcept { return handle.release(); }
 
-  /** @brief 只在隔离文件服务填充；Windows 无目录枚举 IOCP opcode。 */
+  /**  @brief 仅在独立的文件服务中填充缓存；Windows 没有用于目录枚举的 IOCP 操作码。 */
   expected<void> fill() noexcept {
     if (position != buffer_size || eof)
       return {};
@@ -53,18 +59,16 @@ struct native_directory_cursor {
       }
       return std::unexpected{io::windows::make_windows_error(error)};
     }
-    /// @brief 成功批次第一条记录，短批次仍允许下一次 fill。
     position = 0;
     return {};
   }
 
-  /** @brief 返回拥有型名称和属性；验证变长结构边界且不使用别名违规访问。 */
+  /**  @brief 返回独立持有的名称和属性，校验变长结构的边界，并避免违反别名规则。 */
   expected<std::optional<entry>> take() {
     constexpr std::size_t header = offsetof(FILE_ID_BOTH_DIR_INFO, FileName);
     while (position != buffer_size) {
       if (position > buffer_size - header)
         return std::unexpected{make_error(EIO)};
-      /// @brief 不直接 reinterpret_cast 非对象缓存；固定字段由 memcpy 提取。
       DWORD next{}, attributes{}, name_bytes{};
       const std::byte* record = buffer.data() + position;
       std::memcpy(&next, record + offsetof(FILE_ID_BOTH_DIR_INFO, NextEntryOffset), sizeof(next));
@@ -79,9 +83,7 @@ struct native_directory_cursor {
           || (next && (next < header + name_bytes || next > available || next % 8)))
         return std::unexpected{make_error(EIO)};
       std::wstring name(name_bytes / sizeof(wchar_t), L'\0');
-      /// @brief 复制后可安全覆盖原缓存。
       std::memcpy(name.data(), record + header, name_bytes);
-      /// @brief 零偏移明确标记本批结束。
       position = next ? position + next : buffer_size;
       if (name == L"." || name == L"..")
         continue;
@@ -92,4 +94,4 @@ struct native_directory_cursor {
     return std::optional<entry>{};
   }
 };
-}
+}  // namespace faio::fs::detail

@@ -1,11 +1,48 @@
 /* Extend mdBook without replacing its navigation, search, or theme machinery. */
 (() => {
+  // 自定义 book.js 取代了 mdBook 内置版本，内置的两个行为需要补回：
+  // 1. 语法高亮初始化；
+  // 2. 按当前主题禁用其余高亮样式表——mdBook 0.5 会同时输出
+  //    highlight.css / tomorrow-night.css / ayu-highlight.css 三份未按主题
+  //    隔离的样式，不禁用会让暗色主题的浅色 token 覆盖浅色主题。
+  const pageTheme =
+    ["light", "rust", "coal", "navy", "ayu"].find((name) =>
+      document.documentElement.classList.contains(name),
+    ) || "light";
+  const activeHighlight =
+    pageTheme === "ayu"
+      ? "mdbook-ayu-highlight-css"
+      : pageTheme === "coal" || pageTheme === "navy"
+        ? "mdbook-tomorrow-night-css"
+        : "mdbook-highlight-css";
+  for (const id of [
+    "mdbook-highlight-css",
+    "mdbook-tomorrow-night-css",
+    "mdbook-ayu-highlight-css",
+  ]) {
+    const sheet = document.getElementById(id);
+    if (sheet) sheet.disabled = id !== activeHighlight;
+  }
+
+  // 内置 highlight.js 在本书的脚本之前加载，全局 hljs 已经可用。
+  if (window.hljs) {
+    document.querySelectorAll("pre code").forEach((block) => {
+      // mermaid 图由本文件后续渲染，跳过以免类名冲突。
+      if (block.classList.contains("language-mermaid")) return;
+      try {
+        hljs.highlightElement(block);
+      } catch (error) {
+        console.warn("Highlight failed:", error);
+      }
+    });
+  }
+
   // mdBook exposes path_to_root in its template; derive the root for nested chapters.
   const root = typeof path_to_root === "string" ? path_to_root : "./";
   const nav = document.createElement("nav");
   nav.className = "faio-book-nav";
   nav.setAttribute("aria-label", "faio 导航");
-  nav.innerHTML = `<a class="faio-book-brand" href="${root}../"><img src="${root}../assets/favicon.svg" alt="">faio</a><span class="nav-label">开发者文档</span><a href="${root}index.html">指南</a><a href="${root}../api/index.html">API</a><a href="${root}examples/index.html">例程</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a>`;
+  nav.innerHTML = `<a class="faio-book-brand" href="${root}../"><img src="${root}../assets/favicon.svg" alt="">faio</a><span class="nav-label">使用文档</span><a href="${root}getting-started.html">快速开始</a><a href="${root}learn-faio.html">认识 faio</a><a href="${root}api/index.html">API 介绍</a><a href="${root}../api/index.html">API 查询</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a>`;
   document.body.prepend(nav);
   const icon = document.querySelector(
     'link[rel="shortcut icon"], link[rel="icon"]',

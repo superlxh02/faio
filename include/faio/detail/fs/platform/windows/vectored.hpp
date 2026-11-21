@@ -1,13 +1,12 @@
 /**
  * @file faio/detail/fs/platform/windows/vectored.hpp
- * @brief 文件与目录异步接口：分散聚集文件 IO。
- * @details 文件操作保持共享资源与游标归属；原生异步路径和阻塞服务路径遵循相同完成契约。关闭与析构清理须等待已经接受的借用操作排空。
+ * @brief 分散聚集文件 I/O。
  */
 #pragma once
 #include "faio/detail/fs/platform/windows/file.hpp"
 
 namespace faio::fs::detail {
-/** @brief 复制描述符数组，payload 仍遵守借用生命周期；限制规模与总字节数。 */
+/**  @brief 复制描述符数组，并限制数组规模和总字节数；数据缓冲区仍须满足借用的生命周期要求。 */
 inline expected<std::vector<iovec>> copy_vectors(std::span<const iovec> input) {
   if (input.size() > io::detail::native_iov_limit)
     return std::unexpected{make_error(EINVAL)};
@@ -22,10 +21,11 @@ inline expected<std::vector<iovec>> copy_vectors(std::span<const iovec> input) {
   return std::vector<iovec>{input.begin(), input.end()};
 }
 
-/** @brief Windows 任意对齐 vectored 文件 IO；逐段原生 OVERLAPPED，无拼接复制。
+/**
+ *  @brief 支持任意对齐的 Windows 分散聚集文件 I/O，逐段提交原生 OVERLAPPED 请求，无需拼接复制。
  * @details ReadFileScatter/WriteFileGather 要求页对齐且无缓存，不适合通用 iovec。
- *          组合持有同一 File lease 和普通游标锁，短 IO 停止并报告真实进度。
- *          不承诺多个 File 的 vectored 追加作为单一原子事务。
+ *          组合操作持有同一个 File 租约和普通游标锁，遇到短 I/O 时停止并报告实际进度。
+ *          不保证多个 File 的分散聚集追加操作构成一个原子事务。
  */
 inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> state,
                                                  expected<std::vector<iovec>> vectors,
@@ -57,10 +57,8 @@ inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> sta
         count = co_await read_block(
             state, {static_cast<char*>(vector.iov_base), vector.iov_len}, position + total);
       if (!count)
-        co_return std::unexpected{
-            Error{count.error().value(), total + count.error().progress(), count.error().domain()}};
+        co_return std::unexpected{count.error().with_progress(total + count.error().progress())};
       total += *count;
-      /// @brief EOF/短 IO 不伪装完成后续段。
       if (*count < vector.iov_len)
         break;
     }
@@ -77,4 +75,4 @@ inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> sta
     co_return std::unexpected{make_error(ECANCELED)};
   }
 }
-}
+}  // namespace faio::fs::detail

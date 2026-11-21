@@ -5,79 +5,158 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="faio：完全基于 C++20 协程的现代 C++ 异步基础设施。Header-only、Proactor 完成模型，跨 Linux / macOS / Windows。"
+      content="faio 是基于 C++20 协程的跨平台异步 I/O 头文件库。以 task 和 co_await 编写并发，Proactor 完成模型，支持 Linux、macOS、Windows。"
     />
-    <meta name="theme-color" content="#0a0c10" />
-    <meta property="og:title" content="faio · 现代 C++ 的异步答案" />
+    <meta name="theme-color" content="#0d0d12" />
+    <meta property="og:title" content="faio — 现代 C++ 的异步运行时" />
     <meta
       property="og:description"
-      content="C++20 协程、跨平台 I/O 与结构化并发。写下 co_await，剩下的交给运行时。"
+      content="C++20 协程、跨平台 I/O 与结构化并发。协程挂起时，线程继续调度其他任务。"
     />
-    <title>faio — 现代 C++ 的异步答案</title>
+    <title>faio — 现代 C++ 的异步运行时</title>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="stylesheet" href="assets/home.css" />
     <script src="assets/home.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">跳转到正文</a>
+
+    <!-- 顶栏 -->
     <header class="site-header">
       <div class="shell header-inner">
         <a class="brand" href="./" aria-label="faio 首页"
-          ><img src="assets/favicon.svg" alt="" width="30" height="30" /><span
+          ><img src="assets/favicon.svg" alt="" width="34" height="34" /><span
             >faio</span
           ></a
         >
         <nav class="desktop-nav" aria-label="主导航">
           <a href="book/getting-started.html">快速开始</a
-          ><a href="api/">API 参考</a><a href="book/examples/">官方例程</a
-          ><a href="book/modules.html">模块讲解</a>
+          ><a href="book/learn-faio.html">认识 faio</a
+          ><a href="book/api/">API 介绍</a><a href="api/">API 查询</a>
         </nav>
-        <a class="github-link" href="https://github.com/superlxh02/faio"
+        <a
+          class="github-link"
+          href="https://github.com/superlxh02/faio"
+          aria-label="faio 在 GitHub 上的仓库"
           ><svg viewBox="0 0 24 24" aria-hidden="true">
             <path
               fill="currentColor"
               d="M12 .8a11.2 11.2 0 0 0-3.54 21.82c.56.1.77-.24.77-.54v-2.1c-3.12.68-3.78-1.32-3.78-1.32-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.62 1.22 3.26.93.1-.73.39-1.22.71-1.5-2.49-.28-5.11-1.25-5.11-5.54 0-1.22.44-2.22 1.15-3-.12-.28-.5-1.43.11-2.97 0 0 .94-.3 3.08 1.15a10.7 10.7 0 0 1 5.6 0c2.14-1.45 3.08-1.15 3.08-1.15.61 1.54.23 2.69.12 2.97.71.78 1.14 1.78 1.14 3 0 4.3-2.63 5.25-5.13 5.53.4.35.76 1.03.76 2.08v3.09c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .8Z"
             /></svg
-          ><span>GitHub</span><span aria-hidden="true">↗</span></a
-        >
+        ></a>
         <button
           class="menu-toggle"
           aria-expanded="false"
           aria-controls="mobile-nav"
           aria-label="打开导航"
         >
-          <span></span><span></span>
+          <span></span><span></span><span></span>
         </button>
       </div>
       <nav id="mobile-nav" class="mobile-nav" aria-label="移动端导航" hidden>
         <a href="book/getting-started.html">快速开始</a
-        ><a href="api/">API 参考</a><a href="book/examples/">官方例程</a
-        ><a href="book/modules.html">模块讲解</a>
+        ><a href="book/learn-faio.html">认识 faio</a
+        ><a href="book/api/">API 介绍</a><a href="api/">API 查询</a>
       </nav>
     </header>
+
     <main id="main">
-      <section class="hero shell">
-        <div class="hero-grid" aria-hidden="true"></div>
-        <div class="hero-badge">
-          <span></span> C++20 协程 · Header-only · Proactor
+      <!-- 贯穿全页的环境背景：网格 + 光晕 + 协程轨道，铺满整个页面 -->
+      <div class="page-canvas" aria-hidden="true">
+        <div class="page-grid"></div>
+        <div class="page-glow page-glow-a"></div>
+        <div class="page-glow page-glow-b"></div>
+        <svg class="page-track" viewBox="0 0 1200 560" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <linearGradient id="trackGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#8190f2" stop-opacity="0"/>
+              <stop offset="0.5" stop-color="#5061cf" stop-opacity="0.55"/>
+              <stop offset="1" stop-color="#a06bd6" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path class="track-line t1" d="M-40 400 C 220 400, 260 120, 520 180 S 900 460, 1240 200"/>
+          <path class="track-line t2" d="M-40 470 C 260 470, 300 220, 560 260 S 920 520, 1240 300"/>
+          <path class="track-line t3" d="M-40 330 C 200 330, 240 60, 500 100 S 880 380, 1240 120"/>
+          <g class="track-nodes">
+            <circle cx="520" cy="180" r="6"/>
+            <circle cx="560" cy="260" r="5"/>
+            <circle cx="880" cy="380" r="6"/>
+            <circle cx="260" cy="220" r="5"/>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Hero：faio 自有风格 —— 品牌靛蓝 + 协程轨道网格背景 -->
+      <section class="hero">
+        <div class="shell hero-inner">
+          <h1>
+            <span class="hero-title-lead">现代 C++ 的异步答案</span><br />
+            <span class="hero-title-sub">以协程构建统一可靠的异步应用</span>
+          </h1>
+          <p class="hero-subtitle">
+            faio 是基于 C++ 协程的异步运行时。用 <code>task</code> 和
+            <code>co_await</code> 写出顺序的并发代码，工作窃取调度器与 I/O
+            运行时替你处理其余部分。
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="book/getting-started.html"
+              >快速开始 <span aria-hidden="true">→</span></a
+            >
+            <a class="btn btn-ghost" href="book/learn-faio.html">认识 faio</a>
+          </div>
         </div>
-        <h1>现代 C++ 的<br /><span>异步答案。</span></h1>
-        <p class="hero-description">
-          完全基于 C++20 协程的现代 C++ 异步基础设施。<br />Header-only，Proactor
-          完成模型，跨平台——C++ 版本的 tokio。
-        </p>
-        <div class="hero-actions">
-          <a class="button primary" href="book/getting-started.html"
-            >开始使用 <span aria-hidden="true">→</span></a
-          ><a class="button secondary" href="api/"
-            >浏览 API <span aria-hidden="true">↗</span></a
-          >
+      </section>
+
+      <!-- 特性卡片：可靠 / 快速 / 易用 / 灵活 -->
+      <section class="features shell" id="features">
+        <div class="features-grid">
+          <article class="feature-card fc-easy" data-reveal>
+            <h2>易用</h2>
+            <p>
+              异步程序统一以 <code>faio::task</code> 组织，使用 C++20 标准协程关键字编写。header-only 设计，无需编译独立的运行时库，集成便捷。
+            </p>
+          </article>
+          <article class="feature-card fc-perf" data-reveal>
+            <h2>高性能</h2>
+            <p>
+              多线程工作窃取调度器充分发挥多核并行能力，协程帧的内存分配经过专门优化以降低开销。I/O 建立于 Proactor 完成模型之上。
+            </p>
+          </article>
+          <article class="feature-card fc-flexible" data-reveal>
+            <h2>灵活</h2>
+            <p>
+              提供多线程与单线程两种运行时。任务可声明窃取与绑核约束，I/O 操作可设置超时。TLS、异步进程与实验层按需启用，不参与默认构建。
+            </p>
+          </article>
+          <article class="feature-card fc-safe" data-reveal>
+            <h2>安全</h2>
+            <p>
+              采用 C++23 <code>std::expected</code> 表达可能失败的操作，错误以值的形式返回。协程 task 提供完整的异常链与错误处理链，异常沿等待链按原类型重抛。
+            </p>
+          </article>
         </div>
-        <div class="hero-meta">
-          <span>C++23</span><i></i><span>Header-only</span><i></i
-          ><span>Apache 2.0</span><i></i><span>Linux · macOS · Windows</span>
+      </section>
+
+      <!-- 设计支柱 -->
+      <section class="users">
+        <div class="shell users-inner">
+          <h2>为协程而设计，为结构化并发而构建。</h2>
+          <nav class="user-logos" aria-label="faio 的设计支柱">
+            <span class="user-logo" data-reveal>惰性任务</span>
+            <span class="user-logo" data-reveal>工作窃取</span>
+            <span class="user-logo" data-reveal>协作取消</span>
+            <span class="user-logo" data-reveal>结构化并发</span>
+            <span class="user-logo" data-reveal>类型安全错误</span>
+            <span class="user-logo" data-reveal>完成语义 I/O</span>
+            <span class="user-logo" data-reveal>零成本抽象</span>
+            <span class="user-logo" data-reveal>协程帧内存优化</span>
+          </nav>
         </div>
-        <div class="code-showcase">
+      </section>
+
+      <!-- 代码展示：代码由本地预览脚本注入，保留 tab 切换交互 -->
+      <section class="code-section shell" id="quickstart">
+        <div class="code-window" data-reveal>
           <div class="code-topbar">
             <div class="code-tabs" role="tablist" aria-label="代码示例">
               <button
@@ -99,7 +178,7 @@
                 CMake <span>工程集成</span>
               </button>
             </div>
-            <a href="book/getting-started.html">完整例程 <span>↗</span></a>
+            <a href="book/getting-started.html">完整例程 <span aria-hidden="true">↗</span></a>
           </div>
           <div class="code-source">
             <div
@@ -136,234 +215,117 @@
           </div>
         </div>
       </section>
-      <section class="pillars shell" id="design">
-        <div class="pillar-stack">
-          <article class="pillar-block">
-            <div class="pillar-head">
-              <span class="pillar-index">01</span>
-              <h3>基于协程的异步</h3>
-              <p class="pillar-lead">
-                协程是唯一的异步表达方式，不是包在回调或 future 外面的一层语法糖。写下去是顺序代码，运行起来是挂起与恢复。
-              </p>
-              <div class="pillar-code" aria-hidden="true">
-                <span>auto</span> [a, b] = <span>co_await</span>
-                faio::<b>join</b>(first(), second());
-              </div>
+
+      <!-- The Stack：左侧锚点菜单 + 右侧彩色卡片 -->
+      <section class="stack shell" id="stack">
+        <div class="stack-layout">
+          <aside class="stack-menu" aria-label="组件导航">
+            <div class="stack-menu-inner">
+              <p class="menu-label">faio</p>
+              <ul class="menu-list">
+                <li class="sm-task"><a href="#stack-task">task 与调度</a></li>
+                <li class="sm-runtime"><a href="#stack-runtime">运行时</a></li>
+                <li class="sm-net"><a href="#stack-net">网络</a></li>
+                <li class="sm-fs"><a href="#stack-fs">文件</a></li>
+                <li class="sm-sync"><a href="#stack-sync">任务同步</a></li>
+                <li class="sm-tls"><a href="#stack-tls">TLS</a></li>
+                <li class="sm-process"><a href="#stack-process">进程</a></li>
+                <li class="sm-experimental"><a href="#stack-experimental">实验层</a></li>
+              </ul>
             </div>
-            <ul class="pillar-body">
-              <li>
-                <strong>task&lt;T&gt;</strong>
-                <span
-                  >惰性、移动独占。co_await 子任务时走对称转移直接接续，不额外分配栈；结果与异常沿等待链向上传播。</span
-                >
-              </li>
-              <li>
-                <strong>等待即挂起</strong>
-                <span
-                  >I/O、定时器、锁与信号量都是可 co_await 的操作。等待期间线程不占用，恢复由完成事件驱动。</span
-                >
-              </li>
-              <li>
-                <strong>结构化并发</strong>
-                <span
-                  >join / select / scope 把并发收束成有边界的形状：父任务返回前，等分支全部退出——排空由库执行。</span
-                >
-              </li>
-            </ul>
-          </article>
-          <article class="pillar-block">
-            <div class="pillar-head">
-              <span class="pillar-index">02</span>
-              <h3>高性能异步运行时</h3>
-              <p class="pillar-lead">
-                Proactor 完成模型加任务窃取调度：应用提交完整操作，完成事件回来再唤醒协程。网络、文件、定时器共用一条路径。
+          </aside>
+          <div class="stack-cards">
+            <article id="stack-task" class="stack-card sc-task" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/task.svg" alt="" />task 与调度</h2>
+              <p>
+                <code>faio::task&lt;T&gt;</code> 是最基本的并发与调度单元，惰性创建、移动独占。提供丰富的并发组合、协作取消与调度属性设置。
               </p>
-              <div class="pillar-backends">
-                <span>io_uring</span><span>epoll</span><span>kqueue</span
-                ><span>IOCP</span>
-              </div>
-            </div>
-            <ul class="pillar-body">
-              <li>
-                <strong>Proactor</strong>
-                <span
-                  >io_uring 与 IOCP 原生产生完成；epoll 与 kqueue 只产生就绪，由域内补上“就绪 → syscall → 完成”这一段，语义统一。</span
-                >
-              </li>
-              <li>
-                <strong>任务窃取</strong>
-                <span
-                  >本地就绪队列加全局队列的两级结构：同线程提交走本地快槽，跨线程进全局队列，空闲 worker 批量窃取，降低锁竞争。</span
-                >
-              </li>
-              <li>
-                <strong>每 worker 一个事件循环</strong>
-                <span
-                  >就绪协程、I/O 完成、定时器到期与跨线程唤醒在同一处处理；确实要阻塞时，交给 spawn_blocking 的独立线程池。</span
-                >
-              </li>
-            </ul>
-          </article>
-          <article class="pillar-block">
-            <div class="pillar-head">
-              <span class="pillar-index">03</span>
-              <h3>tokio 风格接口</h3>
-              <p class="pillar-lead">
-                入口、组合方式与资源类型都沿袭 tokio 的习惯，从 Rust 过来不必重新学一套。
+              <p class="learn-more"><a href="book/tutorial/task-in-depth.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-runtime" class="stack-card sc-runtime" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/runtime.svg" alt="" />运行时</h2>
+              <p>
+                提供多线程工作窃取与单线程两种运行模式，支持配置 worker 数量、阻塞任务上限与文件服务线程，并可按策略有序停机。
               </p>
-              <div class="pillar-code" aria-hidden="true">
-                <span>auto</span> h = faio::<b>spawn</b>(echo(std::move(stream)));
-                <span>co_await</span> h;
-              </div>
-            </div>
-            <ul class="pillar-body">
-              <li>
-                <strong>入口与派生</strong>
-                <span
-                  >block_on 进入运行时；spawn 提交并返回结果句柄；spawn_detached 后台执行；spawn_blocking 隔离阻塞函数。</span
-                >
-              </li>
-              <li>
-                <strong>组合</strong>
-                <span
-                  >join 并发跑完按序取值，join_all 处理动态集合，select 竞速并取消其余分支，scope 收拢动态派生的子任务。</span
-                >
-              </li>
-              <li>
-                <strong>资源与结果</strong>
-                <span
-                  >TcpStream / TcpListener / UdpSocket、fs::File / ReadDir、sleep / interval / timeout、sync::mutex / mpsc；I/O 结果统一为 expected&lt;T&gt;。</span
-                >
-              </li>
-            </ul>
-          </article>
-          <article class="pillar-block">
-            <div class="pillar-head">
-              <span class="pillar-index">04</span>
-              <h3>跨平台</h3>
-              <p class="pillar-lead">
-                同一份源码在 Linux、macOS 与 Windows 上构建。后端在编译期选定，网络与文件接口不按平台分叉。
+              <p class="learn-more"><a href="book/tutorial/spawning.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-net" class="stack-card sc-net" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/network.svg" alt="" />网络</h2>
+              <p>
+                提供 TCP、UDP、Unix 域套接字与地址解析，网络失败以 <code>expected</code> 返回，I/O 操作支持设置超时。
               </p>
-              <div class="pillar-backends">
-                <span>Linux</span><span>macOS</span><span>Windows</span>
-              </div>
-            </div>
-            <ul class="pillar-body">
-              <li>
-                <strong>四个 I/O 后端</strong>
-                <span
-                  >Linux 用 io_uring 或 epoll，macOS 与 FreeBSD 用 kqueue，Windows 用 IOCP 与 OVERLAPPED；网络、文件、定时器共用同一套提交与完成语义。</span
-                >
-              </li>
-              <li>
-                <strong>一套接口</strong>
-                <span
-                  >TcpStream / TcpListener / UdpSocket、fs::File / ReadDir、sleep / timeout 在各平台签名一致；Unix socket、AsyncFd 这类平台独有能力放在显式命名空间里。</span
-                >
-              </li>
-              <li>
-                <strong>工具链</strong>
-                <span
-                  >CMake 预设覆盖 macOS Clang、Linux GCC / Clang、Windows MSVC / clang-cl / MinGW-w64；配置阶段检测协程与 std::expected 是否可用。</span
-                >
-              </li>
-            </ul>
-          </article>
-        </div>
-      </section>
-      <section class="experimental shell" id="experimental">
-        <div class="section-heading">
-          <div>
-            <span class="section-kicker lab">EXPERIMENTAL</span>
-            <h2>实验性支持特性</h2>
+              <p class="learn-more"><a href="book/tutorial/io.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-fs" class="stack-card sc-fs" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/filesystem.svg" alt="" />文件</h2>
+              <p>
+                提供异步文件与目录操作，支持缓冲读写与显式偏移，句柄移动独占，文件读写不占用协程 worker。
+              </p>
+              <p class="learn-more"><a href="book/api/filesystem.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-sync" class="stack-card sc-sync" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/sync.svg" alt="" />任务同步</h2>
+              <p>
+                提供互斥、条件变量、信号量、闩、屏障与有界通道，等待期间挂起任务而不阻塞线程，唤醒后回到原调度上下文。
+              </p>
+              <p class="learn-more"><a href="book/tutorial/shared-state.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-tls" class="stack-card sc-tls" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/tls.svg" alt="" />TLS</h2>
+              <p>
+                为已建立的流提供加密封装，握手与字节读写沿用同一套异步接口。客户端始终验证证书链与主机名，并支持 ALPN 协商。
+              </p>
+              <p class="learn-more"><a href="book/api/tls.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-process" class="stack-card sc-process" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/process.svg" alt="" />异步进程</h2>
+              <p>
+                提供 <code>Command</code> 描述程序、参数与标准 IO，支持 <code>spawn()</code> 启动子进程、<code>output()</code> 捕获输出与超时终止。
+              </p>
+              <p class="learn-more"><a href="book/api/process.html">了解更多 →</a></p>
+            </article>
+            <article id="stack-experimental" class="stack-card sc-experimental" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/experimental.svg" alt="" />实验层</h2>
+              <p>
+                提供 C++26 注解入口，免去传统 main 函数，改用协程作为程序起点；同时支持与 std::execution Sender/Receiver 接口的互操作。
+              </p>
+              <p class="learn-more"><a href="book/api/experimental.html">了解更多 →</a></p>
+            </article>
           </div>
-          <p>都建在既有运行时上，<br />不新建线程池，也不参与基础库编译。</p>
         </div>
-        <div class="lab-grid">
-          <a class="lab-card" href="book/实验性特性.html"
-            ><div class="card-heading">
-              <span class="card-icon lab-icon"
-                ><svg viewBox="0 0 24 24" aria-hidden="true"
-                  ><path d="M10 2v6L4.6 19a2 2 0 0 0 1.8 3h11.2a2 2 0 0 0 1.8-3L14 8V2" /><path
-                    d="M8 2h8"
-                  /><path d="M7.2 15h9.6" /></svg></span
-              ><span class="card-arrow"
-                ><svg viewBox="0 0 24 24" aria-hidden="true"
-                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
-              >
-            </div>
-            <h3>反射注解，尝试没有 main 的写法</h3>
-            <p>
-              用 C++26 静态反射与注解描述运行时：<code>runtime_options</code>
-              在编译期读取，配置组合非法就直接编译失败；
-              <code>main</code> 注解让 <code>task&lt;int&gt;(int, char**)</code>
-              成为程序入口，由库生成真正的 main。
-            </p>
-            <p class="lab-aside">
-              没有手写 main，没有 block_on，也没有显式的 configure / shutdown——整条程序都是协程。
-            </p>
-            <div class="card-tags">
-              <span>P2996 反射</span><span>P3394 注解</span
-              ><span>无 main</span>
-            </div></a
-          >
-          <a class="lab-card" href="book/实验性特性.html"
-            ><div class="card-heading">
-              <span class="card-icon lab-icon"
-                ><svg viewBox="0 0 24 24" aria-hidden="true"
-                  ><path d="M9 2v5M15 2v5" /><path
-                    d="M7 7h10v4a5 5 0 0 1-10 0z"
-                  /><path d="M12 16v6" /></svg></span
-              ><span class="card-arrow"
-                ><svg viewBox="0 0 24 24" aria-hidden="true"
-                  ><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg></span
-              >
-            </div>
-            <h3>接入 std::execution 生态</h3>
-            <p>
-              execution_scheduler 把 faio 运行时包装成标准 scheduler，as_sender 把
-              <code>task&lt;T&gt;</code> 包成 sender。faio 协程与
-              <code>std::execution</code> 算法在同一张图里组合，共用一套调度与停机。
-            </p>
-            <p class="lab-aside">
-              目前经由 stdexec（P2300 参考实现）落地；标准库正式提供后，接口位置不变。
-            </p>
-            <div class="card-tags">
-              <span>P2300</span><span>std::execution</span><span>stdexec</span>
-            </div></a
-          >
-        </div>
-        <p class="lab-note">
-          独立门禁：Linux + GCC 16.1 + C++26。开关关闭时实验头文件不参与编译；基础库仍是 C++23，三个平台照常构建。
-        </p>
       </section>
-      <section class="closing shell">
-        <div class="closing-glow" aria-hidden="true"></div>
-        <span class="section-kicker">GET STARTED</span>
-        <h2>先把 quickstart 跑起来。</h2>
-        <p>
-          quickstart 只做一件事：两个 sleep 并发，join 汇合，打印 42。跑通之后再到「模块讲解」看这条路径在库里怎么走。
-        </p>
-        <a class="button primary" href="book/getting-started.html"
-          >开始构建 <span>→</span></a
-        >
-        <div class="install-command">
-          <code>git clone https://github.com/superlxh02/faio.git</code
-          ><button id="copy-command" aria-label="复制克隆命令">复制</button>
+
+      <!-- 收尾区：保留 git clone 复制交互 -->
+      <section class="closing">
+        <div class="shell closing-inner">
+          <span class="section-kicker">GET STARTED</span>
+          <h2>先把 quickstart 跑起来。</h2>
+          <p>
+            quickstart 演示任务并发、等待与结果汇合，随后可查阅 API 的参数、返回值与生命周期约定。
+          </p>
+          <a class="btn btn-primary" href="book/getting-started.html"
+            >开始构建 <span aria-hidden="true">→</span></a
+          >
+          <div class="install-command">
+            <code>git clone https://github.com/superlxh02/faio.git</code
+            ><button id="copy-command" aria-label="复制克隆命令">复制</button>
+          </div>
+          <span class="sr-only" id="copy-status" aria-live="polite"></span>
         </div>
-        <span class="sr-only" id="copy-status" aria-live="polite"></span>
       </section>
     </main>
+
     <footer class="site-footer">
       <div class="shell footer-inner">
         <a class="brand" href="./"
-          ><img src="assets/favicon.svg" alt="" width="25" height="25" /><span
+          ><img src="assets/favicon.svg" alt="" width="28" height="28" /><span
             >faio</span
           ></a
         >
         <p>Fast Async I/O · C++23 头文件库</p>
         <nav aria-label="页脚导航">
-          <a href="api/">API 参考</a
+          <a href="book/api/">文档</a
+          ><a href="api/">API 参考</a
           ><a href="https://github.com/superlxh02/faio">GitHub ↗</a
           ><a href="https://github.com/superlxh02/faio/blob/main/LICENSE"
             >Apache 2.0</a

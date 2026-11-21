@@ -1,8 +1,143 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "stdexec": {
     "repository": "https://github.com/NVIDIA/stdexec",
     "tag": "nvhpc-26.05",
-    "commit": "6d7ad689f4d4831c5136e4abe1c601f9a3b64e43"
+    "commit": "6d7ad689f4d4831c5136e4abe1c601f9a3b64e43",
+    "url": "https://codeload.github.com/NVIDIA/stdexec/tar.gz/6d7ad689f4d4831c5136e4abe1c601f9a3b64e43",
+    "filename": "stdexec-6d7ad689f4d4831c5136e4abe1c601f9a3b64e43.tar.gz",
+    "sha256": "1aded329b4ada957b76c748a1057804d3e94c1b2688cb3d0393b655115d1c841",
+    "strip_prefix": "stdexec-6d7ad689f4d4831c5136e4abe1c601f9a3b64e43",
+    "tree_sha256": "f5fab9cfc2cc203273cc51eea7bb9529987812f69a4edc11ce54b6ff5ea0cdd8",
+    "include_checks": [
+      "include/stdexec/execution.hpp",
+      "include/exec/task.hpp"
+    ]
+  },
+  "asio-standalone": {
+    "repository": "https://github.com/chriskohlhoff/asio",
+    "tag": "asio-1-38-0",
+    "commit": "03cf5f86a780dd102f1cdd3a59d1244d12143e46",
+    "url": "https://codeload.github.com/chriskohlhoff/asio/tar.gz/03cf5f86a780dd102f1cdd3a59d1244d12143e46",
+    "filename": "asio-standalone-03cf5f86a780dd102f1cdd3a59d1244d12143e46.tar.gz",
+    "sha256": "fca22af78cda421dc53c90676b7653c1fbe88596f08712edfab22475a924c333",
+    "strip_prefix": "asio-03cf5f86a780dd102f1cdd3a59d1244d12143e46",
+    "tree_sha256": "ad1b0e9287c23c2474e6bf80bfa1cb3f10d5a434ed06053c2a9f6771ade2ae23",
+    "include_checks": [
+      "include/asio.hpp",
+      "include/asio/awaitable.hpp",
+      "include/asio/co_spawn.hpp",
+      "include/asio/io_context.hpp",
+      "include/asio/use_future.hpp",
+      "include/asio/version.hpp"
+    ],
+    "symlinks": {
+      "asio/include": "../include",
+      "asio/src": "../src"
+    }
+  },
+  "flare": {
+    "repository": "https://github.com/Tencent/flare",
+    "tag": null,
+    "commit": "81386ff6329335ca03e2c68ba938f732e548d822",
+    "url": "https://codeload.github.com/Tencent/flare/tar.gz/81386ff6329335ca03e2c68ba938f732e548d822",
+    "filename": "flare-81386ff6329335ca03e2c68ba938f732e548d822.tar.gz",
+    "sha256": "5aaa7c0fbc15d02c1cb1d728a1bf6420aaad893e52a818fa11093b1e9444e433",
+    "strip_prefix": "flare-81386ff6329335ca03e2c68ba938f732e548d822",
+    "tree_sha256": "d454a2a5fbe3341d20b4f2a79d24bab8f1b8af650de4736508e4a642b5c17012",
+    "include_checks": [
+      "flare/fiber/async.h",
+      "flare/fiber/fiber.h",
+      "flare/fiber/future.h",
+      "flare/fiber/runtime.h",
+      "flare/fiber/this_fiber.h"
+    ]
+  },
+  "flare_bazel": {
+    "version": "7.5.0",
+    "scope": "WORKSPACE resolution for //flare/fiber:fiber with Bazel 7.5.0 and --noenable_bzlmod",
+    "archives": [
+      {
+        "filename": "0.10.7.zip",
+        "url": "https://github.com/open-source-parsers/jsoncpp/archive/refs/tags/0.10.7.zip",
+        "sha256": "165b2ac2f17601b500bf01b0b9a3b304f620986e0da5d988397d64f8f3c942c3",
+        "mirrors": [
+          "https://codeload.github.com/open-source-parsers/jsoncpp/zip/0.10.7"
+        ]
+      },
+      {
+        "filename": "rules_cc-0.0.9.tar.gz",
+        "url": "https://github.com/bazelbuild/rules_cc/releases/download/0.0.9/rules_cc-0.0.9.tar.gz",
+        "sha256": "2037875b9a4456dce4a79d112a8ae885bbc4aad968e6587dca6e64f3a0900cdf",
+        "mirrors": [
+          "https://mirror.bazel.build/github.com/bazelbuild/rules_cc/releases/download/0.0.9/rules_cc-0.0.9.tar.gz"
+        ]
+      },
+      {
+        "filename": "v2.2.2.tar.gz",
+        "url": "https://github.com/gflags/gflags/archive/v2.2.2.tar.gz",
+        "sha256": "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
+        "mirrors": [
+          "https://codeload.github.com/gflags/gflags/tar.gz/v2.2.2"
+        ]
+      },
+      {
+        "filename": "7.1.3.zip",
+        "url": "https://github.com/fmtlib/fmt/archive/refs/tags/7.1.3.zip",
+        "sha256": "50f2fd9f697f89726ae3c7efe84ae48c9e03158a2958eea496eeaa0fb190adb6",
+        "mirrors": [
+          "https://codeload.github.com/fmtlib/fmt/zip/7.1.3"
+        ]
+      },
+      {
+        "filename": "platforms-0.0.6.tar.gz",
+        "url": "https://mirror.bazel.build/github.com/bazelbuild/platforms/releases/download/0.0.6/platforms-0.0.6.tar.gz",
+        "sha256": "5308fc1d8865406a49427ba24a9ab53087f17f5266a7aabbfc28823f3916e1ca",
+        "mirrors": [
+          "https://github.com/bazelbuild/platforms/releases/download/0.0.6/platforms-0.0.6.tar.gz"
+        ]
+      },
+      {
+        "filename": "26c77008307c80a90fabc8fe3f7a72b961120a84.tar.gz",
+        "url": "https://github.com/bazelbuild/rules_foreign_cc/archive/26c77008307c80a90fabc8fe3f7a72b961120a84.tar.gz",
+        "sha256": "61b74a99496470a27989b396b8331d93aba6c6cf21997533d6df3848eb5a095c",
+        "mirrors": [
+          "https://codeload.github.com/bazelbuild/rules_foreign_cc/tar.gz/26c77008307c80a90fabc8fe3f7a72b961120a84"
+        ]
+      },
+      {
+        "filename": "bazel-skylib-1.3.0.tar.gz",
+        "url": "https://github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
+        "sha256": "74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
+        "mirrors": [
+          "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz"
+        ]
+      },
+      {
+        "filename": "yaml-cpp-0.6.3.zip",
+        "url": "https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.6.3.zip",
+        "sha256": "7c0ddc08a99655508ae110ba48726c67e4a10b290c214aed866ce4bbcbe3e84c",
+        "mirrors": [
+          "https://codeload.github.com/jbeder/yaml-cpp/zip/yaml-cpp-0.6.3"
+        ]
+      },
+      {
+        "filename": "v0.7.1.zip",
+        "url": "https://github.com/google/glog/archive/refs/tags/v0.7.1.zip",
+        "sha256": "c17d85c03ad9630006ef32c7be7c65656aba2e7e2fbfc82226b7e680c771fc88",
+        "mirrors": [
+          "https://codeload.github.com/google/glog/zip/v0.7.1"
+        ]
+      },
+      {
+        "filename": "4b84ad270387a7c439ebdccfd530e2339601ef27.tar.gz",
+        "url": "https://mirror.bazel.build/github.com/bazelbuild/rules_python/archive/4b84ad270387a7c439ebdccfd530e2339601ef27.tar.gz",
+        "sha256": "e5470e92a18aa51830db99a4d9c492cc613761d5bdb7131c04bd92b9834380f6",
+        "mirrors": [
+          "https://github.com/bazelbuild/rules_python/archive/4b84ad270387a7c439ebdccfd530e2339601ef27.tar.gz",
+          "https://codeload.github.com/bazelbuild/rules_python/tar.gz/4b84ad270387a7c439ebdccfd530e2339601ef27"
+        ]
+      }
+    ]
   }
 }

@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/platform/error.hpp
- * @brief 跨平台异步 IO：错误值与错误域。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 错误值与错误域。
  */
 #pragma once
 #include "faio/detail/common/error.hpp"
@@ -10,6 +9,7 @@
 #endif
 
 namespace faio::io::detail {
+/** @brief 将原生 I/O 错误转换为错误结果。 */
 inline Error decode_io_error(int value, std::uint64_t progress = 0) noexcept {
 #if defined(_WIN32)
   return windows::make_io_error(value, progress);
@@ -18,12 +18,8 @@ inline Error decode_io_error(int value, std::uint64_t progress = 0) noexcept {
 #endif
 }
 
-/** @brief 组合 IO 累加进度；Windows 保留 Win32/Winsock 错误域，不将原生码当 errno。 */
+/**  @brief 组合 IO 累加进度；Windows 保留 Win32/Winsock 错误域，不将原生码当 errno。 */
 inline Error transfer_error(const Error& error, std::uint64_t progress) noexcept {
-#if defined(_WIN32)
-  return Error{error.value(), progress, error.domain()};
-#else
-  return Error{error.value(), progress};
-#endif
+  return error.with_progress(progress);
 }
-}
+}  // namespace faio::io::detail

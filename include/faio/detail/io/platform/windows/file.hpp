@@ -15,7 +15,8 @@
 #include <winternl.h>
 
 namespace faio::io::windows {
-/** @brief 固定条带锁保护低层隐式 OS 游标，没有随 HANDLE 累积的全局缓存。
+/**
+ *  @brief 固定的条带锁保护低层隐式 OS 游标，没有随 HANDLE 累积的全局缓存。
  * @details 文件标识使 DuplicateHandle 和不同 IO 域的同一文件共用锁；不同
  *          FILE_OBJECT 虽可能保守串行，但各自 OS 游标仍独立。高层 File 的
  *          显式位置 IO 不使用本锁，也不走此服务路径。
@@ -34,7 +35,7 @@ inline std::mutex& implicit_cursor_mutex(HANDLE handle) noexcept {
   return stripes[static_cast<std::size_t>(key) & (stripes.size() - 1)];
 }
 
-/** @brief 查询真实句柄是否只有追加权限，支持借用的外部 CreateFile 句柄。 */
+/**  @brief 查询真实句柄是否只有追加权限，支持借用的外部 CreateFile 句柄。 */
 inline expected<bool> append_only_handle(HANDLE handle) noexcept {
   using query_fn = NTSTATUS(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
   using error_fn = ULONG(WINAPI*)(NTSTATUS);
@@ -46,28 +47,20 @@ inline expected<bool> append_only_handle(HANDLE handle) noexcept {
     return std::unexpected{make_windows_error(ERROR_PROC_NOT_FOUND)};
 
   struct basic_information {
-    ULONG attributes{};  ///< PUBLIC_OBJECT_BASIC_INFORMATION 的公开固定布局。
-    ACCESS_MASK granted_access{};  ///< 查询到的 Windows 句柄访问权限掩码。
-    ULONG handle_count{},  ///< Windows 原生对象信息中的句柄引用计数。
-        pointer_count{},  ///< Windows 原生对象信息中的内核指针引用计数。
-        reserved[10]{};  ///< Windows 原生布局要求的保留字段，业务逻辑不解释其内容。
+    ULONG attributes{};           /**< PUBLIC_OBJECT_BASIC_INFORMATION 的公开固定布局。 */
+    ACCESS_MASK granted_access{}; /**< 查询到的 Windows 句柄访问权限掩码。 */
+    ULONG handle_count{}, pointer_count{},
+        reserved[10]{}; /**< Windows 原生布局要求的保留字段，业务逻辑不解释其内容。 */
   } information;
 
-  /// @brief 使用 ObjectBasicInformation 信息类查询原生对象属性。
-  const NTSTATUS status = query(handle,
-                                0,
-                                &information,
-                                sizeof(information),
-                                nullptr);
+  const NTSTATUS status = query(handle, 0, &information, sizeof(information), nullptr);
   if (status < 0)
     return std::unexpected{make_windows_error(translate(status))};
-  /// @brief 内核对象查询没有磁盘 IO/STATUS_PENDING 生命周期。
-  const ACCESS_MASK access =
-      information.granted_access;
+  const ACCESS_MASK access = information.granted_access;
   return (access & FILE_APPEND_DATA) && !(access & FILE_WRITE_DATA);
 }
 
-/** @brief 文件 lane 的私有 OVERLAPPED；hEvent 低位禁止产生孤立 IOCP 完成包。 */
+/**  @brief 文件 lane 的私有 OVERLAPPED；hEvent 低位禁止产生孤立 IOCP 完成包。 */
 inline std::int64_t file_transfer(HANDLE handle,
                                   HANDLE event,
                                   void* buffer,
@@ -81,18 +74,13 @@ inline std::int64_t file_transfer(HANDLE handle,
   overlapped.Offset = static_cast<DWORD>(offset);
   overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
   overlapped.hEvent = reinterpret_cast<HANDLE>(reinterpret_cast<std::uintptr_t>(event) | 1);
-  /// @brief 每段复用事件之前清除上一段的完成信号。
   ::ResetEvent(event);
   DWORD bytes{};
   BOOL completed = writing ? ::WriteFile(handle, buffer, length, &bytes, &overlapped)
                            : ::ReadFile(handle, buffer, length, &bytes, &overlapped);
   DWORD error = completed ? ERROR_SUCCESS : ::GetLastError();
   if (error == ERROR_IO_PENDING) {
-    /// @brief 借用排空以后才返回 lane。
-    completed = ::GetOverlappedResult(handle,
-                                      &overlapped,
-                                      &bytes,
-                                      TRUE);
+    completed = ::GetOverlappedResult(handle, &overlapped, &bytes, TRUE);
     error = completed ? ERROR_SUCCESS : ::GetLastError();
   }
   if (error == ERROR_HANDLE_EOF && !writing)
@@ -100,7 +88,7 @@ inline std::int64_t file_transfer(HANDLE handle,
   return error ? -encode_windows_error(error) : static_cast<std::int64_t>(bytes);
 }
 
-/** @brief OS 游标快照/更新；零位移查询不会修改文件数据或逻辑游标。 */
+/**  @brief OS 游标快照/更新；零位移查询不会修改文件数据或逻辑游标。 */
 inline std::int64_t query_file_position(HANDLE handle, std::uint64_t& position) noexcept {
   LARGE_INTEGER zero{}, current{};
   if (!::SetFilePointerEx(handle, zero, &current, FILE_CURRENT))
@@ -111,6 +99,7 @@ inline std::int64_t query_file_position(HANDLE handle, std::uint64_t& position) 
   return 0;
 }
 
+/** @brief 更新已完成传输对应的文件位置。 */
 inline std::int64_t update_file_position(HANDLE handle, std::uint64_t position) noexcept {
   if (position > static_cast<std::uint64_t>(INT64_MAX))
     return -EOVERFLOW;
@@ -121,8 +110,10 @@ inline std::int64_t update_file_position(HANDLE handle, std::uint64_t position) 
              : -encode_windows_error(::GetLastError());
 }
 
-/** @brief 低层默认 read/write 使用并推进 OS 游标；不将 UINT64_MAX 传给
- * ReadFile。 */
+/**
+ *  @brief 低层默认 read/write 使用并推进 OS 游标；不将 UINT64_MAX 传给
+ * ReadFile。
+ */
 inline std::int64_t scalar_file(detail::io_request& request) noexcept {
   HANDLE handle = reinterpret_cast<HANDLE>(request.fd);
   const bool writing = request.kind == detail::operation_kind::write;
@@ -137,7 +128,6 @@ inline std::int64_t scalar_file(detail::io_request& request) noexcept {
                          request.offset,
                          writing);
   const DWORD type = ::GetFileType(handle);
-  /// @brief 管道/设备没有 seek 游标，OVERLAPPED offset 对它们无效。
   if (type != FILE_TYPE_DISK)
     return file_transfer(handle,
                          event.get(),
@@ -145,7 +135,6 @@ inline std::int64_t scalar_file(detail::io_request& request) noexcept {
                          request.length,
                          0,
                          writing);
-  /// @brief 跨查询、真实 IO 和更新保持不可分割。
   std::lock_guard lock(implicit_cursor_mutex(handle));
   std::uint64_t position{};
   if (auto error = query_file_position(handle, position); error)
@@ -168,7 +157,6 @@ inline std::int64_t scalar_file(detail::io_request& request) noexcept {
     return count;
   if (append && count) {
     LARGE_INTEGER size{};
-    /// @brief 已传输进度不能丢失。
     if (::GetFileSizeEx(handle, &size))
       position = static_cast<std::uint64_t>(size.QuadPart);
     else
@@ -176,17 +164,16 @@ inline std::int64_t scalar_file(detail::io_request& request) noexcept {
   } else
     position += static_cast<std::uint64_t>(count);
   const auto error = update_file_position(handle, position);
-  /// @brief 已生效的字节按 POSIX 部分成功交付。
   return error && !count ? error : count;
 }
 
-/** @brief 在文件 lane 将严格 UTF-8 路径打开为 OVERLAPPED HANDLE。
+/**
+ *  @brief 在文件 lane 将严格 UTF-8 路径打开为 OVERLAPPED HANDLE。
  * @details 不使用依赖 CRT 代码页的 path(char*) 转换。该边界为 noexcept，
  *          拒绝截断路径、未知 flags 和文本转换；服务线程从不因路径异常退出。
  */
 inline std::int64_t open_file(detail::io_request& request) noexcept {
   try {
-    /// @brief 内部拥有字符串也不能让 Win32 按 NUL 截断成另一个对象。
     if (request.path.empty() || request.path.find('\0') != std::string::npos)
       return -EINVAL;
     if (request.path.size() > INT_MAX)
@@ -216,7 +203,6 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
                               | _O_OBTAIN_DIR
 #endif
         ;
-    /// @brief 文本/UTF 文本、POSIX 扩展不能静默降成普通二进制打开。
     if (flags & ~supported)
       return -EOPNOTSUPP;
 
@@ -230,7 +216,6 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
     const bool append = (flags & _O_APPEND) && access_mode;
     if (append) {
       access &= ~GENERIC_WRITE;
-      /// @brief 查询 EOF/文件标识不扩大写数据权限。
       access |= FILE_APPEND_DATA | FILE_READ_ATTRIBUTES;
     }
     if (flags & _O_TEMPORARY)
@@ -245,23 +230,18 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
       attributes = (attributes & ~FILE_ATTRIBUTE_NORMAL) | FILE_ATTRIBUTE_TEMPORARY;
     if (flags & _O_TEMPORARY)
       attributes |= FILE_FLAG_DELETE_ON_CLOSE;
-    /// @brief 仅新建对象采用 mode 的只读位，ACL 仍由系统继承。
     if ((flags & _O_CREAT) && !(request.argument & 0200))
       attributes |= FILE_ATTRIBUTE_READONLY;
 
     const auto finish_open = [=](HANDLE value) noexcept -> std::int64_t {
-      /// @brief 失败路径也只关闭一次临时写数据句柄。
       owned_file_handle handle{value};
       if (initial_access != access) {
-        /// @brief ReOpenFile 禁止 FILE_ATTRIBUTE_*。
-        HANDLE narrowed =
-            ::ReOpenFile(handle.get(),
-                         access,
-                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                         attributes & 0xffff0000u);
+        HANDLE narrowed = ::ReOpenFile(handle.get(),
+                                       access,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                       attributes & 0xffff0000u);
         if (narrowed == INVALID_HANDLE_VALUE)
           return -encode_windows_error(::GetLastError());
-        /// @brief truncate 完成以后最终句柄仍只有追加权限。
         handle.reset(narrowed);
       }
       return reinterpret_cast<std::intptr_t>(handle.release());
@@ -275,7 +255,6 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
       disposition = TRUNCATE_EXISTING;
     const bool rooted = path.front() == L'\\' || (path.size() > 1 && path[1] == L':');
     if (request.fd != AT_FDCWD && !rooted) {
-      /// @brief 父目录 HANDLE 的相对打开不能转换为拼接路径，否则 rename 会改变目标。
       using create_fn = NTSTATUS(NTAPI*)(PHANDLE,
                                          ACCESS_MASK,
                                          POBJECT_ATTRIBUTES,
@@ -303,7 +282,6 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
       attributes.Length = sizeof(attributes);
       attributes.RootDirectory = reinterpret_cast<HANDLE>(request.fd);
       attributes.ObjectName = &name;
-      /// @brief 使用 OBJ_CASE_INSENSITIVE 解析不区分大小写的原生对象路径。
       attributes.Attributes = 0x40;
       IO_STATUS_BLOCK status{};
       HANDLE handle{};
@@ -343,9 +321,7 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
           absolute.resize(length);
           break;
         }
-        /// @brief 并发改变 CWD 时只增加容量，直到一次转换容纳完整路径。
-        absolute.resize(static_cast<std::size_t>(length)
-                        + 1);
+        absolute.resize(static_cast<std::size_t>(length) + 1);
       }
       path = std::move(absolute);
       if (path.starts_with(L"\\\\"))
@@ -363,7 +339,6 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
     return handle == INVALID_HANDLE_VALUE ? -encode_windows_error(::GetLastError())
                                           : finish_open(handle);
   } catch (const std::bad_alloc&) {
-    /// @brief noexcept 服务边界不能把内存压力变成线程/进程退出。
     return -ENOMEM;
   } catch (const std::filesystem::filesystem_error& error) {
     return error.code().category() == std::system_category()
@@ -374,12 +349,12 @@ inline std::int64_t open_file(detail::io_request& request) noexcept {
   } catch (const std::invalid_argument&) {
     return -EINVAL;
   } catch (...) {
-    /// @brief 未知转换异常也必须转换成完成结果，不能穿过 noexcept domain。
     return -EIO;
   }
 }
 
-/** @brief 分散文件 IO fallback；只在独立文件 lane 阻塞，不占用协程 worker。
+/**
+ *  @brief 分散文件 IO 的 fallback；只在独立文件 lane 中阻塞，不占用协程 worker。
  * @details Windows ReadFileScatter 对页对齐有特殊限制，通用 iovec 按元素执行。
  *          hEvent 低位禁止向 IOCP 投递这些 lane 私有操作，避免双重完成。
  */
@@ -392,7 +367,6 @@ inline std::int64_t vectored_file(detail::io_request& request) noexcept {
   if (!event)
     return -encode_windows_error(::GetLastError());
   const bool tracked = request.windows_implicit_cursor && ::GetFileType(handle) == FILE_TYPE_DISK;
-  /// @brief 整个 vector 数组共用同一次游标事务。
   std::unique_lock<std::mutex> lock;
   std::uint64_t offset = request.offset, total{};
   bool append = false;
@@ -407,7 +381,6 @@ inline std::int64_t vectored_file(detail::io_request& request) noexcept {
       append = *access;
     }
   } else if (request.windows_implicit_cursor)
-    /// @brief 无 seek 游标的设备忽略位置字段。
     offset = 0;
   std::int64_t error{};
   for (const auto& vector : request.vectors) {
@@ -422,7 +395,6 @@ inline std::int64_t vectored_file(detail::io_request& request) noexcept {
     if (bytes < 0) {
       error = bytes;
       break;
-    /// @brief 后续段失败保留已经生效的前缀。
     }
     total += bytes;
     if (!append)
@@ -435,15 +407,12 @@ inline std::int64_t vectored_file(detail::io_request& request) noexcept {
       LARGE_INTEGER size{};
       if (!::GetFileSizeEx(handle, &size))
         return static_cast<std::int64_t>(total);
-      /// @brief 只有真正追加权限才采用最新 EOF。
       offset = static_cast<std::uint64_t>(size.QuadPart);
     }
     const auto update = update_file_position(handle, offset);
     if (!error)
       error = update;
   }
-  /// @brief EOF/全空数组返回零，失败前缀按部分成功返回。
-  return total ? static_cast<std::int64_t>(total)
-               : error;
+  return total ? static_cast<std::int64_t>(total) : error;
 }
-}
+}  // namespace faio::io::windows

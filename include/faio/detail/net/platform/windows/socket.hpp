@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/net/platform/windows/socket.hpp
- * @brief 网络地址、socket 与传输协议：socket 资源封装。
- * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ * @brief 套接字资源封装。
  */
 #pragma once
 #include "faio/detail/io/platform/native_types.hpp"
@@ -14,22 +13,22 @@
 #include <optional>
 
 namespace faio::net::detail {
-/** @brief socket 的完整原生描述符类型，Windows 禁止缩窄为 POSIX int。 */
+/**  @brief socket 的完整原生描述符类型，Windows 禁止缩窄为 POSIX int。 */
 using native_socket_type = io::detail::native_descriptor;
 
-/** @brief 获取最近 socket syscall 错误；Windows 明确使用 Winsock 错误域。 */
+/**  @brief 获取最近 socket syscall 错误；Windows 明确使用 Winsock 错误域。 */
 inline auto socket_error() noexcept -> Error {
   return Error{::WSAGetLastError(), 0, error_domain::winsock};
 }
 
-/** @brief 平台中立 would-block 判断，同时识别显式用户 syscall 的 errno 错误。 */
+/**  @brief 不依赖平台的 would-block 判断，同时识别显式用户 syscall 的 errno 错误。 */
 inline auto socket_would_block(const Error& error) noexcept -> bool {
   if (error.domain() == error_domain::winsock)
     return error.value() == WSAEWOULDBLOCK;
   return error.value() == EAGAIN || error.value() == EWOULDBLOCK;
 }
 
-/** @brief socket 控制选项只转换字节指针，保持两平台原生值和长度语义。 */
+/**  @brief socket 控制选项只转换字节指针，不改变两平台的原生值和长度语义。 */
 inline auto socket_setsockopt(native_socket_type descriptor,
                               int level,
                               int option,
@@ -39,6 +38,7 @@ inline auto socket_setsockopt(native_socket_type descriptor,
       io::windows::as_socket(descriptor), level, option, static_cast<const char*>(value), length);
 }
 
+/** @brief 调用原生 getsockopt 并保留平台参数约定。 */
 inline auto socket_getsockopt(native_socket_type descriptor,
                               int level,
                               int option,
@@ -48,8 +48,9 @@ inline auto socket_getsockopt(native_socket_type descriptor,
       io::windows::as_socket(descriptor), level, option, static_cast<char*>(value), length);
 }
 
-/** @brief 查询 socket 地址族；Windows 未绑定 socket 不能用 getsockname 推断。
- * @details SO_PROTOCOL_INFOW 在未绑定阶段也可读取，保留 import、TTL 的配置合同。
+/**
+ *  @brief 查询 socket 地址族；Windows 未绑定 socket 不能用 getsockname 推断。
+ * @details SO_PROTOCOL_INFOW 在未绑定阶段也可读取，保留 import、TTL 的配置约定。
  */
 inline auto socket_address_family(native_socket_type descriptor) noexcept -> expected<int> {
   WSAPROTOCOL_INFOW protocol{};
@@ -64,7 +65,7 @@ inline auto socket_address_family(native_socket_type descriptor) noexcept -> exp
   return protocol.iAddressFamily;
 }
 
-/** @brief 显式同步 stream syscall；Windows 长范围只提交可表达的前缀，允许短 IO。 */
+/**  @brief 显式同步 stream syscall；Windows 对较长范围只提交可表示的前缀，允许短 IO。 */
 inline auto socket_recv(native_socket_type descriptor,
                         void* buffer,
                         std::size_t length,
@@ -75,6 +76,7 @@ inline auto socket_recv(native_socket_type descriptor,
                 flags & ~MSG_DONTWAIT);
 }
 
+/** @brief 发送字节并应用平台的信号和标志处理。 */
 inline auto socket_send(native_socket_type descriptor,
                         const void* buffer,
                         std::size_t length,
@@ -88,7 +90,7 @@ inline auto socket_send(native_socket_type descriptor,
                 flags & ~MSG_DONTWAIT);
 }
 
-/** @brief 数据报不能拆分；超过 Windows int 长度直接报告消息过长。 */
+/**  @brief 数据报不能拆分；超过 Windows int 长度直接报告消息过长。 */
 inline auto socket_sendto(native_socket_type descriptor,
                           const void* buffer,
                           std::size_t length,
@@ -108,20 +110,22 @@ inline auto socket_sendto(native_socket_type descriptor,
                   address_length);
 }
 
+/** @brief 调用平台消息接收接口。 */
 inline auto socket_recvmsg(native_socket_type descriptor, msghdr* message, int flags) noexcept {
   return io::windows::recv_message(descriptor, message, flags);
 }
 
+/** @brief 调用平台消息发送接口。 */
 inline auto socket_sendmsg(native_socket_type descriptor,
                            const msghdr* message,
                            int flags) noexcept {
   return io::windows::send_message(descriptor, message, flags);
 }
 
+/** @brief 向多个缓冲区分散读取字节。 */
 inline auto socket_readv(native_socket_type descriptor,
                          const iovec* vectors,
                          std::size_t count) noexcept {
-  /// @brief 此辅助接口只用于 stream try_read_vectored；空范围不能变成零字节就绪探测。
   if (!count)
     return std::intptr_t{0};
   if (vectors && count <= IOV_MAX && std::all_of(vectors, vectors + count, [](const iovec& vector) {
@@ -134,12 +138,11 @@ inline auto socket_readv(native_socket_type descriptor,
   return io::windows::recv_message(descriptor, &message, 0);
 }
 
-/** @brief close 始终只执行一次；Windows 与 POSIX 使用各自正确的关闭函数。 */
+/**  @brief close 始终只执行一次；Windows 与 POSIX 使用各自正确的关闭函数。 */
 inline void close_native_socket(native_socket_type descriptor) noexcept {
   (void)::closesocket(io::windows::as_socket(descriptor));
 }
 
-/// @brief 选项的存在性属于原生平台合同；公共 mixin 只观察这些编译期描述。
 #ifdef SO_REUSEPORT
 inline constexpr std::optional<int> reuseport_option = SO_REUSEPORT;
 #else
@@ -174,28 +177,37 @@ inline constexpr auto native_linger_limit = USHRT_MAX;
 using multicast_v4_option_value = DWORD;
 inline constexpr int no_signal_flags = 0;
 
+/** @brief 把原生 socket 错误码转换为 faio 错误。 */
 inline Error socket_error_from_code(int value) noexcept {
   return io::windows::make_io_error(value);
 }
 
+/** @brief 判断原生 socket 错误是否表示系统调用被中断。 */
 inline bool socket_interrupted(const Error& error) noexcept {
   return error.value() == EINTR || error.value() == WSAEINTR;
 }
 
+/** @brief 初始化平台的名称解析运行环境。 */
 inline expected<void> initialize_resolver() noexcept {
   return io::windows::initialize_winsock();
 }
 
+/** @brief 将名称解析错误转换为对应错误域。 */
 inline Error resolver_error(int failure) noexcept {
   return Error{failure, 0, error_domain::resolver};
 }
 
-/// @brief 为导入或新建 socket 设置平台必要的非阻塞及继承属性。
+/** @brief 为导入或新建 socket 设置平台必要的非阻塞及继承属性。 */
 inline expected<void> prepare_native_socket(native_socket_type descriptor) noexcept {
   return io::windows::prepare_socket(descriptor);
 }
 
-/// @brief 创建平台 socket 并在失败时归还已经取得的句柄。
+/** @brief 内部创建仍按 Winsock 要求设置非阻塞及继承属性。 */
+inline expected<void> prepare_created_native_socket(native_socket_type descriptor) noexcept {
+  return prepare_native_socket(descriptor);
+}
+
+/** @brief 创建平台 socket 并在失败时归还已经取得的句柄。 */
 inline expected<native_socket_type> create_native_socket(int domain,
                                                          int type,
                                                          int protocol) noexcept {
@@ -213,7 +225,7 @@ inline expected<native_socket_type> create_native_socket(int domain,
   return descriptor;
 }
 
-/// @brief 尝试接受一个原生连接，结果保留暂不可用与永久错误的区别。
+/** @brief 尝试接受一个原生连接，结果保留暂不可用与永久错误的区别。 */
 inline native_socket_type accept_native_socket(native_socket_type descriptor,
                                                sockaddr* address,
                                                socklen_t* length) noexcept {
@@ -221,7 +233,8 @@ inline native_socket_type accept_native_socket(native_socket_type descriptor,
       ::accept(io::windows::as_socket(descriptor), address, length));
 }
 
+/** @brief 按平台约定处理原生 socket 地址的长度字段。 */
 template <class Address>
 inline void set_native_address_length(Address&) noexcept {}
 
-}
+}  // namespace faio::net::detail

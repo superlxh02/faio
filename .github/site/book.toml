@@ -1,7 +1,7 @@
 [book]
-title = "faio 开发者文档"
+title = "faio 使用文档"
 authors = ["faio contributors"]
-description = "faio C++23 异步 I/O 库：快速开始、API 参考、官方例程与模块设计。"
+description = "faio C++23 异步 I/O 库：快速开始、认识 faio、API 介绍与 API 查询。"
 language = "zh-CN"
 src = "../../docs"
 
@@ -15,11 +15,11 @@ after = ["links"]
 
 [output.html]
 theme = "../../build/docs-theme"
-default-theme = "navy"
-preferred-dark-theme = "navy"
+default-theme = "light"
+preferred-dark-theme = "light"
 smart-punctuation = true
 git-repository-url = "https://github.com/superlxh02/faio"
-edit-url-template = "https://github.com/superlxh02/faio/edit/main/.github/site/{path}"
+edit-url-template = "https://github.com/superlxh02/faio/edit/main/docs/{path}"
 additional-css = ["theme/book.css"]
 additional-js = ["node_modules/mermaid/dist/mermaid.min.js", "theme/book.js"]
 no-section-label = true

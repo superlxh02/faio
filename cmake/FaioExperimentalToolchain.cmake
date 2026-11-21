@@ -1,6 +1,10 @@
+#[[
+@file cmake/FaioExperimentalToolchain.cmake
+@brief 实验性编译器、标准库及执行协议检查。
+]]
 include_guard(GLOBAL)
 
-# Function scope deliberately leaves the base project's C++23 settings intact.
+#[[ @brief 检查 Linux、GCC 16.1 及配套 libstdc++ 是否满足要求。 ]]
 function(faio_check_experimental_toolchain reflection_enabled)
     if(CMAKE_VERSION VERSION_LESS "4.1")
         message(FATAL_ERROR "faio experimental requires CMake >= 4.1")
@@ -57,8 +61,7 @@ function(faio_check_experimental_toolchain reflection_enabled)
     endif()
 endfunction()
 
-# Validate the fixed backend independently of the optional reflection component.
-# This also runs for an installed consumer using only its vendored include tree.
+#[[ @brief 检查锁定版本的 stdexec 是否支持所需的执行协议与任务功能。 ]]
 function(faio_check_experimental_execution_contract header_directory)
     set(CMAKE_CXX_STANDARD 26)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)

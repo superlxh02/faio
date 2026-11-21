@@ -1,21 +1,24 @@
 /**
  * @file faio/detail/net/base/datagram.hpp
- * @brief 网络地址、socket 与传输协议：数据报公共封装。
- * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ * @brief 数据报公共封装。
  */
 #ifndef FAIO_DETAIL_NET_BASE_DATAGRAM_HPP
 #define FAIO_DETAIL_NET_BASE_DATAGRAM_HPP
 #include "faio/detail/net/platform/select.hpp"
+#include "faio/detail/io/awaiter/connect.hpp"
+#include "faio/detail/io/awaiter/ready.hpp"
+#include "faio/detail/io/awaiter/shutdown.hpp"
+#include <concepts>
 #include "faio/detail/net/base/address.hpp"
 #include "faio/detail/net/base/datagram_recv.hpp"
 #include "faio/detail/net/base/datagram_send.hpp"
 #include "faio/detail/net/base/socket.hpp"
 #include <functional>
 #include <span>
-#include <vector>
 
 namespace faio::net::detail {
-/** @brief 消息型 socket 的共同实现；保持 UDP/Unix 数据报边界，不提供字节流
+/**
+ *  @brief 消息型 socket 的共同实现；保持 UDP/Unix 数据报边界，不提供字节流
  * write_all。
  * @details 同一方向的在途请求由资源 gate 仲裁；多个接收者应使用单一接收循环
  * 与有界 channel 分派。ready 只是观察，不消费数据报，允许假就绪。
@@ -26,56 +29,66 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
                      public ImplLocalAddr<BaseDatagram<Datagram, Addr>, Addr>,
                      public ImplPeerAddr<BaseDatagram<Datagram, Addr>, Addr> {
  protected:
+  /** @brief 接管源对象的状态和资源租约。 */
   explicit BaseDatagram(Socket&& socket) : socket_{std::move(socket)} {}
 
  public:
+  /** @brief 接管源对象的状态和资源租约。 */
   BaseDatagram(BaseDatagram&&) noexcept = default;
 
+  /** @brief 移动赋值资源及状态。 */
   auto operator=(BaseDatagram&&) noexcept -> BaseDatagram& = default;
 
+  /** @brief 禁止复制此对象。 */
   BaseDatagram(const BaseDatagram&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   auto operator=(const BaseDatagram&) -> BaseDatagram& = delete;
 
+  /** @brief 释放数据报 socket 的资源租约。 */
   ~BaseDatagram() = default;
 
-  /** @brief 按值保存目标地址；连接数据报只设置默认目标及入包过滤，不执行 TCP
-   * 握手。 */
+  /**
+   *  @brief 按值保存目标地址；连接数据报只设置默认目标及入包过滤，不执行 TCP
+   * 握手。
+   */
   auto connect(Addr address) const -> task<expected<void>> {
     return connect_owned(resource(), std::move(address));
   }
 
-  /// @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。
+  /** @brief 请求关闭 socket 的指定传输方向。 */
   auto shutdown(io::ShutdownBehavior direction = io::ShutdownBehavior::Both) const noexcept {
     return io::shutdown(resource(), static_cast<int>(direction));
   }
 
-  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
+  /** @brief 异步关闭共享套接字，等待在途操作安全结束。 */
   auto close() noexcept { return socket_.close(); }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> native_socket_type { return socket_.fd(); }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto as_native_handle() const noexcept -> native_socket_type { return fd(); }
 
-  /// @brief 取得底层共享资源控制块，以保持句柄身份与所属域。
+  /** @brief 取得底层共享资源控制块，保持句柄身份及所属域有效。 */
   [[nodiscard]] auto resource() const noexcept { return socket_.resource(); }
 
-  /// @brief 取得当前对象关联的 IO 上下文租约。
+  /** @brief 取得该对象关联的 I/O 上下文租约。 */
   [[nodiscard]] auto context() const noexcept { return socket_.context(); }
 
-  /** @brief 克隆安全拥有者，所有副本使用同一资源，不 dup 原生 fd。 */
+  /**  @brief 克隆安全拥有者，所有副本使用同一资源，不 dup 原生 fd。 */
   [[nodiscard]] auto share() const -> Datagram { return Datagram{socket_.share()}; }
 
-  /** @brief 独立观察消息 socket 就绪，不消费数据报；返回方向独立的 Ready 快照。
-   */
+  /**  @brief 独立观察消息 socket 就绪，不消费数据报；返回方向独立的 Ready 快照。 */
   auto ready(io::Interest interest) const noexcept { return io::ready(resource(), interest); }
 
+  /** @brief 等待 socket 或管道可读，不消费数据。 */
   auto readable() const noexcept { return ready(io::Interest::readable); }
 
+  /** @brief 等待 socket 或管道可写，不执行实际写入。 */
   auto writable() const noexcept { return ready(io::Interest::writable); }
 
+  /** @brief 在底层资源方向校验后执行一次即时 IO 回调。 */
   template <class F>
   auto try_io(io::Interest interest, F&& function) const {
     return io::detail::with_resource(resource(), interest, [&] {
@@ -86,7 +99,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     });
   }
 
-  /** @brief 自定义非阻塞系统调用；would_block 后挂起就绪观察，再重试。 */
+  /**  @brief 自定义非阻塞系统调用；would_block 后挂起就绪观察，再重试。 */
   template <class F>
   auto async_io(io::Interest interest, F function) const
       -> task<decltype(try_io(interest, function))> {
@@ -94,12 +107,12 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
         resource(), interest, std::move(function));
   }
 
-  /** @brief 只在资源没有在途操作时导出，关闭责任由返回的 RAII owner 接管。 */
+  /**  @brief 只在资源没有在途操作时导出，关闭责任由返回的 RAII owner 接管。 */
   [[nodiscard]] auto into_native() -> expected<owned_native_socket> {
     return socket_.into_native();
   }
 
-  /// @brief 接管显式传入的原生句柄，按平台规则建立资源包装。
+  /** @brief 接管显式传入的原生句柄，按平台规则建立资源包装。 */
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_socket native)
       -> expected<Datagram> {
     if (auto placement = native.validate_import(context); !placement)
@@ -121,6 +134,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     return Datagram{std::move(*socket)};
   }
 
+  /** @brief 将 socket 绑定到给定本地地址。 */
   [[nodiscard]] static auto bind(const Addr& address,
                                  io::io_context context = io::io_context::current())
       -> expected<Datagram> {
@@ -132,11 +146,13 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     return Datagram{std::move(*socket)};
   }
 
+  /** @brief 将 socket 绑定到给定本地地址。 */
   [[nodiscard]] static auto bind(io::io_context context, const Addr& address)
       -> expected<Datagram> {
     return bind(address, std::move(context));
   }
 
+  /** @brief 将 socket 绑定到给定本地地址。 */
   [[nodiscard]] static auto bind(std::span<const Addr> addresses,
                                  io::io_context context = io::io_context::current())
       -> expected<Datagram> {
@@ -150,14 +166,14 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     return std::unexpected{last};
   }
 
+  /** @brief 将 socket 绑定到给定本地地址。 */
   [[nodiscard]] static auto bind(io::io_context context, std::span<const Addr> addresses)
       -> expected<Datagram> {
     return bind(addresses, std::move(context));
   }
 
  private:
-  /** @brief resource 与 callable 拥有型快照允许 task 在包装对象移动之后启动。
-   */
+  /**  @brief resource 与 callable 的拥有型快照使 task 可在包装对象移动后启动。 */
   template <class Result, class F>
   static auto async_io_impl(std::shared_ptr<io::detail::resource_state> resource,
                             io::Interest interest,
@@ -177,12 +193,13 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     }
   }
 
+  /** @brief 持有数据报套接字直至连接完成，再交付结果或错误。 */
   static auto connect_owned(std::shared_ptr<io::detail::resource_state> resource, Addr address)
       -> task<expected<void>> {
     co_return co_await io::connect(std::move(resource), address.sockaddr(), address.length());
   }
 
-  Socket socket_;  ///< 拥有或共享底层 socket 包装，跨挂起保持原生资源身份。
+  Socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
 };
-}
+}  // namespace faio::net::detail
 #endif

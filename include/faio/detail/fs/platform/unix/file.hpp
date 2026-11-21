@@ -1,11 +1,10 @@
 /**
  * @file faio/detail/fs/platform/unix/file.hpp
- * @brief 文件与目录异步接口：异步文件对象。
- * @details 文件操作保持共享资源与游标归属；原生异步路径和阻塞服务路径遵循相同完成契约。关闭与析构清理须等待已经接受的借用操作排空。
+ * @brief 异步文件对象。
  */
 #pragma once
 
-#include "faio/detail/execution/execute.hpp"
+#include "faio/detail/blocking/call.hpp"
 #include "faio/detail/fs/core/file_lease.hpp"
 #include "faio/detail/fs/core/seek_from.hpp"
 #if defined(__linux__)
@@ -14,7 +13,7 @@
 #include "faio/detail/fs/open_options.hpp"
 #include "faio/detail/fs/platform/unix/sync.hpp"
 #include "faio/detail/fs/provider/file_request.hpp"
-#include "faio/detail/io/stream/algorithms.hpp"
+#include "faio/detail/io/base/buffer.hpp"
 #include "faio/detail/sync/mutex.hpp"
 #include <algorithm>
 #include <atomic>
@@ -25,13 +24,21 @@
 #include <mutex>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <utility>
+#include <vector>
 
 namespace faio::fs {
 namespace detail {
+/** @brief 检查字节偏移是否位于平台可表示范围。 */
 inline bool valid_offset(std::uint64_t offset) noexcept {
   return offset <= static_cast<std::uint64_t>(std::numeric_limits<off_t>::max());
 }
 
+/** @brief 在给定字节偏移读取，不修改逻辑游标。 */
 inline expected<std::size_t> positional_read(int fd,
                                              std::span<char> buffer,
                                              std::uint64_t offset) noexcept {
@@ -51,6 +58,7 @@ inline expected<std::size_t> positional_read(int fd,
   return static_cast<std::size_t>(result);
 }
 
+/** @brief 在给定字节偏移写入，不修改逻辑游标。 */
 inline expected<std::size_t> positional_write(int fd,
                                               std::span<const char> buffer,
                                               std::uint64_t offset,
@@ -74,23 +82,25 @@ inline expected<std::size_t> positional_write(int fd,
   return static_cast<std::size_t>(result);
 }
 
-/** @brief 一份单块参数，原生请求和服务调用只构造被选择的一支。 */
+/**  @brief 原生请求与服务调用共用一份单块读写参数，只构造选中的分支。 */
 template <bool Writing>
 struct file_block_operation {
-  std::shared_ptr<file_state> state;  ///< 共享持有操作状态，使异步执行与结果领取期间地址保持稳定。
-  std::span<std::conditional_t<Writing, const char, char>> buffer;  ///< 本次操作借用的数据区，操作安全完成前调用方须保持有效。
-  std::uint64_t offset;  ///< 本次文件操作的字节偏移，定位基准由对应接口约定。
-  bool append{};  ///< 是否采用追加写入语义，区别于指定偏移写入。
+  std::shared_ptr<file_state>
+      state; /**< 共享持有操作状态，保证其在异步执行和领取结果期间地址不变。 */
+  std::span<std::conditional_t<Writing, const char, char>>
+      buffer;           /**< 本次操作借用的数据区，操作安全完成前调用方须保持有效。 */
+  std::uint64_t offset; /**< 本次文件操作的字节偏移，定位基准由对应接口约定。 */
+  bool append{};        /**< 是否采用追加写入语义，区别于指定偏移写入。 */
 
+  /** @brief 返回当前文件请求的操作类型。 */
   static constexpr io::detail::operation_kind kind() noexcept {
     return Writing ? io::detail::operation_kind::write : io::detail::operation_kind::read;
   }
 
-  /// @brief 把紧凑请求物化为完整稳定请求，移动资源租约并初始化冷字段。
+  /** @brief 将紧凑请求展开为完整请求，固定地址、移交资源租约并初始化低频字段。 */
   io::detail::io_request into_request() && {
     io::detail::io_request request;
     request.kind = kind();
-    /// @brief 外层活跃租约保护 fd 和 payload 至真实完成。
     request.fd = state->descriptor.load();
     if constexpr (Writing)
       request.const_buffer = buffer.data();
@@ -101,6 +111,7 @@ struct file_block_operation {
     return request;
   }
 
+  /** @brief 执行当前文件请求的同步回退调用。 */
   expected<std::size_t> operator()() const noexcept {
     if constexpr (Writing)
       return positional_write(state->descriptor, buffer, offset, append);
@@ -109,7 +120,7 @@ struct file_block_operation {
   }
 };
 
-/** @brief 单块直接 awaiter：保留校验，不为结果转换分配子协程帧。 */
+/**  @brief 单块操作的直接等待器，保留参数校验，结果转换无需分配子协程帧。 */
 template <bool Writing>
 inline auto transfer_block(std::shared_ptr<file_state> state,
                            std::span<std::conditional_t<Writing, const char, char>> buffer,
@@ -125,13 +136,14 @@ inline auto transfer_block(std::shared_ptr<file_state> state,
                 file_block_operation<Writing>{std::move(state), buffer, offset, append}};
 }
 
+/** @brief 通过文件请求读取一个有界数据块。 */
 inline auto read_block(std::shared_ptr<file_state> state,
                        std::span<char> buffer,
                        std::uint64_t offset) {
   return transfer_block<false>(std::move(state), buffer, offset);
 }
 
-/** @brief append 使用流式 offset，保持 O_APPEND 的内核追加原子性。 */
+/**  @brief append 使用流式 offset，保留内核通过 O_APPEND 提供的原子追加语义。 */
 inline auto write_block(std::shared_ptr<file_state> state,
                         std::span<const char> buffer,
                         std::uint64_t offset,
@@ -139,6 +151,7 @@ inline auto write_block(std::shared_ptr<file_state> state,
   return transfer_block<true>(std::move(state), buffer, offset, append);
 }
 
+/** @brief 读取文件字节，按需串行推进逻辑游标。 */
 inline task<expected<std::size_t>> read_file(std::shared_ptr<file_state> state,
                                              std::span<char> buffer,
                                              std::optional<std::uint64_t> offset) {
@@ -148,7 +161,6 @@ inline task<expected<std::size_t>> read_file(std::shared_ptr<file_state> state,
   if (offset)
     co_return co_await read_block(state, buffer, *offset);
   try {
-    /// @brief 普通 read/seek 串行管理逻辑位置；read_at 不占用该游标 lane。
     auto guard = co_await state->cursor->lane.scoped_lock();
     auto result = co_await read_block(state, buffer, state->cursor->position);
     if (result)
@@ -161,6 +173,7 @@ inline task<expected<std::size_t>> read_file(std::shared_ptr<file_state> state,
   }
 }
 
+/** @brief 写入文件字节，按需串行推进逻辑游标。 */
 inline task<expected<std::size_t>> write_file(std::shared_ptr<file_state> state,
                                               std::span<const char> buffer,
                                               std::optional<std::uint64_t> offset) {
@@ -185,57 +198,53 @@ inline task<expected<std::size_t>> write_file(std::shared_ptr<file_state> state,
 }
 
 /**
- * @brief 完整组合读写持有游标租约，每个至多64KiB的块单独提交文件provider。
- * @details state在成员函数返回时已复制，移动或析构File不会使延迟task借用this。
- * 同游标的clone、seek和普通读写只能在整个组合结束以后继续；取消错误保留字节进度。
+ * @brief 组合读写全程持有游标租约，将数据按每块至多 2 MiB 单独提交到文件 provider。
+ * @details 成员函数返回时已复制 state，惰性 task 不借用 this，因此移动或析构 File 不会使其失效。
+ * 共享同一游标的 clone、seek 和普通读写须等待整个组合操作结束；取消错误仍保留已完成的字节数。
  */
 template <bool Writing>
-inline task<expected<std::size_t>> transfer_exact(
+inline task<expected<std::conditional_t<Writing, void, std::size_t>>> transfer_exact(
     std::shared_ptr<file_state> state,
     std::span<std::conditional_t<Writing, const char, char>> buffer) {
-  /// @brief close等待整个组合操作，而不是单个块。
   auto lease = file_lease::acquire(state, Writing);
   if (!lease)
     co_return std::unexpected{lease.error()};
-  /// @brief 已完成的进度只由持有游标锁的本协程更新。
   std::size_t total = 0;
   try {
-    /// @brief 跨所有短IO保留游标顺序。
     auto guard = co_await state->cursor->lane.scoped_lock();
     while (total < buffer.size()) {
-      auto block = buffer.subspan(total, std::min<std::size_t>(65536, buffer.size() - total));
+      constexpr std::size_t transfer_chunk_size = 2 * 1024 * 1024;
+      auto block = buffer.subspan(total, std::min(transfer_chunk_size, buffer.size() - total));
       expected<std::size_t> result;
       if constexpr (Writing)
         result = co_await write_block(state, block, state->cursor->position, state->append);
       else
         result = co_await read_block(state, block, state->cursor->position);
-      /// @brief 原生CQE或fallback完成以后才推进游标，worker不阻塞等待磁盘。
       const auto progress = result ? *result : result.error().progress();
-      /// @brief 即使取消晚于syscall，也保留真实游标变化。
       state->cursor->position += progress;
       if (!result)
-        co_return std::unexpected{Error{result.error().value(), total + progress}};
+        co_return std::unexpected{result.error().with_progress(total + progress)};
       if (!*result)
         co_return std::unexpected{Error{Writing ? Error::WriteZero : Error::UnexpectedEOF, total}};
-      /// @brief 允许短IO，下一轮只请求尚未传输的后缀。
       total += *result;
-      /// @brief 长文件复制不能无限占用worker协作预算。
       co_await this_coro::yield_if_needed();
     }
-    co_return total;
+    if constexpr (Writing)
+      co_return expected<void>{};
+    else
+      co_return total;
   } catch (const operation_cancelled&) {
     co_return std::unexpected{Error{ECANCELED, total}};
   }
 }
 
+/** @brief 循环完成文件写入，失败时保存传输进度。 */
 inline task<expected<void>> write_all_file(std::shared_ptr<file_state> state,
                                            std::span<const char> buffer) {
-  auto result = co_await transfer_exact<true>(std::move(state), buffer);
-  if (!result)
-    co_return std::unexpected{result.error()};
-  co_return expected<void>{};
+  return transfer_exact<true>(std::move(state), buffer);
 }
 
+/** @brief 持有文件缓冲区的所有权，直到读取完成。 */
 inline task<expected<io::io_transfer>> read_owned(std::shared_ptr<file_state> state,
                                                   io::io_buffer buffer,
                                                   std::optional<std::uint64_t> offset) {
@@ -246,6 +255,7 @@ inline task<expected<io::io_transfer>> read_owned(std::shared_ptr<file_state> st
   co_return io::io_transfer{std::move(buffer), *result};
 }
 
+/** @brief 接管数据缓冲区，写入完成后返还其所有权和写入进度。 */
 inline task<expected<io::io_transfer>> write_owned(std::shared_ptr<file_state> state,
                                                    io::io_buffer buffer,
                                                    std::optional<std::uint64_t> offset) {
@@ -255,18 +265,20 @@ inline task<expected<io::io_transfer>> write_owned(std::shared_ptr<file_state> s
   co_return io::io_transfer{std::move(buffer), *result};
 }
 
+/** @brief 构造原生或服务回退的文件操作请求。 */
 template <class F>
 auto file_request(std::shared_ptr<file_state> state, F function) -> task<
-    expected<typename execution::detail::unwrap_expected<std::invoke_result_t<F&, int>>::type>> {
+    expected<typename blocking::detail::unwrap_expected<std::invoke_result_t<F&, int>>::type>> {
   auto lease = file_lease::acquire(state);
   if (!lease)
     co_return std::unexpected{lease.error()};
-  co_return co_await execution::execute(state->context,
-                                        [state, function = std::move(function)]() mutable {
-                                          return std::invoke(function, state->descriptor);
-                                        });
+  co_return co_await blocking::call(state->context,
+                                    [state, function = std::move(function)]() mutable {
+                                      return std::invoke(function, state->descriptor);
+                                    });
 }
 
+/** @brief 验证定位结果并串行更新文件逻辑游标。 */
 inline task<expected<std::uint64_t>> seek_file(std::shared_ptr<file_state> state, seek_from from) {
   auto lease = file_lease::acquire(state);
   if (!lease)
@@ -279,7 +291,6 @@ inline task<expected<std::uint64_t>> seek_file(std::shared_ptr<file_state> state
     else if (from.base == seek_from::origin::end) {
 #if defined(__linux__)
       if (io::supports_native(state->context, io::detail::operation_kind::statx)) {
-        /// @brief 当前seek租约已保护fd，无需再次取得File租约或借助文件服务。
         auto attributes = co_await native_metadata_awaiter{
             state->context, state->descriptor.load(), "", AT_EMPTY_PATH};
         if (!attributes)
@@ -289,7 +300,7 @@ inline task<expected<std::uint64_t>> seek_file(std::shared_ptr<file_state> state
 #endif
       {
         auto metadata =
-            co_await execution::execute(state->context, [state]() -> expected<std::uint64_t> {
+            co_await blocking::call(state->context, [state]() -> expected<std::uint64_t> {
               struct stat attributes;
               if (::fstat(state->descriptor, &attributes))
                 return std::unexpected{make_error(errno)};
@@ -313,8 +324,9 @@ inline task<expected<std::uint64_t>> seek_file(std::shared_ptr<file_state> state
   }
 }
 
-/** @brief 在一次File租约内读取并投影属性；原生STATX不经过文件服务。
- * @param projection 在CQE或fstat完成后转换拥有型属性，例如权限或完整快照。
+/**
+ *  @brief 在一个 File 租约内读取属性并提取所需结果；原生 STATX 不经过文件服务。
+ * @param projection 在 CQE 或 fstat 完成后转换独立持有的属性，例如权限或完整快照。
  */
 template <class F>
 task<expected<std::invoke_result_t<F&, const Metadata&>>> file_stat(
@@ -332,7 +344,7 @@ task<expected<std::invoke_result_t<F&, const Metadata&>>> file_stat(
     co_return std::invoke(projection, *attributes);
   }
 #endif
-  co_return co_await execution::execute(
+  co_return co_await blocking::call(
       state->context, [state, projection = std::move(projection)]() mutable -> expected<Result> {
         struct stat attributes{};
         if (::fstat(state->descriptor, &attributes))
@@ -341,7 +353,7 @@ task<expected<std::invoke_result_t<F&, const Metadata&>>> file_stat(
       });
 }
 
-/** @brief 原生FTRUNCATE或有界fallback，活跃写租约覆盖实际完成。 */
+/**  @brief 使用原生 FTRUNCATE 或有界回退调用，活跃写租约持续到操作实际完成。 */
 inline task<expected<void>> truncate_file(std::shared_ptr<file_state> state, std::uint64_t length) {
   auto lease = file_lease::acquire(state, true);
   if (!lease)
@@ -363,6 +375,7 @@ inline task<expected<void>> truncate_file(std::shared_ptr<file_state> state, std
   co_return expected<void>{};
 }
 
+/** @brief 等待所需文件操作后同步文件数据或元数据。 */
 inline task<expected<void>> sync_file(std::shared_ptr<file_state> state,
                                       bool data_only,
                                       bool flush_only = false) {
@@ -372,7 +385,6 @@ inline task<expected<void>> sync_file(std::shared_ptr<file_state> state,
   active_file_operations::snapshot_type writes;
   {
     std::lock_guard lock(state->mutex);
-    /// @brief 屏障只等待调用前已经登记的写入；后来提交的写入不改变快照。
     writes = state->active.capture(true);
   }
   for (const auto& write : writes)
@@ -382,7 +394,6 @@ inline task<expected<void>> sync_file(std::shared_ptr<file_state> state,
   io::detail::io_request request;
   request.kind = io::detail::operation_kind::fsync;
   request.fd = state->descriptor.load();
-  /// @brief 中立FDATASYNC位与uring FSYNC_DATASYNC对应。
   request.flags = data_only ? 1 : 0;
   auto synced = co_await execute_file_request(
       state->context, std::move(request), [state, data_only]() -> expected<void> {
@@ -393,6 +404,7 @@ inline task<expected<void>> sync_file(std::shared_ptr<file_state> state,
   co_return expected<void>{};
 }
 
+/** @brief 停止接纳文件操作并等待已接受请求安全完成。 */
 inline task<expected<void>> close_file(std::shared_ptr<file_state> state) {
   if (!state)
     co_return expected<void>{};
@@ -413,18 +425,15 @@ inline task<expected<void>> close_file(std::shared_ptr<file_state> state) {
       co_return std::unexpected{*state->close_error};
     co_return expected<void>{};
   }
-  /// @brief completion_event 不可取消：close 必须把已接受借用 IO 安全排空。
   for (const auto& operation : pending)
     co_await operation->completion.wait();
   state->context.unregister_shutdown_cleanup(state->shutdown_registration);
-  /// @brief 唯一接管点，析构和停机不能重复关闭。
   const int fd = state->descriptor.exchange(-1);
   expected<void> result;
   if (fd >= 0) {
     io::detail::io_request request;
     request.kind = io::detail::operation_kind::close;
     request.fd = fd;
-    /// @brief 已接受close不可被父stop取消，等待真正CQE或清理服务完成。
     auto closed = co_await execute_file_request(
         state->context,
         std::move(request),
@@ -444,41 +453,49 @@ inline task<expected<void>> close_file(std::shared_ptr<file_state> state) {
   co_return result;
 }
 
+/** @brief 复制 iovec 描述表，数据缓冲区仍由调用方持有。 */
 inline expected<std::vector<iovec>> copy_vectors(std::span<const iovec> input);
 
+/** @brief 执行文件的分散聚集读写并维护游标及操作租约。 */
 inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> state,
                                                  expected<std::vector<iovec>> vectors,
                                                  std::optional<std::uint64_t> offset,
                                                  bool write);
-}
+}  // namespace detail
 
-/** @brief
- * POSIX文件的异步拥有者；原生Proactor执行磁盘opcode，否则走隔离文件服务。
+/**
+ *  @brief
+ * 持有 POSIX 文件的异步对象；原生 Proactor 使用磁盘操作码，否则交由独立的文件服务执行。
  * @details 普通 read/write/seek 使用共享的逻辑游标。read_at/write_at 不改变
  * 逻辑游标，可以并行。移动对象不影响已开始的操作。析构异步清理，不隐式 fsync。
  */
 class File {
  public:
+  /** @brief 构造未打开的空文件对象。 */
   File() = default;
 
+  /** @brief 保存文件的共享状态与关闭责任。 */
   explicit File(std::shared_ptr<detail::file_state> state) noexcept : state_(std::move(state)) {}
 
+  /** @brief 保存文件的共享状态与关闭责任。 */
   File(File&&) noexcept = default;
 
+  /** @brief 转移文件资源和状态的所有权。 */
   File& operator=(File&&) noexcept = default;
 
+  /** @brief 禁止复制此对象。 */
   File(const File&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   File& operator=(const File&) = delete;
 
+  /** @brief 按打开选项异步打开文件，并关联 I/O 上下文。 */
   static task<expected<File>> open(io::io_context context, path filename, OpenOptions options) {
     auto flags = options.flags();
     if (!flags)
       co_return std::unexpected{flags.error()};
     if (!io::supports_native(context, io::detail::operation_kind::open)) {
-      /// @brief fallback直接交付拥有型File；若execute在完成仲裁时取消，结果析构仍负责close。
-      /// 不能只返回裸fd整数，否则“open成功但取消先赢”会丢失新fd的关闭责任。
-      co_return co_await execution::execute(
+      co_return co_await blocking::call(
           context,
           [context, filename = std::move(filename), options, flags = *flags]() -> expected<File> {
             int fd;
@@ -491,7 +508,6 @@ class File {
             try {
               auto state =
                   std::make_shared<detail::file_state>(context, fd, options.append_enabled());
-              /// @brief 控制块接管以后异常路径不能再次close。
               fd = -1;
               detail::register_file_shutdown(state);
               return File{std::move(state)};
@@ -505,7 +521,6 @@ class File {
     io::detail::io_request request;
     request.kind = io::detail::operation_kind::open;
     request.fd = AT_FDCWD;
-    /// @brief 原生请求拥有路径，SQE不能指向临时字符串。
     request.path = filename.native();
     request.flags = *flags;
     request.argument = static_cast<int>(options.permissions().bits());
@@ -516,7 +531,6 @@ class File {
     try {
       auto state =
           std::make_shared<detail::file_state>(context, descriptor, options.append_enabled());
-      /// @brief 控制块已接管fd，异常路径不能再次close。
       descriptor = -1;
       detail::register_file_shutdown(state);
       co_return File{std::move(state)};
@@ -533,103 +547,117 @@ class File {
     }
   }
 
+  /** @brief 按打开选项异步打开文件，并关联 I/O 上下文。 */
   static auto open(io::io_context context, path filename) {
     return open(std::move(context), std::move(filename), OpenOptions{}.read());
   }
 
+  /** @brief 按打开选项异步打开文件，并关联 I/O 上下文。 */
   static auto open(path filename, OpenOptions options = OpenOptions{}.read()) {
     return open(io::io_context::current(), std::move(filename), options);
   }
 
+  /** @brief 以可写、创建和截断模式打开文件。 */
   static auto create(io::io_context context, path filename) {
     return open(std::move(context), std::move(filename), OpenOptions{}.write().create().truncate());
   }
 
+  /** @brief 以可写、创建和截断模式打开文件。 */
   static auto create(path filename) {
     return create(io::io_context::current(), std::move(filename));
   }
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 读取文件字节；缓冲区非空时，返回零表示 EOF。 */
   auto read(std::span<char> bytes) { return detail::read_file(state_, bytes, std::nullopt); }
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 读取文件字节；缓冲区非空时，返回零表示 EOF。 */
   auto read(io::borrowed_buffer bytes) { return read(bytes.bytes); }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 写入文件字节并返回本次实际写入数量。 */
   auto write(std::span<const char> bytes) {
     return detail::write_file(state_, bytes, std::nullopt);
   }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 写入文件字节并返回本次实际写入数量。 */
   auto write(io::borrowed_const_buffer bytes) { return write(bytes.bytes); }
 
-  /// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+  /** @brief 读取文件字节；缓冲区非空时，返回零表示 EOF。 */
   auto read(io::io_buffer bytes) {
     return detail::read_owned(state_, std::move(bytes), std::nullopt);
   }
 
-  /// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+  /** @brief 写入文件字节并返回本次实际写入数量。 */
   auto write(io::io_buffer bytes) {
     return detail::write_owned(state_, std::move(bytes), std::nullopt);
   }
 
+  /** @brief 在给定字节偏移读取文件，不改变逻辑游标。 */
   auto read_at(std::span<char> bytes, std::uint64_t offset) {
     return detail::read_file(state_, bytes, offset);
   }
 
+  /** @brief 在给定字节偏移写入文件，不改变逻辑游标。 */
   auto write_at(std::span<const char> bytes, std::uint64_t offset) {
     return detail::write_file(state_, bytes, offset);
   }
 
+  /** @brief 在给定字节偏移读取文件，不改变逻辑游标。 */
   auto read_at(io::io_buffer bytes, std::uint64_t offset) {
     return detail::read_owned(state_, std::move(bytes), offset);
   }
 
+  /** @brief 在给定字节偏移写入文件，不改变逻辑游标。 */
   auto write_at(io::io_buffer bytes, std::uint64_t offset) {
     return detail::write_owned(state_, std::move(bytes), offset);
   }
 
-  /** @brief 散布读取；iovec数组复制到请求，指向内存必须覆盖操作排空。 */
+  /**  @brief 分散读取，将 iovec 数组复制到请求中；所指内存须在操作排空前保持有效。 */
   auto read_vectored(std::span<const iovec> vectors) {
     return detail::vectored_file(state_, detail::copy_vectors(vectors), {}, false);
   }
 
-  /// @brief 发起聚集写入，按实际完成字节数解释短写。
+  /** @brief 发起聚集写入，按实际完成字节数解释短写。 */
   auto write_vectored(std::span<const iovec> vectors) {
     return detail::vectored_file(state_, detail::copy_vectors(vectors), {}, true);
   }
 
+  /** @brief 在给定字节偏移散布读取，不改变逻辑游标。 */
   auto read_vectored_at(std::span<const iovec> vectors, std::uint64_t offset) {
     return detail::vectored_file(state_, detail::copy_vectors(vectors), offset, false);
   }
 
+  /** @brief 在给定字节偏移聚集写入，不改变逻辑游标。 */
   auto write_vectored_at(std::span<const iovec> vectors, std::uint64_t offset) {
     return detail::vectored_file(state_, detail::copy_vectors(vectors), offset, true);
   }
 
-  /// @brief 按给定定位基准与偏移更新文件逻辑游标。
+  /** @brief 按给定定位基准与偏移更新文件逻辑游标。 */
   auto seek(seek_from from) { return detail::seek_file(state_, from); }
 
-  /// @brief 按给定定位基准与偏移更新文件逻辑游标。
+  /** @brief 按给定定位基准与偏移更新文件逻辑游标。 */
   auto seek(std::uint64_t offset) { return seek(seek_from::start(offset)); }
 
-  /// @brief 循环读取直到缓冲区填满、EOF 或失败，失败保留已经取得的进度。
+  /** @brief 读满缓冲区；提前遇到 EOF 或失败时，报告已读字节数。 */
   auto read_exact(std::span<char> bytes) { return detail::transfer_exact<false>(state_, bytes); }
 
-  /// @brief 循环写入直到全部负载完成或失败，组合期间保持方向预留。
+  /** @brief 循环写入全部字节，失败时报告传输进度。 */
   auto write_all(std::span<const char> bytes) { return detail::write_all_file(state_, bytes); }
 
+  /** @brief 取得文件或目录项的元数据快照。 */
   auto metadata() {
     return detail::file_stat(state_, [](const Metadata& attributes) { return attributes; });
   }
 
+  /** @brief 异步查询打开文件的权限。 */
   auto permissions() {
     return detail::file_stat(state_,
                              [](const Metadata& attributes) { return attributes.permissions(); });
   }
 
+  /** @brief 设置文件字节长度，扩展或截断内容。 */
   auto set_len(std::uint64_t size) { return detail::truncate_file(state_, size); }
 
+  /** @brief 设置目标文件的权限。 */
   auto set_permissions(Permissions permissions) {
     return detail::file_request(state_, [permissions](int fd) -> expected<void> {
       if (::fchmod(fd, static_cast<mode_t>(permissions.bits())))
@@ -638,17 +666,19 @@ class File {
     });
   }
 
+  /** @brief 等待已接受写操作并同步文件数据。 */
   auto sync_data() { return detail::sync_file(state_, true); }
 
+  /** @brief 等待已接受写操作并同步文件数据和元数据。 */
   auto sync_all() { return detail::sync_file(state_, false); }
 
-  /** @brief 无用户缓冲；等待之前写入完成，flush 本身不要求持久化。 */
+  /**  @brief 不借用用户缓冲区，等待此前的写入完成；flush 本身不保证持久化。 */
   auto flush() { return detail::sync_file(state_, false, true); }
 
-  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
+  /** @brief 停止接纳文件操作，等待在途操作后关闭句柄。 */
   auto close() { return detail::close_file(state_); }
 
-  /** @brief dup 复制 handle，同时共享 faio 逻辑游标；不宣称独立 OS 游标。 */
+  /**  @brief 通过 dup 复制句柄，并共享 faio 逻辑游标；不保证操作系统游标相互独立。 */
   auto try_clone() {
     auto state = state_;
     return detail::file_request(state, [state](int fd) -> expected<File> {
@@ -669,19 +699,20 @@ class File {
     });
   }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不在此接口转移关闭责任。 */
   [[nodiscard]] int native_handle() const noexcept {
     return state_ ? state_->descriptor.load() : -1;
   }
 
-  /// @brief 取得当前对象关联的 IO 上下文租约。
+  /** @brief 取得当前对象关联的 IO 上下文租约。 */
   [[nodiscard]] io::io_context context() const {
     return state_ ? state_->context : io::io_context{};
   }
 
  private:
-  std::shared_ptr<detail::file_state> state_;  ///< 共享持有操作状态，使异步执行与结果领取期间地址保持稳定。
+  std::shared_ptr<detail::file_state>
+      state_; /**< 共享持有操作状态，保证其在异步执行和领取结果期间地址不变。 */
 };
-}
+}  // namespace faio::fs
 
 #include "faio/detail/fs/provider/vectored.hpp"

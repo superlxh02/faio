@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/common/util/rand.hpp
- * @brief 公共类型、错误与基础工具：线程随机数。
- * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ * @brief 线程局部伪随机数生成器。
  */
 #ifndef FAIO_DETAIL_COMMON_UTIL_RAND_HPP
 #define FAIO_DETAIL_COMMON_UTIL_RAND_HPP
@@ -9,20 +8,24 @@
 #include <random>
 
 namespace faio::util {
+/** @brief 线程局部快速伪随机数生成器。 */
 class FastRand {
  public:
+  /** @brief 初始化线程局部伪随机数生成器。 */
   FastRand() {
     std::random_device dev;
     one_ = static_cast<uint32_t>(dev());
     two_ = static_cast<uint32_t>(dev());
   }
 
+  /** @brief 生成指定范围内的伪随机数。 */
   auto fastrand_n(uint32_t n) -> uint32_t {
     auto expected = static_cast<uint64_t>(fastrand()) * static_cast<uint64_t>(n);
     return static_cast<uint32_t>(expected >> 32);
   }
 
  private:
+  /** @brief 生成快速伪随机数。 */
   auto fastrand() -> uint32_t {
     auto s1 = one_;
     auto s0 = two_;
@@ -34,8 +37,8 @@ class FastRand {
   }
 
  private:
-  uint32_t one_;  ///< 快速伪随机数生成器的第一组内部状态。
-  uint32_t two_;  ///< 快速伪随机数生成器的第二组内部状态。
+  uint32_t one_; /**< 生成器的第一组内部状态。 */
+  uint32_t two_; /**< 生成器的第二组内部状态。 */
 };
-}
+}  // namespace faio::util
 #endif

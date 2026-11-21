@@ -1,14 +1,12 @@
 <#
 .SYNOPSIS
-以 dot-source 方式导入 MSVC/Clang/MinGW 编译环境，仅修改当前 PowerShell 进程。
+通过 dot-source 配置当前 PowerShell 进程的 MSVC、Clang 或 MinGW 环境。
 #>
 [CmdletBinding()]
 param([ValidateSet('msvc','clang','mingw')][string]$Compiler = 'msvc',
       [string]$DependencyRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) '..\faio-deps'))
 $ErrorActionPreference = 'Stop'
 $DependencyRoot = [IO.Path]::GetFullPath($DependencyRoot)
-# MSVC 中文语言包的 /showIncludes 输出必须和 Ninja 的依赖前缀使用相同 UTF-8。
-# 只有 VSLANG 不能切换未安装的英文资源；同时设置当前控制台和 PowerShell 编码。
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -37,6 +35,5 @@ if ($Compiler -ne 'mingw') {
     if (-not (Test-Path -LiteralPath "$mingwBin\g++.exe")) { throw 'Run bootstrap_windows.ps1 to unpack MinGW first' }
     $env:PATH = "$mingwBin;$env:PATH"
 }
-# 已安装的 rustup/rustc 保持原位置，新下载的 crates 和 registry 统一存到 E 盘工作区。
 $env:CARGO_HOME = Join-Path $DependencyRoot 'cargo'
 Write-Host "Initialized $Compiler; dependency cache: $DependencyRoot"

@@ -1,49 +1,51 @@
 /**
  * @file faio/detail/io/awaiter/cancel.hpp
- * @brief 跨平台异步 IO：按代际取消操作。
- * @details 构造阶段只保存参数，真正准备与提交发生在挂起阶段。借用负载与输出存储须保持到安全完成，立即完成和跨线程完成通过统一握手避免重复恢复。
+ * @brief 按代际取消操作。
  */
 #pragma once
 #include "faio/detail/io/awaiter/request.hpp"
-#include <cstring>
-#include <fcntl.h>
+#include <utility>
 
 namespace faio::io::detail {
-/** @brief Cancel 请求；0/ALL(1)/FD(2)/ALL|FD(3) 兼容本资源的统一取消语义。
- * @details 控制成功不表示 original CQE 已消费；数据缓冲区必须等原请求
- * await_resume 后才可复用。 FD_FIXED/ANY 等需要额外原生身份的匹配选项明确返回
- * ENOTSUP。 参数由稳定 operation_state 保存，挂起前没有内核副作用。
+/**
+ * @brief Cancel 请求；0、ALL(1)、FD(2) 和 ALL|FD(3) 均遵循本资源的统一取消语义。
+ * @details 控制请求成功不表示原 CQE 已消费；原请求 await_resume 后才可复用数据缓冲区。
+ * FD_FIXED、ANY 等需要额外原生身份的匹配选项返回 ENOTSUP。
+ * 参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。
  */
 class Cancel : public IORegistrantAwaiter<Cancel> {
-  using Base = IORegistrantAwaiter<Cancel>;  ///< 统一注册等待器基类，复用提交、取消与完成握手。
+  using Base = IORegistrantAwaiter<Cancel>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
+  /** @brief 构造 I/O 取消等待器。 */
   Cancel(native_descriptor fd, unsigned flags)
       : Base{[&] {
-          /// @brief 构造具有确定默认状态的请求描述，随后只设置当前操作真正需要的参数。
           io_request r;
-          /// @brief 固定本次操作种类，域与后端据此选择对应的方向执行权及原生提交路径。
           r.kind = operation_kind::cancel;
-          /// @brief 保存完整宽度的原生句柄；构造阶段不登记句柄或发起系统调用。
           r.fd = fd;
-          /// @brief 保留调用方原生操作标志，平台层对不能等价实现的标志明确拒绝。
           r.flags = static_cast<int>(flags);
-          /// @brief 按值交出完整初始化的请求参数；真正取得稳定操作槽与提交 IO 仍发生在 await_suspend。
           return r;
         }()} {}
 
+  /** @brief 构造 I/O 取消等待器。 */
   Cancel(resource_ptr resource, unsigned flags) : Cancel{resource ? resource->fd() : -1, flags} {
-    /// @brief 保留共享资源租约，使挂起、取消与完成期间的句柄身份和域归属稳定。
     this->request_.resource = std::move(resource);
   }
 
-  /// @brief 在完成交接后领取结果，按该接口约定传播失败或取消。
+  /** @brief 取得异步操作结果。 */
   auto await_resume() const noexcept -> expected<void> {
-    /// @brief 统一完成结果为负时按实际错误域解码，同时保留请求已经完成的字节进度。
     if (this->_user_data.result < 0)
       return std::unexpected{decode_io_error(static_cast<int>(-this->_user_data.result),
                                              this->_user_data.transferred)};
     return {};
   }
 };
+}  // namespace faio::io::detail
+
+namespace faio::io {
+/**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
+template <class F>
+inline auto cancel(F fd, unsigned flags = 0) {
+  return detail::Cancel{std::move(fd), flags};
 }
+}  // namespace faio::io

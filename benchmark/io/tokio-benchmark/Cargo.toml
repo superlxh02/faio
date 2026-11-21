@@ -1,0 +1,12 @@
+[package]
+name = "tokio-io-cpu-comparison"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "=1.49.0", features = ["rt-multi-thread", "fs", "io-util"] }
+
+[profile.release]
+opt-level = 2
+lto = false
+codegen-units = 1

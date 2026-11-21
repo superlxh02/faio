@@ -1,7 +1,7 @@
 /**
  * @file faio/detail/io.hpp
- * @brief faio 公共接口：IO 模块入口。
- * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ * @brief IO 模块入口。
  */
 #pragma once
-#include "faio/io.hpp"
+#include "faio/detail/io/io.hpp"
+#include "faio/detail/io/stream/operation_options.hpp"

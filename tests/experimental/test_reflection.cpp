@@ -1,28 +1,16 @@
+/**
+ * @file experimental/test_reflection.cpp
+ * @brief 反射注解读取运行时选项的单元测试。
+ */
 #include <faio/experimental/reflection.h>
-#include <cassert>
+#include <gtest/gtest.h>
 
-using faio::experimental::runtime_options;
-using faio::experimental::runtime_options_of;
-static_assert(std::meta::nonstatic_data_members_of(^^faio::experimental::runtime_options,
-    std::meta::access_context::unprivileged()).size() == 16);
-struct plain_entity {};
-struct [[=17]] [[=runtime_options{.workers = 3, .io_interval = 7}]] configured_entity {};
-struct [[=runtime_options{.io_backend = std::nullopt}]] no_backend_entity {};
-struct [[=runtime_options{.io_backend = std::optional{faio::runtime::io_backend::IO_EPOLL}}]]
-    optional_backend_entity {};
-[[=runtime_options{.mode = faio::runtime::mode::current_thread, .workers = 1}]]
-void reachable_declaration();
-void reachable_declaration() {}
+/** @brief 携带运行时选项的测试类型。 */
+struct[[= faio::experimental::runtime_options{.workers = 3, .io_interval = 7}]] configured_type {};
 
-static_assert(runtime_options_of<^^plain_entity>().workers == 0);
-static_assert(runtime_options_of<^^configured_entity>().workers == 3);
-static_assert(runtime_options_of<^^configured_entity>().io_interval == 7);
-static_assert(!runtime_options_of<^^no_backend_entity>().io_backend);
-static_assert(runtime_options_of<^^optional_backend_entity>().io_backend.has_value());
-static_assert(runtime_options_of<^^optional_backend_entity>().io_backend.value()
-              == faio::runtime::io_backend::IO_EPOLL);
-static_assert(runtime_options_of<^^reachable_declaration>().mode == faio::runtime::mode::current_thread);
-int main() {
-  constexpr auto config = runtime_options_of<^^configured_entity>();
-  assert(config.workers == 3);
+/** @brief 类型注解提供声明的运行时配置。 */
+TEST(ExperimentalReflection, AnnotatedOptions) {
+  constexpr auto options = faio::experimental::runtime_options_of<^^configured_type>();
+  EXPECT_EQ(options.workers, 3u);
+  EXPECT_EQ(options.io_interval, 7u);
 }

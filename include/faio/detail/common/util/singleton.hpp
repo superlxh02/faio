@@ -1,24 +1,27 @@
 /**
  * @file faio/detail/common/util/singleton.hpp
- * @brief 公共类型、错误与基础工具：单实例工具。
- * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ * @brief 单例访问工具。
  */
 #ifndef FAIO_DETAIL_COMMON_UTIL_SINGLETON_HPP
 #define FAIO_DETAIL_COMMON_UTIL_SINGLETON_HPP
 
 namespace faio::util {
+/** @brief 单例对象访问器。 */
 template <typename T>
 class Singleton {
+  /** @brief 禁止创建单例访问器实例。 */
   Singleton() = delete;
 
+  /** @brief 禁止销毁单例访问器实例。 */
   ~Singleton() = delete;
 
  public:
+  /** @brief 取得单例对象。 */
   [[nodiscard]]
   static auto instance() -> T& {
     static T instance;
     return instance;
   }
 };
-}
+}  // namespace faio::util
 #endif

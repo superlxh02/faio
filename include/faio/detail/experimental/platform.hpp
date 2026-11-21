@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/experimental/platform.hpp
- * @brief 实验性的入口注解与发送器接收器适配：实验功能平台检查。
- * @details 实验适配在编译期开关下启用，连接阶段建立稳定操作状态；启动、结果交付与关闭沿受控任务图的租约和排空协议推进。
+ * @brief 实验功能平台检查。
  */
 #ifndef FAIO_DETAIL_EXPERIMENTAL_PLATFORM_HPP
 #define FAIO_DETAIL_EXPERIMENTAL_PLATFORM_HPP

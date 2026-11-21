@@ -1,15 +1,14 @@
 /**
  * @file faio/detail/fs/platform/linux/statx.hpp
- * @brief 文件与目录异步接口：Linux 元数据转换。
- * @details 文件操作保持共享资源与游标归属；原生异步路径和阻塞服务路径遵循相同完成契约。关闭与析构清理须等待已经接受的借用操作排空。
+ * @brief Linux 元数据转换。
  */
 #pragma once
-/** @brief 已完成 STATX 输出到 POSIX 属性快照的纯转换。 */
 #include <linux/stat.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 
 namespace faio::fs::detail {
+/** @brief 将 statx 属性转换为统一的 stat 快照。 */
 inline struct stat stat_from_statx(const struct statx& value) noexcept {
   struct stat result{};
   result.st_dev = ::makedev(value.stx_dev_major, value.stx_dev_minor);
@@ -30,4 +29,4 @@ inline struct stat stat_from_statx(const struct statx& value) noexcept {
                     static_cast<long>(value.stx_ctime.tv_nsec)};
   return result;
 }
-}
+}  // namespace faio::fs::detail

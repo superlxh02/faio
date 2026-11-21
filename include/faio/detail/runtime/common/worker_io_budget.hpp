@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/runtime/common/worker_io_budget.hpp
- * @brief 运行时调度、线程协调与定时驱动：工作线程 IO 延迟预算。
- * @details 运行时按所属线程区分私有状态与跨线程发布状态。任务接纳先登记完成责任，关闭先停止接纳再排空；休眠登记后复查工作以避免丢失唤醒。
+ * @brief 工作线程 IO 延迟预算。
  */
 #ifndef FAIO_DETAIL_RUNTIME_COMMON_WORKER_IO_BUDGET_HPP
 #define FAIO_DETAIL_RUNTIME_COMMON_WORKER_IO_BUDGET_HPP
@@ -11,35 +10,32 @@
 
 namespace faio::runtime::detail {
 /**
- * @brief worker 恢复边界的 IO 时间预算；空闲驱动保留最近真实计时驱动的旧锚点。
- * @details 时间锚点只能建立在真正 drive 开始以前，不能把稍后的 execute 时间
- *          冒充先前 poll 时刻。旧锚点不晚于后续空闲驱动，只会更早触发预算。
+ * @brief 工作线程恢复协程时使用的 I/O 时间预算；空闲驱动保留最近一次实际计时驱动的时间基准。
+ * @details 时间基准必须记录在实际 drive 开始前，不能用之后的 execute 时刻代替先前的 poll 时刻。
+ *          旧基准不晚于后续空闲驱动，因此只会让预算更早耗尽。
  *          回调均为静态模板调用，不拥有后端或计时器，
  *          不增加函数指针、分配、业务计数或线程。字段仅由所属 worker 访问。
  */
 class worker_io_budget {
  public:
-  using clock_type = std::chrono::steady_clock;  ///< 预算计时使用的单调时钟类型，不受系统时间校准影响。
-  using time_point = clock_type::time_point;  ///< 单调时钟的绝对时间点类型。
-  using duration = clock_type::duration;  ///< 单调时钟的时间跨度类型。
+  using clock_type =
+      std::chrono::steady_clock; /**< 预算计时使用的单调时钟类型，不受系统时间校准影响。 */
+  using time_point = clock_type::time_point; /**< 单调时钟的绝对时间点类型。 */
+  using duration = clock_type::duration;     /**< 单调时钟的时间跨度类型。 */
 
-  /// @brief 初始锚点由构造 worker 的调用方提供，不在空轮询中读取时钟。
+  /** @brief 初始锚点由构造 worker 的调用方提供，不在空轮询中读取时钟。 */
   explicit worker_io_budget(time_point initial) noexcept : last_drive_(initial) {}
 
-  /** @brief 空闲域驱动仍真正执行；不读时钟也绝不前移最近真实计时锚点。 */
+  /**  @brief 空闲时仍实际驱动域，但不读取时钟，也不前移最近一次计时驱动的时间基准。 */
   template <class Drive>
   decltype(auto) drive_without_anchor(Drive&& drive) {
-    /// @brief 旧时间点早于本次调用，不会低估 elapsed；下一恢复边界仍检查原时间预算。
-    /// @brief 直接执行原驱动，不缓存/延迟真实 IO 工作。
     return std::forward<Drive>(drive)();
   }
 
-  /** @brief 周期驱动先读取时间建立锚点，再立即执行原驱动；保留原 tick 语义。 */
+  /**  @brief 周期驱动先读取时间建立锚点，再立即执行原驱动；保留原 tick 语义。 */
   template <class Clock, class Drive>
   decltype(auto) drive_with_anchor(Clock&& clock, Drive&& drive) {
-    /// @brief 必须在原 drive 开始以前采样。
     last_drive_ = std::forward<Clock>(clock)();
-    /// @brief 结果原样交回 worker 的批次/睡眠协议。
     return std::forward<Drive>(drive)();
   }
 
@@ -47,26 +43,21 @@ class worker_io_budget {
    * @brief 每次选中任务时与保留的旧锚点比较，达到预算才真正驱动。
    * @return true 表示已经驱动，worker 必须随后重查 shutdown 再执行选中任务。
    * @details local 和 steal 使用同一入口。now 与真实 drive 在同一调用中衔接，
-   *          长 drive 的耗时仍算入下一恢复边界预算，不会被结束时刻隐去。
+   *          耗时较长的 drive 仍计入下一次恢复时的预算，不会因改用结束时刻而被忽略。
    */
   template <class Clock, class Drive>
   bool refresh_before_execute(duration maximum_delay, Clock&& clock, Drive&& drive) {
-    /// @brief 持续就绪仍逐恢复检查 elapsed。
     const auto now = std::forward<Clock>(clock)();
-    /// @brief 旧锚点预算尚未耗尽，idle→active 不增加强制轮询。
     if (now - last_drive_ < maximum_delay)
       return false;
-    /// @brief 先记 drive 开始边界，禁止事后以 execute 时刻前移它。
     last_drive_ = now;
-    /// @brief 原 worker::drive_io_impl，仍中断 fast-chain 并发布完成。
     std::forward<Drive>(drive)();
-    /// @brief 调用方现在重查关闭；不在此恢复或拥有 coroutine_handle。
     return true;
   }
 
  private:
-  time_point last_drive_;  ///< 最近一次带锚点驱动开始的保守时间。
+  time_point last_drive_; /**< 最近一次带锚点驱动开始的保守时间。 */
 };
-}
+}  // namespace faio::runtime::detail
 
 #endif

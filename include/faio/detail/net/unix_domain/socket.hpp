@@ -1,11 +1,11 @@
 /**
  * @file faio/detail/net/unix_domain/socket.hpp
- * @brief 网络地址、socket 与传输协议：socket 资源封装。
- * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ * @brief 套接字资源封装。
  */
 #ifndef FAIO_DETAIL_NET_UNIX_DOMAIN_SOCKET_HPP
 #define FAIO_DETAIL_NET_UNIX_DOMAIN_SOCKET_HPP
 #include "faio/detail/net/socket_options.hpp"
+#include "faio/detail/io/awaiter/connect.hpp"
 #include "faio/detail/net/base/listener.hpp"
 #include "faio/detail/net/base/stream.hpp"
 #include "faio/detail/net/base/halves.hpp"
@@ -17,23 +17,34 @@ namespace faio::net::unix::detail {
 using Socket = ::faio::net::detail::Socket;
 using owned_native_socket = ::faio::net::detail::owned_native_socket;
 
-/** @brief 对端身份，macOS 的 pid 不由 getpeereid 提供，因此为 nullopt。 */
+/**  @brief 对端身份，macOS 的 pid 不由 getpeereid 提供，因此为 nullopt。 */
 struct PeerCredentials {
-  std::uint32_t uid{};  ///< Unix 对端用户身份编号。
-  std::uint32_t gid{};  ///< Unix 对端用户组身份编号。
-  std::optional<std::int64_t> pid;  ///< 平台可提供时记录的 Unix 对端进程编号。
+  std::uint32_t uid{};             /**< Unix 对端用户身份编号。 */
+  std::uint32_t gid{};             /**< Unix 对端用户组身份编号。 */
+  std::optional<std::int64_t> pid; /**< 平台可提供时记录的 Unix 对端进程编号。 */
 };
 
+/** @brief Unix 域字节流，提供异步读写及读写半部拆分。 */
 class UnixStream : public ::faio::net::detail::BaseStream<UnixStream, UnixAddr>,
                    public ::faio::net::detail::ImplSocketOptions<UnixStream> {
  public:
-  using ReadHalf = ::faio::net::detail::BasicReadHalf<UnixStream, UnixAddr, false>;  ///< 借用式读半部类型，底层流须覆盖借用期。
-  using WriteHalf = ::faio::net::detail::BasicWriteHalf<UnixStream, UnixAddr, false>;  ///< 借用式写半部类型，底层流须覆盖借用期。
-  using OwnedReadHalf = ::faio::net::detail::BasicReadHalf<UnixStream, UnixAddr, true>;  ///< 持有资源租约的拥有式读半部类型。
-  using OwnedWriteHalf = ::faio::net::detail::BasicWriteHalf<UnixStream, UnixAddr, true>;  ///< 持有资源租约的拥有式写半部类型。
+  using ReadHalf = ::faio::net::detail::BasicReadHalf<
+      UnixStream,
+      UnixAddr,
+      false>; /**< 借用式读半部类型，底层流须在整个借用期内存活。 */
+  using WriteHalf = ::faio::net::detail::BasicWriteHalf<
+      UnixStream,
+      UnixAddr,
+      false>; /**< 借用式写半部类型，底层流须在整个借用期内存活。 */
+  using OwnedReadHalf = ::faio::net::detail::
+      BasicReadHalf<UnixStream, UnixAddr, true>; /**< 持有资源租约的拥有式读半部类型。 */
+  using OwnedWriteHalf = ::faio::net::detail::
+      BasicWriteHalf<UnixStream, UnixAddr, true>; /**< 持有资源租约的拥有式写半部类型。 */
 
+  /** @brief 接管源对象的状态和资源租约。 */
   explicit UnixStream(Socket&& socket) : BaseStream{std::move(socket)} {}
 
+  /** @brief 创建共享同一底层连接的读半部和写半部。 */
   [[nodiscard]] auto split() & -> std::pair<ReadHalf, WriteHalf> {
     auto identity = std::make_shared<char>();
     return {std::piecewise_construct,
@@ -41,6 +52,7 @@ class UnixStream : public ::faio::net::detail::BaseStream<UnixStream, UnixAddr>,
             std::forward_as_tuple(share_socket(), identity)};
   }
 
+  /** @brief 转移当前流的所有权，创建可独立移动的拥有型读写半部。 */
   [[nodiscard]] auto into_split() && -> std::pair<OwnedReadHalf, OwnedWriteHalf> {
     auto identity = std::make_shared<char>();
     Socket first = take_socket();
@@ -50,7 +62,7 @@ class UnixStream : public ::faio::net::detail::BaseStream<UnixStream, UnixAddr>,
             std::forward_as_tuple(std::move(second), identity)};
   }
 
-  /** @brief 创建非阻塞全双工 socketpair，失败时两个原生 fd 都由 RAII 归还。 */
+  /**  @brief 创建非阻塞全双工 socketpair，失败时两个原生 fd 都由 RAII 归还。 */
   [[nodiscard]] static auto pair(io::io_context context = io::io_context::current())
       -> expected<std::pair<UnixStream, UnixStream>> {
     int descriptors[2];
@@ -72,7 +84,7 @@ class UnixStream : public ::faio::net::detail::BaseStream<UnixStream, UnixAddr>,
     return std::pair{UnixStream{std::move(*a)}, UnixStream{std::move(*b)}};
   }
 
-  /** @brief 查询已连接 Unix socket 对端的内核身份信息。 */
+  /**  @brief 查询已连接 Unix socket 对端的内核身份信息。 */
   [[nodiscard]] auto peer_credentials() const noexcept -> expected<PeerCredentials> {
     return io::detail::with_resource(
         resource(), io::Interest::none, [&]() -> expected<PeerCredentials> {
@@ -81,24 +93,27 @@ class UnixStream : public ::faio::net::detail::BaseStream<UnixStream, UnixAddr>,
   }
 };
 
-/** @brief Unix 监听器。pathname 的删除责任属于调用者，避免意外删除已复用路径。
- */
+/**  @brief Unix 监听器。pathname 的删除责任属于调用者，避免意外删除已复用路径。 */
 class UnixListener : public ::faio::net::detail::BaseListener<UnixListener, UnixStream, UnixAddr> {
  public:
+  /** @brief 接管源对象的状态和资源租约。 */
   explicit UnixListener(Socket&& socket) : BaseListener{std::move(socket)} {}
 };
 
-/** @brief Unix 消息型 socket，支持无名 socketpair 与消息/辅助数据接口。 */
+/**  @brief Unix 消息型 socket，支持无名 socketpair，以及消息与辅助数据接口。 */
 class UnixDatagram : public ::faio::net::detail::BaseDatagram<UnixDatagram, UnixAddr>,
                      public ::faio::net::detail::ImplSocketOptions<UnixDatagram> {
  public:
+  /** @brief 接管源对象的状态和资源租约。 */
   explicit UnixDatagram(Socket&& socket) : BaseDatagram{std::move(socket)} {}
 
+  /** @brief 创建未绑定的数据报 socket 并关联指定 IO 上下文。 */
   [[nodiscard]] static auto unbound(io::io_context context = io::io_context::current())
       -> expected<UnixDatagram> {
     return Socket::create<UnixDatagram>(AF_UNIX, SOCK_DGRAM, 0, std::move(context));
   }
 
+  /** @brief 创建一对已互联的 Unix 数据报 socket。 */
   [[nodiscard]] static auto pair(io::io_context context = io::io_context::current())
       -> expected<std::pair<UnixDatagram, UnixDatagram>> {
     int descriptors[2];
@@ -121,21 +136,27 @@ class UnixDatagram : public ::faio::net::detail::BaseDatagram<UnixDatagram, Unix
   }
 };
 
-/** @brief 配置后转换成 Unix stream/listener/datagram 的独占 socket。 */
+/**  @brief 可先配置，再转换为 Unix stream/listener/datagram 的独占 socket。 */
 class UnixSocket : public ::faio::net::detail::ImplSocketOptions<UnixSocket>,
                    public ::faio::net::detail::ImplLocalAddr<UnixSocket, UnixAddr> {
  public:
+  /** @brief 接管源对象的状态和资源租约。 */
   explicit UnixSocket(Socket&& socket, bool datagram = false)
       : socket_{std::move(socket)}, datagram_{datagram} {}
 
+  /** @brief 接管源对象的状态和资源租约。 */
   UnixSocket(UnixSocket&&) noexcept = default;
 
+  /** @brief 移动赋值资源及状态。 */
   UnixSocket& operator=(UnixSocket&&) noexcept = default;
 
+  /** @brief 禁止复制此对象。 */
   UnixSocket(const UnixSocket&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   UnixSocket& operator=(const UnixSocket&) = delete;
 
+  /** @brief 创建未连接的 Unix 字节流 socket。 */
   [[nodiscard]] static auto stream(io::io_context context = io::io_context::current())
       -> expected<UnixSocket> {
     auto socket = Socket::create(AF_UNIX, SOCK_STREAM, 0, std::move(context));
@@ -144,6 +165,7 @@ class UnixSocket : public ::faio::net::detail::ImplSocketOptions<UnixSocket>,
     return UnixSocket{std::move(*socket)};
   }
 
+  /** @brief 创建未绑定的 Unix 数据报 socket。 */
   [[nodiscard]] static auto datagram(io::io_context context = io::io_context::current())
       -> expected<UnixSocket> {
     auto socket = Socket::create(AF_UNIX, SOCK_DGRAM, 0, std::move(context));
@@ -152,19 +174,21 @@ class UnixSocket : public ::faio::net::detail::ImplSocketOptions<UnixSocket>,
     return UnixSocket{std::move(*socket), true};
   }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> int { return socket_.fd(); }
 
-  /// @brief 取得底层共享资源控制块，以保持句柄身份与所属域。
+  /** @brief 取得底层共享资源控制块，保持句柄身份及所属域有效。 */
   [[nodiscard]] auto resource() const noexcept { return socket_.resource(); }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto as_native_handle() const noexcept -> int { return fd(); }
 
+  /** @brief 将 socket 绑定到给定本地地址。 */
   [[nodiscard]] auto bind(const UnixAddr& address) -> expected<void> {
     return socket_.bind(address);
   }
 
+  /** @brief 进入监听状态并设置待接纳连接队列上限。 */
   [[nodiscard]] auto listen(int backlog = SOMAXCONN) && -> expected<UnixListener> {
     if (datagram_)
       return std::unexpected{make_error(Error::InvalidSocketType)};
@@ -173,26 +197,27 @@ class UnixSocket : public ::faio::net::detail::ImplSocketOptions<UnixSocket>,
     return UnixListener{std::move(socket_)};
   }
 
+  /** @brief 连接到指定对端，返回连接结果。 */
   auto connect(UnixAddr address) && -> task<expected<UnixStream>> {
     return connect_owned(std::move(socket_), std::move(address), datagram_);
   }
 
+  /** @brief 转移 socket 的所有权并转换为数据报接口。 */
   [[nodiscard]] auto into_datagram() && -> expected<UnixDatagram> {
     if (!datagram_)
       return std::unexpected{make_error(Error::InvalidSocketType)};
     return UnixDatagram{std::move(socket_)};
   }
 
-  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
+  /** @brief 异步关闭共享套接字，等待在途操作安全结束。 */
   auto close() noexcept { return socket_.close(); }
 
-  /// @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。
+  /** @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。 */
   [[nodiscard]] auto into_native() -> expected<owned_native_socket> {
     return socket_.into_native();
   }
 
-  /** @brief 接管 Unix stream/datagram fd，验证地址族和socket类型以后注册资源。
-   */
+  /**  @brief 接管 Unix stream/datagram fd，验证地址族和 socket 类型以后注册资源。 */
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_socket native)
       -> expected<UnixSocket> {
     int type{};
@@ -217,6 +242,7 @@ class UnixSocket : public ::faio::net::detail::ImplSocketOptions<UnixSocket>,
   }
 
  private:
+  /** @brief 持有 socket 直至连接完成，再交付连接流或错误。 */
   static auto connect_owned(Socket socket, UnixAddr address, bool datagram)
       -> task<expected<UnixStream>> {
     if (datagram)
@@ -227,9 +253,9 @@ class UnixSocket : public ::faio::net::detail::ImplSocketOptions<UnixSocket>,
     co_return UnixStream{std::move(socket)};
   }
 
-  Socket socket_;  ///< 拥有或共享底层 socket 包装，跨挂起保持原生资源身份。
-  bool datagram_{};  ///< 是否采用数据报语义，零长度请求不能按流式无操作处理。
+  Socket socket_;   /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
+  bool datagram_{}; /**< 是否采用数据报语义，零长度请求不能按流式无操作处理。 */
 };
-}
+}  // namespace faio::net::unix::detail
 
 #endif

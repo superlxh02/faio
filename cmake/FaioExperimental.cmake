@@ -1,8 +1,10 @@
+#[[
+@file cmake/FaioExperimental.cmake
+@brief 实验性组件的构建与安装目标。
+]]
 include_guard(GLOBAL)
 
-# The experimental development image supplies defaults through ENV, including
-# for IDE-created containers which do not use our presets. Cache values, -D
-# options and presets still take precedence; ordinary environments stay OFF.
+#[[ @brief 读取环境配置或指定默认值。 ]]
 function(_faio_experimental_env_default output name fallback)
     set(_faio_default "${fallback}")
     if(DEFINED ENV{${name}} AND NOT "$ENV{${name}}" STREQUAL "")
@@ -53,6 +55,13 @@ if(FAIO_EXPERIMENTAL_REFLECTION)
     target_compile_options(faio_experimental_reflection INTERFACE -freflection)
     target_compile_definitions(faio_experimental_reflection INTERFACE FAIO_EXPERIMENTAL_HAS_REFLECTION=1)
     list(APPEND _faio_experimental_targets faio_experimental_reflection)
+
+    add_library(faio_experimental_lifecycle INTERFACE)
+    add_library(faio::experimental_lifecycle ALIAS faio_experimental_lifecycle)
+    set_target_properties(faio_experimental_lifecycle PROPERTIES EXPORT_NAME experimental_lifecycle)
+    target_link_libraries(faio_experimental_lifecycle INTERFACE faio::experimental_reflection)
+    target_compile_definitions(faio_experimental_lifecycle INTERFACE FAIO_EXPERIMENTAL_TASK_LIFECYCLE=1)
+    list(APPEND _faio_experimental_targets faio_experimental_lifecycle)
 endif()
 
 if(FAIO_EXPERIMENTAL_EXECUTION)

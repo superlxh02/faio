@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" role="img" aria-labelledby="ioTitle ioDesc" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <title id="ioTitle">一次异步 I/O 的提交与完成</title>
+  <desc id="ioDesc">协程 co_await 经提交端固化为稳定操作槽，io_domain 向平台后端提交；原生 Proactor 直接完成，Reactor 经就绪到 syscall 补上完成；终态发布后恢复等待的协程。</desc>
+
+  <defs>
+    <linearGradient id="ioBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/><stop offset="1" stop-color="#edf1f8"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4f6ef7"/><stop offset="1" stop-color="#7090ff"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0e9f8a"/><stop offset="1" stop-color="#2fc1a6"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e5861f"/><stop offset="1" stop-color="#f4ad4e"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6f52ea"/><stop offset="1" stop-color="#9579ff"/>
+    </linearGradient>
+    <marker id="ia" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#94a0b8"/>
+    </marker>
+    <filter id="ish" x="-10%" y="-10%" width="120%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#1a2540" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="1000" height="440" rx="18" fill="url(#ioBg)"/>
+
+  <!-- 顶部流程 -->
+  <g text-anchor="middle" font-size="13.5" fill="#ffffff">
+    <rect x="40" y="40" width="196" height="70" rx="11" fill="url(#blue)" filter="url(#ish)"/>
+    <text x="138" y="70" font-weight="700">协程 co_await</text>
+    <text x="138" y="90" font-size="11.5" fill="#e6ecff">发起异步 I/O</text>
+
+    <rect x="300" y="40" width="210" height="70" rx="11" fill="url(#teal)" filter="url(#ish)"/>
+    <text x="405" y="70" font-weight="700">提交端</text>
+    <text x="405" y="90" font-size="11.5" fill="#d8f6ee">参数固化为稳定槽</text>
+
+    <rect x="574" y="40" width="220" height="70" rx="11" fill="url(#violet)" filter="url(#ish)"/>
+    <text x="684" y="70" font-weight="700">io_domain 提交</text>
+    <text x="684" y="90" font-size="11.5" fill="#ece5ff">登记操作与完成目标</text>
+
+    <rect x="858" y="40" width="102" height="70" rx="11" fill="url(#amber)" filter="url(#ish)"/>
+    <text x="909" y="70" font-weight="700">后端</text>
+    <text x="909" y="90" font-size="11.5" fill="#fff0da">执行</text>
+  </g>
+  <path d="M236 75 L296 75" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+  <path d="M510 75 L570 75" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+  <path d="M794 75 L854 75" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+
+  <!-- 分叉 -->
+  <path d="M909 110 L909 148" stroke="#94a0b8" stroke-width="2"/>
+  <path d="M300 148 L900 148" stroke="#94a0b8" stroke-width="2"/>
+  <path d="M300 148 L300 176" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+  <path d="M900 148 L900 176" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+
+  <!-- 两条完成路径 -->
+  <g text-anchor="middle" font-size="13.5" fill="#ffffff">
+    <rect x="160" y="180" width="280" height="76" rx="11" fill="url(#amber)" filter="url(#ish)"/>
+    <text x="300" y="208" font-weight="700">原生 Proactor</text>
+    <text x="300" y="228" font-size="11.5" fill="#fff0da">io_uring · IOCP</text>
+    <text x="300" y="246" font-size="11.5" fill="#fff0da">内核直接给出完成事件</text>
+
+    <rect x="760" y="180" width="280" height="76" rx="11" fill="url(#amber)" filter="url(#ish)"/>
+    <text x="900" y="208" font-weight="700">Reactor 转异步</text>
+    <text x="900" y="228" font-size="11.5" fill="#fff0da">epoll · kqueue</text>
+    <text x="900" y="246" font-size="11.5" fill="#fff0da">就绪 → syscall → 完成</text>
+  </g>
+
+  <!-- 汇合 -->
+  <path d="M300 256 L300 300" stroke="#94a0b8" stroke-width="2"/>
+  <path d="M900 256 L900 300" stroke="#94a0b8" stroke-width="2"/>
+  <path d="M300 300 L900 300" stroke="#94a0b8" stroke-width="2"/>
+  <path d="M600 300 L600 330" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+
+  <g text-anchor="middle" font-size="13.5" fill="#ffffff">
+    <rect x="410" y="334" width="380" height="62" rx="11" fill="url(#teal)" filter="url(#ish)"/>
+    <text x="600" y="360" font-weight="700">发布终态 · expected&lt;T&gt; / 错误 / 取消</text>
+    <text x="600" y="380" font-size="11.5" fill="#d8f6ee">取消、关闭与停机由同一完成端仲裁</text>
+  </g>
+
+  <path d="M600 396 L600 416" stroke="#94a0b8" stroke-width="2" marker-end="url(#ia)"/>
+  <text x="600" y="432" font-size="12.5" fill="#33406b" text-anchor="middle" font-weight="700">恢复等待中的协程，从 co_await 处继续</text>
+</svg>

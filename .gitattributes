@@ -1,6 +1,3 @@
-# WSL 直接由 bash 读取此脚本；Windows core.autocrlf=true 时仍须保留 LF。
-scripts/validate_wsl_linux.sh text eol=lf
-
 # 项目 CMake 配置统一 LF，避免 Windows checkout 引入混合换行及无意义格式差异。
 CMakeLists.txt text eol=lf
 CMakePresets.json text eol=lf
@@ -17,14 +14,14 @@ cmake/*.cmake.in text eol=lf
 *.hpp text eol=lf
 *.hh text eol=lf
 *.hxx text eol=lf
+*.md text eol=lf
 
 # 历史 benchmark 的源码快照及原始数据是测量证据，保留原始字节，不自动转换换行。
 benchmark/result/** -text
-# Preserve the existing installed-header validator's CRLF without treating its
-# carriage return as trailing whitespace in reviews.
-scripts/check_installed_headers.py whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+开发过程文档/** -text
 
-# Linux Docker bootstrap commands must remain executable after Windows checkout.
+# Docker构建文件与引导脚本使用LF。
+Dockerfile text eol=lf
 docker/*.sh text eol=lf
 docker/*.dockerfile text eol=lf
 docker/*.sha256 text eol=lf

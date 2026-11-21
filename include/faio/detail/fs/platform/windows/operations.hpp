@@ -4,13 +4,15 @@
  * @brief Windows 路径 API、递归目录操作和文件组合接口。
  */
 #include "faio/detail/fs/platform/windows/directory_cursor.hpp"
+#include "faio/detail/io/stream/algorithms.hpp"
 #include "faio/detail/fs/platform/windows/file.hpp"
 #include "faio/detail/fs/core/remove_options.hpp"
 #include <stop_token>
 
 namespace faio::fs {
 namespace detail {
-/** @brief 统一路径控制句柄；BACKUP_SEMANTICS 同时支持文件与目录。
+/**
+ *  @brief 路径控制操作共用的句柄；BACKUP_SEMANTICS 同时支持文件与目录。
  * @param follow false 表示操作重解析点本身，防止删除越过链接边界。
  */
 inline expected<io::windows::owned_file_handle> open_path_handle(
@@ -31,34 +33,37 @@ inline expected<io::windows::owned_file_handle> open_path_handle(
   return handle;
 }
 
-/** @brief 已有路径的元数据查询；不跟随模式检查符号链接/挂载点自身。 */
+/**  @brief 查询已有路径的元数据；不跟随链接时，检查符号链接或挂载点本身。 */
 inline auto metadata_path(io::io_context context, path filename, bool follow) {
-  return execution::execute(
-      std::move(context), [filename = std::move(filename), follow]() -> expected<Metadata> {
-        auto handle = open_path_handle(filename, FILE_READ_ATTRIBUTES, follow);
-        if (!handle)
-          return std::unexpected{handle.error()};
-        return metadata_handle(handle->get());
-      });
+  return blocking::call(std::move(context),
+                        [filename = std::move(filename), follow]() -> expected<Metadata> {
+                          auto handle = open_path_handle(filename, FILE_READ_ATTRIBUTES, follow);
+                          if (!handle)
+                            return std::unexpected{handle.error()};
+                          return metadata_handle(handle->get());
+                        });
 }
 
+/** @brief 判断文件系统错误是否表示目标不存在。 */
 inline bool missing(const Error& error) noexcept {
   return error.domain() == error_domain::win32
          && (error.value() == ERROR_FILE_NOT_FOUND || error.value() == ERROR_PATH_NOT_FOUND);
 }
-}
+}  // namespace detail
 
+/** @brief 取得文件或目录项的元数据快照。 */
 inline auto metadata(io::io_context context, path filename) {
   return detail::metadata_path(std::move(context), std::move(filename), true);
 }
 
+/** @brief 取得链接自身的元数据，不跟随最终符号链接。 */
 inline auto symlink_metadata(io::io_context context, path filename) {
   return detail::metadata_path(std::move(context), std::move(filename), false);
 }
 
-/** @brief 仅设置 FILE_ATTRIBUTE_READONLY，保留 ACL、其它属性和时间戳。 */
+/**  @brief 仅设置 FILE_ATTRIBUTE_READONLY，保留 ACL、其它属性和时间戳。 */
 inline auto set_permissions(io::io_context context, path filename, Permissions permissions) {
-  return execution::execute(
+  return blocking::call(
       std::move(context), [filename = std::move(filename), permissions]() -> expected<void> {
         auto handle =
             detail::open_path_handle(filename, FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES);
@@ -68,37 +73,36 @@ inline auto set_permissions(io::io_context context, path filename, Permissions p
       });
 }
 
-/** @brief 返回句柄解析后的最终绝对路径，保留 UTF-16 与长路径支持。 */
+/**  @brief 返回句柄解析后的最终绝对路径，保留 UTF-16 与长路径支持。 */
 inline auto canonicalize(io::io_context context, path filename) {
-  return execution::execute(
-      std::move(context), [filename = std::move(filename)]() -> expected<path> {
-        auto handle = detail::open_path_handle(filename);
-        if (!handle)
-          return std::unexpected{handle.error()};
-        DWORD required = ::GetFinalPathNameByHandleW(
-            handle->get(), nullptr, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
-        if (!required)
-          return std::unexpected{io::windows::make_windows_error(::GetLastError())};
-        std::wstring final_path(static_cast<std::size_t>(required) + 1, L'\0');
-        for (;;) {
-          const DWORD count = ::GetFinalPathNameByHandleW(handle->get(),
-                                                          final_path.data(),
-                                                          static_cast<DWORD>(final_path.size()),
-                                                          FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
-          if (!count)
-            return std::unexpected{io::windows::make_windows_error(::GetLastError())};
-          if (count < final_path.size()) {
-            final_path.resize(count);
-            return path{std::move(final_path)};
-          }
-          final_path.resize(static_cast<std::size_t>(count) + 1);
-        }
-      });
+  return blocking::call(std::move(context), [filename = std::move(filename)]() -> expected<path> {
+    auto handle = detail::open_path_handle(filename);
+    if (!handle)
+      return std::unexpected{handle.error()};
+    DWORD required = ::GetFinalPathNameByHandleW(
+        handle->get(), nullptr, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!required)
+      return std::unexpected{io::windows::make_windows_error(::GetLastError())};
+    std::wstring final_path(static_cast<std::size_t>(required) + 1, L'\0');
+    for (;;) {
+      const DWORD count = ::GetFinalPathNameByHandleW(handle->get(),
+                                                      final_path.data(),
+                                                      static_cast<DWORD>(final_path.size()),
+                                                      FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+      if (!count)
+        return std::unexpected{io::windows::make_windows_error(::GetLastError())};
+      if (count < final_path.size()) {
+        final_path.resize(count);
+        return path{std::move(final_path)};
+      }
+      final_path.resize(static_cast<std::size_t>(count) + 1);
+    }
+  });
 }
 
-/** @brief 同卷重命名并替换已有文件；跨卷返回 OS 错误而不隐式复制。 */
+/**  @brief 在同一卷内重命名并替换已有文件；跨卷时返回操作系统错误，不隐式复制。 */
 inline auto rename(io::io_context context, path source, path destination) {
-  return execution::execute(
+  return blocking::call(
       std::move(context),
       [source = std::move(source), destination = std::move(destination)]() -> expected<void> {
         auto from = detail::native_path(source), to = detail::native_path(destination);
@@ -112,9 +116,9 @@ inline auto rename(io::io_context context, path source, path destination) {
       });
 }
 
-/** @brief 删除文件或目录链接自身；普通目录由 remove_dir 专门处理。 */
+/**  @brief 删除文件或目录链接自身；普通目录由 remove_dir 专门处理。 */
 inline task<expected<void>> remove_file(io::io_context context, path filename) {
-  auto result = co_await execution::execute(
+  auto result = co_await blocking::call(
       std::move(context), [filename = std::move(filename)]() -> expected<std::int64_t> {
         auto name = detail::native_path(filename);
         if (!name)
@@ -122,14 +126,12 @@ inline task<expected<void>> remove_file(io::io_context context, path filename) {
         const DWORD attributes = ::GetFileAttributesW(name->c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES)
           return std::unexpected{io::windows::make_windows_error(::GetLastError())};
-        /// @brief Windows 目录链接必须用 RemoveDirectory，普通目录不得被 remove_file 删除。
         const bool directory_link =
             (attributes & FILE_ATTRIBUTE_DIRECTORY) && (attributes & FILE_ATTRIBUTE_REPARSE_POINT);
         if ((attributes & FILE_ATTRIBUTE_DIRECTORY) && !directory_link)
           return std::unexpected{make_error(EISDIR)};
         if (!(directory_link ? ::RemoveDirectoryW(name->c_str()) : ::DeleteFileW(name->c_str())))
           return std::unexpected{io::windows::make_windows_error(::GetLastError())};
-        /// @brief 取消仲裁仍保留已经删除一项的副作用。
         return std::int64_t{1};
       });
   if (!result)
@@ -137,9 +139,9 @@ inline task<expected<void>> remove_file(io::io_context context, path filename) {
   co_return expected<void>{};
 }
 
-/** @brief 创建硬链接；原生错误包括跨卷、目标已存在和文件系统不支持。 */
+/**  @brief 创建硬链接；原生错误包括跨卷、目标已存在和文件系统不支持。 */
 inline auto hard_link(io::io_context context, path source, path destination) {
-  return execution::execute(
+  return blocking::call(
       std::move(context),
       [source = std::move(source), destination = std::move(destination)]() -> expected<void> {
         auto from = detail::native_path(source), to = detail::native_path(destination);
@@ -153,12 +155,13 @@ inline auto hard_link(io::io_context context, path source, path destination) {
       });
 }
 
-/** @brief 创建文件/目录符号链接，保持相对 target 的原始表示。
+/**
+ *  @brief 创建文件或目录符号链接，保留相对 target 的原始表示。
  * @details 支持 Developer Mode 的免提权标志；旧系统仅在不支持标志时重试。
  *          本 API 根据现存目标类型选择目录标志，悬空目标按文件链接处理。
  */
 inline auto symlink(io::io_context context, path source, path destination) {
-  return execution::execute(
+  return blocking::call(
       std::move(context),
       [source = std::move(source), destination = std::move(destination)]() -> expected<void> {
         auto to = detail::native_path(destination);
@@ -188,11 +191,11 @@ inline auto symlink(io::io_context context, path source, path destination) {
       });
 }
 
-/** @brief 创建单层目录；权限参数只影响本次新建对象的只读位。 */
+/**  @brief 创建单层目录；权限参数只影响本次新建对象的只读位。 */
 inline auto create_dir(io::io_context context,
                        path filename,
                        Permissions permissions = Permissions{std::filesystem::perms::all}) {
-  return execution::execute(
+  return blocking::call(
       std::move(context), [filename = std::move(filename), permissions]() -> expected<void> {
         auto name = detail::native_path(filename);
         if (!name)
@@ -207,7 +210,7 @@ inline auto create_dir(io::io_context context,
       });
 }
 
-/** @brief 逐层建立，已有目录仅验证类型，不改写其权限或 ACL。 */
+/**  @brief 逐层建立，已有目录仅验证类型，不改写其权限或 ACL。 */
 inline task<expected<void>> create_dir_all(io::io_context context,
                                            path filename,
                                            Permissions permissions = Permissions{
@@ -238,46 +241,47 @@ inline task<expected<void>> create_dir_all(io::io_context context,
   co_return expected<void>{};
 }
 
-/** @brief 删除空目录或目录链接自身，非空目录保留并返回原生错误。 */
+/**  @brief 删除空目录或目录链接自身，非空目录保留并返回原生错误。 */
 inline auto remove_dir(io::io_context context, path filename) {
-  return execution::execute(
-      std::move(context), [filename = std::move(filename)]() -> expected<void> {
-        auto name = detail::native_path(filename);
-        if (!name)
-          return std::unexpected{name.error()};
-        if (!::RemoveDirectoryW(name->c_str()))
-          return std::unexpected{io::windows::make_windows_error(::GetLastError())};
-        return {};
-      });
+  return blocking::call(std::move(context), [filename = std::move(filename)]() -> expected<void> {
+    auto name = detail::native_path(filename);
+    if (!name)
+      return std::unexpected{name.error()};
+    if (!::RemoveDirectoryW(name->c_str()))
+      return std::unexpected{io::windows::make_windows_error(::GetLastError())};
+    return {};
+  });
 }
 
 namespace detail {
-/** @brief 句柄相对后序 DFS；所有 reparse point 仅删除自身，绝不进入其目标。 */
+/**  @brief 相对于句柄进行后序深度优先遍历；所有重解析点均只删除自身，不进入其目标。 */
 struct remove_tree_state {
+  /** @brief 递归目录遍历中持有单级目录及处理进度的栈帧。 */
   struct frame {
-    std::shared_ptr<native_directory_cursor> cursor;  ///< 共享文件位置或目录枚举游标，按具体平台实现推进。
-    std::size_t bytes;  ///< 当前批次或帧占用的字节数。
+    std::shared_ptr<native_directory_cursor>
+        cursor;        /**< 共享文件位置或目录枚举游标，由对应的平台实现推进。 */
+    std::size_t bytes; /**< 当前批次或帧占用的字节数。 */
   };
 
-  io::io_context context;  ///< 持有所属 IO 上下文租约，用于资源归属、服务选择与安全排空。
-  path root;  ///< 递归文件操作的根路径副本。
-  recursive_remove_options options;  ///< 当前文件操作的选项副本。
-  std::vector<frame> stack;  ///< 递归删除的显式遍历栈，避免递归调用栈随目录深度增长。
-  std::size_t state_bytes{};  ///< 当前遍历状态占用的字节数，用于执行内存预算。
-  bool initialized{},  ///< 遍历或批次状态是否已完成首次初始化。
-      done{};  ///< 操作是否已结束，后续推进据此直接返回。
+  io::io_context context; /**< 持有所属 I/O 上下文租约，用于确定资源归属、选择服务并安全排空。 */
+  path root;              /**< 递归文件操作的根路径副本。 */
+  recursive_remove_options options; /**< 当前文件操作的选项副本。 */
+  std::vector<frame> stack;         /**< 递归删除的显式遍历栈，避免递归调用栈随目录深度增长。 */
+  std::size_t state_bytes{};        /**< 当前遍历状态占用的字节数，用于检查内存预算。 */
+  bool initialized{}, done{};       /**< 操作是否已结束，后续推进据此直接返回。 */
 
+  /** @brief 保存递归删除的路径、资源预算和 I/O 上下文。 */
   remove_tree_state(io::io_context owner, path name, recursive_remove_options limits)
       : context(std::move(owner)),
         root(std::move(name)),
         options(limits),
         state_bytes(root.native().size() * sizeof(wchar_t)) {}
 
-  /** @brief 一个服务任务最多处理 batch_size 步；错误附带本批真实删除条数。 */
+  /**  @brief 单个服务任务最多处理 batch_size 步；出错时附带本批实际删除的条目数。 */
   expected<std::uint64_t> advance(std::stop_token stop) {
     std::uint64_t removed = 0;
     auto failure = [&](const Error& error) -> expected<std::uint64_t> {
-      return std::unexpected{Error{error.value(), removed + error.progress(), error.domain()}};
+      return std::unexpected{error.with_progress(removed + error.progress())};
     };
     for (std::size_t step = 0; step < options.batch_size && !done; ++step) {
       if (stop.stop_requested() || context.stopped())
@@ -317,7 +321,6 @@ struct remove_tree_state {
         state_bytes += bytes;
         continue;
       }
-      /// @brief 共享租约不借用可能被 push_back 移动的 frame。
       auto current = stack.back().cursor;
       auto entry = current->take();
       if (!entry)
@@ -329,13 +332,11 @@ struct remove_tree_state {
         continue;
       }
       if (!*entry) {
-        /// @brief 子项全删后标记当前目录。
         auto result = delete_handle(current->handle.get());
         if (!result)
           return failure(result.error());
         state_bytes -= stack.back().bytes;
         stack.pop_back();
-        /// @brief 同一服务线程及时完成删除，无 worker 阻塞。
         ::CloseHandle(current->release());
         ++removed;
         if (stack.empty())
@@ -346,7 +347,6 @@ struct remove_tree_state {
       auto child = open_relative(
           current->handle.get(), item.name, DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES);
       if (!child) {
-        /// @brief 外部已删除的条目不计入本调用进度。
         if (missing(child.error()))
           continue;
         return failure(child.error());
@@ -354,7 +354,6 @@ struct remove_tree_state {
       const auto attributes = metadata_handle(child->get());
       if (!attributes)
         return failure(attributes.error());
-      /// @brief 所有重解析点均不遍历，包括云文件/其它 tag，安全性不依赖枚举提示。
       FILE_ATTRIBUTE_TAG_INFO tag{};
       if (!::GetFileInformationByHandleEx(child->get(), FileAttributeTagInfo, &tag, sizeof(tag)))
         return failure(io::windows::make_windows_error(::GetLastError()));
@@ -378,9 +377,9 @@ struct remove_tree_state {
     return removed;
   }
 };
-}
+}  // namespace detail
 
-/** @brief 有界递归删除；取消/异常会通过各游标的保留清理通道关闭剩余 HANDLE。 */
+/**  @brief 按资源上限递归删除；取消或异常退出时，通过各游标保留的清理通道关闭剩余 HANDLE。 */
 inline task<expected<std::uint64_t>> remove_dir_all(io::io_context context,
                                                     path filename,
                                                     recursive_remove_options options = {}) {
@@ -392,22 +391,19 @@ inline task<expected<std::uint64_t>> remove_dir_all(io::io_context context,
   std::uint64_t total = 0;
   try {
     while (!state->done) {
-      auto count =
-          co_await execution::execute(context, [state, stop] { return state->advance(stop); });
+      auto count = co_await blocking::call(context, [state, stop] { return state->advance(stop); });
       if (!count)
-        co_return std::unexpected{
-            Error{count.error().value(), total + count.error().progress(), count.error().domain()}};
+        co_return std::unexpected{count.error().with_progress(total + count.error().progress())};
       total += *count;
       co_await this_coro::yield_if_needed();
     }
   } catch (const operation_cancelled&) {
-    /// @brief 协作 yield 取消也保留之前所有删除进度。
     co_return std::unexpected{Error{ECANCELED, total}};
   }
   co_return total;
 }
 
-/** @brief 有界块复制；每块让出协作预算，并保留失败前写入的字节进度。 */
+/**  @brief 按有界数据块复制，每块交还协作预算；失败时保留已写入的字节数。 */
 inline task<expected<std::uint64_t>> copy(io::io_context context, path source, path destination) {
   auto input = co_await File::open(context, std::move(source));
   if (!input)
@@ -417,7 +413,6 @@ inline task<expected<std::uint64_t>> copy(io::io_context context, path source, p
     co_return std::unexpected{source_metadata.error()};
   if (!source_metadata->is_file())
     co_return std::unexpected{make_error(EINVAL)};
-  /// @brief 先打开而不截断，使用持有fd的inode身份识别同路径、硬链接和符号链接自复制。
   auto output =
       co_await File::open(context, std::move(destination), OpenOptions{}.write().create());
   if (!output)
@@ -435,19 +430,17 @@ inline task<expected<std::uint64_t>> copy(io::io_context context, path source, p
     co_return std::unexpected{transferred.error()};
   auto permissions = co_await output->set_permissions(source_metadata->permissions());
   if (!permissions)
-    co_return std::unexpected{
-        Error{permissions.error().value(), *transferred, permissions.error().domain()}};
+    co_return std::unexpected{permissions.error().with_progress(*transferred)};
   auto closed = co_await output->close();
   if (!closed)
-    co_return std::unexpected{Error{closed.error().value(), *transferred, closed.error().domain()}};
+    co_return std::unexpected{closed.error().with_progress(*transferred)};
   auto input_closed = co_await input->close();
   if (!input_closed)
-    co_return std::unexpected{
-        Error{input_closed.error().value(), *transferred, input_closed.error().domain()}};
+    co_return std::unexpected{input_closed.error().with_progress(*transferred)};
   co_return transferred;
 }
 
-/** @brief 读完整文件；max_bytes 限制应用内存，不在一次 job 内分配任意大小。 */
+/** @brief 将完整文件读入自有缓冲区，并检查字节上限。 */
 inline task<expected<std::vector<char>>> read(io::io_context context,
                                               path filename,
                                               std::size_t max_bytes = 256 * 1024 * 1024) {
@@ -458,7 +451,6 @@ inline task<expected<std::vector<char>>> read(io::io_context context,
   auto count = co_await io::read_to_end(*input, result, max_bytes);
   if (!count)
     co_return std::unexpected{count.error()};
-  /// @brief 达到限制时探测一个字节，避免把截断的文件冒充完整结果。
   if (*count == max_bytes) {
     std::array<char, 1> probe;
     auto tail = co_await input->read(probe);
@@ -470,7 +462,7 @@ inline task<expected<std::vector<char>>> read(io::io_context context,
   co_return result;
 }
 
-/// @brief 读取字节并追加到字符串，按已完成的字节进度传播错误。
+/** @brief 读取字节并追加到字符串，按已完成的字节进度传播错误。 */
 inline task<expected<std::string>> read_to_string(io::io_context context,
                                                   path filename,
                                                   std::size_t max_bytes = 256 * 1024 * 1024) {
@@ -480,7 +472,7 @@ inline task<expected<std::string>> read_to_string(io::io_context context,
   co_return std::string(contents->begin(), contents->end());
 }
 
-/** @brief 借用写入，等待关闭后才返回；输入必须覆盖整个等待期间。 */
+/** @brief 创建或截断文件后写入全部内容。 */
 inline task<expected<void>> write(io::io_context context,
                                   path filename,
                                   std::span<const char> contents) {
@@ -493,113 +485,128 @@ inline task<expected<void>> write(io::io_context context,
   co_return co_await output->close();
 }
 
-/// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+/** @brief 创建或截断文件后写入全部内容。 */
 inline task<expected<void>> write(io::io_context context, path filename, io::io_buffer contents) {
   co_return co_await write(std::move(context), std::move(filename), contents.bytes());
 }
 
-/// @brief 默认 context 只在创建请求时读取；操作、路径与析构不依赖未来线程的 TLS。
+/** @brief 只在创建请求时读取默认 context；后续操作、路径访问和析构均不依赖执行线程的 TLS。 */
 inline auto metadata(path name) {
   return metadata(io::io_context::current(), std::move(name));
 }
 
+/** @brief 取得链接自身的元数据，不跟随最终符号链接。 */
 inline auto symlink_metadata(path name) {
   return symlink_metadata(io::io_context::current(), std::move(name));
 }
 
+/** @brief 设置目标文件的权限。 */
 inline auto set_permissions(path name, Permissions value) {
   return set_permissions(io::io_context::current(), std::move(name), value);
 }
 
+/** @brief 解析符号链接并返回规范化绝对路径。 */
 inline auto canonicalize(path name) {
   return canonicalize(io::io_context::current(), std::move(name));
 }
 
+/** @brief 将路径重命名或移动到目标位置。 */
 inline auto rename(path from, path to) {
   return rename(io::io_context::current(), std::move(from), std::move(to));
 }
 
+/** @brief 删除一个文件或符号链接路径。 */
 inline auto remove_file(path name) {
   return remove_file(io::io_context::current(), std::move(name));
 }
 
+/** @brief 为已有文件创建硬链接。 */
 inline auto hard_link(path from, path to) {
   return hard_link(io::io_context::current(), std::move(from), std::move(to));
 }
 
+/** @brief 创建指向指定目标的符号链接。 */
 inline auto symlink(path from, path to) {
   return symlink(io::io_context::current(), std::move(from), std::move(to));
 }
 
+/** @brief 创建单个目录。 */
 inline auto create_dir(path name, Permissions value = Permissions{std::filesystem::perms::all}) {
   return create_dir(io::io_context::current(), std::move(name), value);
 }
 
+/** @brief 创建路径中缺少的各级目录。 */
 inline auto create_dir_all(path name) {
   return create_dir_all(io::io_context::current(), std::move(name));
 }
 
+/** @brief 删除一个空目录。 */
 inline auto remove_dir(path name) {
   return remove_dir(io::io_context::current(), std::move(name));
 }
 
+/** @brief 递归删除目录树，遵循删除选项及链接边界。 */
 inline auto remove_dir_all(path name, recursive_remove_options options = {}) {
   return remove_dir_all(io::io_context::current(), std::move(name), options);
 }
 
+/** @brief 复制文件内容并返回复制的字节数。 */
 inline auto copy(path from, path to) {
   return copy(io::io_context::current(), std::move(from), std::move(to));
 }
 
-/// @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。
+/** @brief 将完整文件读入自有缓冲区，并检查字节上限。 */
 inline auto read(path name, std::size_t limit = 256 * 1024 * 1024) {
   return read(io::io_context::current(), std::move(name), limit);
 }
 
-/// @brief 读取字节并追加到字符串，按已完成的字节进度传播错误。
+/** @brief 读取字节并追加到字符串，按已完成的字节进度传播错误。 */
 inline auto read_to_string(path name, std::size_t limit = 256 * 1024 * 1024) {
   return read_to_string(io::io_context::current(), std::move(name), limit);
 }
 
-/// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+/** @brief 创建或截断文件后写入全部内容。 */
 inline auto write(path name, std::span<const char> contents) {
   return write(io::io_context::current(), std::move(name), contents);
 }
 
-/// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+/** @brief 创建或截断文件后写入全部内容。 */
 inline auto write(path name, io::io_buffer contents) {
   return write(io::io_context::current(), std::move(name), std::move(contents));
 }
 
-/// @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。
+/** @brief 创建或截断文件后写入全部内容。 */
 inline auto write(path name, std::string_view contents) {
   return write(io::io_context::current(),
                std::move(name),
                std::span<const char>{contents.data(), contents.size()});
 }
 
-/** @brief 可复用的目录创建配置，权限只影响本次新建目录。 */
+/**  @brief 可复用的目录创建配置，权限只影响本次新建目录。 */
 class DirBuilder {
  public:
+  /** @brief 设置目录构建器是否递归创建父目录。 */
   DirBuilder& recursive(bool enabled = true) noexcept {
     recursive_ = enabled;
     return *this;
   }
 
+  /** @brief 设置新目录的权限选项。 */
   DirBuilder& permissions(Permissions value) noexcept {
     permissions_ = value;
     return *this;
   }
 
+  /** @brief 按构建器选项创建目录。 */
   auto create(io::io_context context, path name) const {
-    /// @brief 配置在构造请求时复制；临时DirBuilder的生命周期不必覆盖co_await。
     return create_owned(std::move(context), std::move(name), recursive_, permissions_);
   }
 
+  /** @brief 按构建器选项创建目录。 */
   auto create(path name) const { return create(io::io_context::current(), std::move(name)); }
 
  private:
-  /** @brief 两种 awaiter 经一个 task 统一类型；所有配置按值复制，不借用 this。 */
+  /**  @brief 通过一个 task 为两种等待器提供相同的返回类型；所有配置按值复制，不借用 this。 */
   static task<expected<void>> create_owned(io::io_context context,
                                            path name,
                                            bool recursive,
@@ -609,7 +616,7 @@ class DirBuilder {
     co_return co_await create_dir(std::move(context), std::move(name), permissions);
   }
 
-  bool recursive_{};  ///< 是否递归处理目标目录及其子目录。
-  Permissions permissions_{std::filesystem::perms::all};  ///< 创建文件或目录时使用的权限配置。
+  bool recursive_{};                                     /**< 是否递归处理目标目录及其子目录。 */
+  Permissions permissions_{std::filesystem::perms::all}; /**< 创建文件或目录时使用的权限配置。 */
 };
-}
+}  // namespace faio::fs

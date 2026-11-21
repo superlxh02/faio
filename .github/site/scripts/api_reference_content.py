@@ -12,15 +12,43 @@ GROUPS = [
 ]
 
 
+TYPE_HEADERS = {
+    'faio/coroutine/task.hpp': ('faio::task',),
+    'faio/coroutine/composition.hpp': ('faio::join_handle', 'faio::scope_context'),
+    'faio/runtime/default.hpp': ('faio::config_builder', 'faio::runtime::config'),
+    'faio/net/address.hpp': ('faio::net::SocketAddr', 'faio::net::Ipv4Addr', 'faio::net::Ipv6Addr',
+                             'faio::net::HostPort'),
+    'faio/net/tcp.hpp': ('faio::net::TcpStream', 'faio::net::TcpListener', 'faio::net::TcpSocket',
+                         'faio::net::accept_options', 'faio::net::owned_native_socket',
+                         'faio::io::io_context', 'faio::io::Ready'),
+    'faio/net/udp.hpp': ('faio::net::UdpSocket', 'faio::net::DatagramMessage', 'faio::net::DatagramSend',
+                         'faio::net::OwnedDatagram'),
+    'faio/fs/file.hpp': ('faio::fs::File', 'faio::fs::OpenOptions', 'faio::fs::seek_from'),
+    'faio/fs/directory.hpp': ('faio::fs::ReadDir', 'faio::fs::DirEntry'),
+    'faio/fs/path.hpp': ('faio::fs::Metadata', 'faio::fs::Permissions', 'faio::fs::DirBuilder',
+                         'faio::fs::recursive_remove_options'),
+    'faio/sync/mutex.hpp': ('faio::sync::mutex', 'faio::sync::condition_variable'),
+    'faio/sync/coordination.hpp': ('faio::sync::semaphore', 'faio::sync::latch', 'faio::sync::barrier'),
+    'faio/sync/channel.hpp': ('faio::sync::mpsc', 'faio::sync::mpsc::sender', 'faio::sync::mpsc::receiver'),
+    'faio/io/stream.hpp': ('faio::io::io_buffer', 'faio::io::io_transfer', 'faio::io::read_buf',
+                           'faio::io::shared_const_buffer', 'faio::io::borrowed_buffer',
+                           'faio::io::BufReader', 'faio::io::BufWriter', 'faio::io::BufStream'),
+    'faio/io/native.hpp': ('faio::io::unix::OwnedFd', 'faio::io::unix::AsyncFd',
+                           'faio::io::unix::AsyncFdReadyGuard'),
+    'faio/common/error.hpp': ('faio::Error', 'faio::error_context'),
+}
+PUBLIC_HEADERS = {public: header for header, types in TYPE_HEADERS.items() for public in types}
+
+
 def export(public, group, description, source=None, **kwargs):
-    header = {'network':'faio/net.hpp','filesystem':'faio/fs.hpp','io':'faio/io.hpp','errors':'faio/faio.hpp'}.get(group,'faio/faio.hpp')
+    header = PUBLIC_HEADERS[public]
     return dict(public=public, source=source or public, group=group, header=header, description=description, **kwargs)
 
 
 EXPORTS = [
- export('faio::task','tasks','惰性的、移动独占的协程任务。',members=['task','with_priority'],fields={'value_type':'协程完成后的值类型；void 表示无业务返回值。'},note='调用协程函数仅创建任务；co_await、spawn 或 block_on 才驱动执行。移动后原任务为空。'),
+ export('faio::task','tasks','惰性的、移动独占的协程任务。',members=['task','with_no_stealing','with_stealing','with_bind_core','with_no_bind_core'],fields={'value_type':'协程完成后的值类型；void 表示无业务返回值。'},note='调用协程函数仅创建任务；co_await、spawn 或 block_on 才驱动执行。移动后原任务为空。'),
  export('faio::join_handle','tasks','并发任务的一次性结果句柄。',members=['join_handle','done','request_stop','stop_token','wait','get'],note='协程中 co_await 句柄；普通线程使用 wait/get。结果只能领取一次，丢弃句柄不会自动停止任务。'),
- export('faio::scope_context','tasks','scope 回调中用于派生和停止子任务的作用域。',members=['spawn','request_stop','stop_token']),
+ export('faio::scope_context','tasks','scope 回调中用于派生和停止子任务的作用域。',source='faio::basic_scope_context',concrete=True,bindings={'S':'default_scheduler'},members=['spawn','request_stop','stop_token']),
  export('faio::config_builder','runtime','在运行时启动前构造和验证运行配置。',note='先配置再调用 block_on/spawn。配置运行时后再次修改 builder 不影响已经启动的服务。'),
  export('faio::runtime::config','runtime','由 config_builder::build() 返回的配置值。',source='faio::runtime::detail::runtime_config',members=[],note='优先通过 config_builder 设置配置；配置对象可以按值传入 runtime::configure。'),
  export('faio::net::TcpStream','network','已经连接的全双工 TCP 字节流。',source='faio::net::detail::TcpStream',exclude=['TcpStream','resource'],bindings={'Stream':'TcpStream','Addr':'SocketAddr'},note='同一连接可同时进行一个读和一个写；同方向冲突返回 EBUSY。非空读取返回 0 才表示 EOF。',example='auto stream = co_await faio::net::TcpStream::connect(*address);\nif (!stream) co_return;\nchar buffer[4096];\nauto count = co_await stream->read(buffer);'),
@@ -40,11 +68,11 @@ EXPORTS = [
  export('faio::fs::DirBuilder','filesystem','带递归和权限选项的目录创建器。'),
  export('faio::fs::seek_from','filesystem','文件定位的起点和偏移量。',fields={'origin':'定位基准。','base':'定位起点。','offset':'相对基准的有符号字节位移。'},enum_values={'origin':{'start':'从文件开头计算。','current':'从当前逻辑游标计算。','end':'从文件末尾计算。'}}),
  export('faio::fs::recursive_remove_options','filesystem','递归删除的边界与符号链接处理选项。',fields={'max_depth':'同时打开的目录数上限，包含根目录；默认 256。','max_state_bytes':'根路径与持有名称的内存预算；默认 1 MiB。','batch_size':'每个文件 job 的遍历步数；默认 64，上限 4096。'}),
- export('faio::sync::mutex','sync','等待时挂起协程的互斥锁。',exclude=['lock_uncancellable'],note='优先使用 scoped_lock() 的 RAII guard，避免异常路径忘记解锁。'),
- export('faio::sync::semaphore','sync','限制同时持有资源数量的协程信号量。',exclude=['acquire_uncancellable']),
- export('faio::sync::condition_variable','sync','基于共享谓词通知和唤醒协程。',note='等待前已持有互斥锁；等待期间释放锁，恢复后重新持有锁。始终在锁内检查谓词。'),
- export('faio::sync::latch','sync','一次性的异步倒计数完成信号。'),
- export('faio::sync::barrier','sync','可重复使用的分轮协程屏障。'),
+ export('faio::sync::mutex','sync','等待时挂起协程的互斥锁。',exclude=['lock_uncancellable'],note='优先使用 scoped_lock() 的 RAII guard，避免异常路径忘记解锁。',source='faio::sync::basic_mutex',concrete=True,bindings={'S':'default_scheduler'}),
+ export('faio::sync::semaphore','sync','限制同时持有资源数量的协程信号量。',exclude=['acquire_uncancellable'],source='faio::sync::basic_semaphore',concrete=True,bindings={'S':'default_scheduler'}),
+ export('faio::sync::condition_variable','sync','基于共享谓词通知和唤醒协程。',note='等待前已持有互斥锁；等待期间释放锁，恢复后重新持有锁。始终在锁内检查谓词。',source='faio::sync::basic_condition_variable',concrete=True,bindings={'S':'default_scheduler'}),
+ export('faio::sync::latch','sync','一次性的异步倒计数完成信号。',source='faio::sync::basic_latch',concrete=True,bindings={'S':'default_scheduler'}),
+ export('faio::sync::barrier','sync','可重复使用的分轮协程屏障。',source='faio::sync::basic_barrier',concrete=True,bindings={'S':'default_scheduler'}),
  export('faio::sync::mpsc','sync','固定容量的多生产者、单消费者通道。',members=['make'],note='发送端可复制，接收端移动独占；同一时刻只能有一个未完成的 recv。'),
  export('faio::sync::mpsc::sender','sync','MPSC 的可复制发送端。',parent='faio::sync::mpsc'),
  export('faio::sync::mpsc::receiver','sync','MPSC 的移动独占接收端。',parent='faio::sync::mpsc'),
@@ -63,6 +91,7 @@ EXPORTS = [
 ]
 
 EXPORTS += [
+ export('faio::error_context','errors','由错误共享持有的不可变诊断上下文。',members=[],fields={'message':'拥有型可读诊断文本。','native_reasons':'后端原生原因码，按提取顺序保存。','verify_code':'可选证书验证结果码。','cause':'底层原因及其错误域、进度和上下文。','process_id':'关联子进程的原生标识。','process_exit_code':'已观察到的原生进程退出码。','process_signal':'导致POSIX子进程退出的信号。','captured_stdout':'失败前保留的标准输出字节。','captured_stderr':'失败前保留的标准错误字节。','stdout_truncated':'标准输出是否因保留上限截断。','stderr_truncated':'标准错误是否因保留上限截断。'}),
  export('faio::net::accept_options','network','控制新接纳连接的首次 I/O 上下文归属。',members=[],fields={'placement':'归属策略；默认 balanced，在同一运行时的活跃上下文间轮转。','target':'仅 explicit_context 策略使用；必须非空且未停止。'}),
  export('faio::net::DatagramMessage','network','数据报接收结果与截断标志。',source='faio::net::detail::DatagramMessage',concrete=True,bindings={'Addr':'SocketAddr'},fields={'copied_bytes':'实际复制到负载缓冲区的字节数。','peer':'发送方地址。','truncated':'负载因缓冲空间不足而被截断。','control_truncated':'辅助控制数据被截断。','control_bytes':'实际收到的控制信息字节数。','flags':'本次接收的原生消息标志。'}),
  export('faio::net::DatagramSend','network','批量发送中一个借用数据报的描述。',source='faio::net::detail::DatagramSend',concrete=True,bindings={'Addr':'SocketAddr'},fields={'bytes':'发送的只读负载，须保留到操作完成。','peer':'可选目的地址；连接态 socket 可省略。'}),
@@ -73,9 +102,9 @@ EXPORTS += [
 ]
 
 ENUMS = [
- ('faio','task_priority','tasks','任务优先级元数据。',{'low':'低优先级。','normal':'默认优先级。','high':'高优先级。'}),
- ('faio','error_domain','errors','原生错误码的解释来源。',{'faio':'库定义错误。','posix':'POSIX errno。','resolver':'名称解析错误。','win32':'Win32 错误码。','winsock':'Winsock 错误码。'}),
+ ('faio','error_domain','errors','原生错误码的解释来源。',{'faio':'库定义错误。','posix':'POSIX errno。','resolver':'名称解析错误。','win32':'Win32 错误码。','winsock':'Winsock 错误码。','tls':'TLS配置、握手、证书验证或记录层错误。','process':'进程启动、等待、管道或捕获错误。'}),
  ('faio::runtime','mode','runtime','运行时的调度模式。',{'current_thread':'在当前线程驱动任务。','multi_thread':'在多个 worker 上调度任务。'}),
+ ('faio::runtime','blocking_pool_policy','runtime','用户阻塞任务池的线程生命周期策略。',{'fixed':'构造时预热全部线程，关闭时回收。','elastic':'按需创建线程，空闲超时后回收。'}),
  ('faio::runtime','io_backend','runtime','Linux 编译时选择的 I/O 后端。',{'IO_EPOLL':'epoll 后端。','IO_URING':'io_uring 后端。'}),
  ('faio::io','Interest','io','等待就绪的方向集合。',{'none':'不选择方向。','readable':'读就绪。','writable':'写就绪。','read_write':'同时观察读写。'}),
  ('faio::io','ShutdownBehavior','network','socket 半关闭方向。',{'Read':'停止接收。','Write':'停止发送。','Both':'停止双向传输。'}),
@@ -87,7 +116,7 @@ ENUMS = [
 FUNCTION_GROUPS = [
  dict(source='faio',public='faio',group='tasks',members=['block_on','spawn','spawn_detached','spawn_blocking','join','join_all','select','scope']),
  dict(source='faio::runtime',public='faio::runtime',group='runtime',members=['configure','shutdown']),
- dict(source='faio::this_coro',public='faio::this_coro',group='runtime',members=['stop_token','scheduler','worker_id','priority','yield','yield_if_needed']),
+ dict(source='faio::this_coro',public='faio::this_coro',group='runtime',members=['stop_token','scheduler','worker_id','yield','yield_if_needed']),
  dict(source='faio::net::detail',public='faio::net',group='network',members=['lookup_host']),
  dict(source='faio::fs',public='faio::fs',group='filesystem'),
  dict(source='faio::time',public='faio::time',group='time'),
@@ -105,7 +134,10 @@ METHODS = {
  'join_all':('并发运行动态数量的同类型任务。','等待后得到按输入顺序排列的结果集合。','任务集合的所有权移入组合操作；void 任务只等待完成。'),
  'select':('并发竞速多个任务，选择先完成的分支。','等待后得到含 index 和 variant value 的结果；index 是原始参数下标。','请求未获胜分支取消并等待退出，之后才返回。'),
  'scope':('建立退出前排空子任务的结构化作用域。','返回惰性任务；等待后取得 body 的结果或传播作用域错误。','通过 scope_context::spawn 派生子任务；失败会请求同组停止。'),
- 'with_priority':('为尚未提交的任务设置优先级元数据。','返回移动后的任务，可继续传给 spawn 或 block_on。','当前队列仍按 FIFO 调度，不承诺严格的抢占优先级。'),
+ 'with_no_stealing':('禁止本任务及后代被队列窃取。','返回移动后的惰性任务，支持继续链式修饰。','首次启动时继承并解析，不影响父任务；仅禁止窃取，不保证固定 worker。'),
+ 'with_stealing':('显式请求允许窃取。','返回移动后的惰性任务。','若祖先已禁止窃取，启动时告警并保留继承限制。'),
+ 'with_bind_core':('首次启动绑定当前 worker 及其已验证 CPU，并禁止窃取。','返回移动后的惰性任务，后代继承同一目标。','要求 Linux 运行时预先配置并验证 worker CPU 亲和性；不支持或未配置时报错。'),
+ 'with_no_bind_core':('显式请求不绑核，不自动允许窃取。','返回移动后的惰性任务。','若祖先已绑核，启动时告警并保留继承的 worker/CPU 目标。'),
  'done':('立即查询任务是否已经完成。','完成时返回 true；空句柄返回 false，不消费结果。'),
  'request_stop':('请求相关任务协作停止。','无返回值；请求停止不表示任务已经退出。','仍需等待结果或作用域收束，才能释放任务借用的资源。'),
  'stop_token':('获取当前对象的协作停止令牌。','返回 std::stop_token；this_coro 查询需 co_await 才取得当前任务令牌。'),
@@ -115,7 +147,6 @@ METHODS = {
  'configure':('在首次使用前设置默认运行时。','无返回值；成功后首次 block_on/spawn 使用此配置。','已启动或已经关闭时抛 logic_error；非法配置会被拒绝。'),
  'scheduler':('查询当前任务所属调度器。','co_await 后取得借用的调度器引用，不拥有运行时。'),
  'worker_id':('查询当前恢复所在 worker 的编号。','co_await 后取得本次恢复的 worker id。','协程可能迁移，不能将此值当作永久线程身份。'),
- 'priority':('查询当前任务的优先级元数据。','co_await 后取得 task_priority 值。'),
  'yield':('主动让出执行权并重新入队。','co_await 后在下一次调度继续，无业务返回值。'),
  'yield_if_needed':('依据协作预算决定是否让出执行权。','co_await 后继续执行，无业务返回值。'),
  'read':('读取字节到调用方提供的缓冲区。','等待后为 expected<size_t>；拥有型重载为 expected<io_transfer>。','允许短读。非空流式读取成功返回 0 表示 EOF；缓冲区必须保留到完成。'),
@@ -289,7 +320,7 @@ PARAMETERS = {
  't':'移动传入的根协程任务。', 'children':'移动传入的子任务参数包或任务集合，结果顺序对应输入顺序。',
  'body':'接收 scope_context& 的回调，返回本作用域的 task。',
  'function':'执行所需工作的可调用对象；阻塞任务按值保存，非阻塞 I/O 回调不得阻塞。',
- 'f':'需要调用的函数对象。', 'priority':'要设置的 task_priority 元数据。',
+ 'f':'需要调用的函数对象。',
  'options':'本次操作的选项值，默认值保持当前接口声明所示行为。',
  'context':'目标 I/O 上下文；省略时使用当前上下文。资源创建后不会因协程迁移而改变归属。',
  'address':'目标 SocketAddr；对 send_to 是接收方，对 bind 是本地绑定地址。',
@@ -349,6 +380,8 @@ PARAMETERS = {
 }
 
 CONFIG = {
+ 'set_worker_cpus':('设置工作线程的CPU亲和性。','cpus','允许绑定的CPU编号；空列表遵循系统调度，单线程模式最多一个CPU。'),
+ 'set_large_frame_pool_limit_bytes':('设置运行时大帧空闲池额度。','bytes','可保留的空闲大帧字节数；0关闭池，不限制活动帧总量。'),
  'set_mode':('选择单线程或多线程调度模式。','selected','运行模式 current_thread 或 multi_thread。'),
  'set_io_backend':('校验所请求的 Linux 后端与编译结果一致。','selected','IO_EPOLL 或 IO_URING；必须与编译时固定的后端相同。'),
  'set_num_workers':('设置多线程 worker 数量。','num_workers','工作线程数量；current_thread 配置只使用一个驱动线程。'),
@@ -359,11 +392,13 @@ CONFIG = {
  'set_resolver_queue_limit':('设置 DNS 服务的排队容量。','count','名称解析服务允许排队的请求数量。'),
  'set_blocking_queue_limit':('设置用户阻塞池的排队容量。','count','spawn_blocking 允许排队的任务数量。'),
  'set_max_blocking_threads':('设置用户阻塞池最大线程数量。','count','阻塞线程数上限，独立于协程 worker。'),
- 'set_blocking_keep_alive':('设置阻塞线程空闲保活时间。','duration','空闲后保留线程的毫秒时长。'),
+ 'set_blocking_pool_policy':('设置用户阻塞池的线程生命周期策略。','selected','默认 elastic，按需创建线程并在空闲超时后回收。选择 fixed 可预热全部线程。'),
+ 'set_blocking_keep_alive':('设置弹性用户阻塞池的线程空闲保活时间。','duration','正的时间长度，默认 10 秒。'),
  'set_io_interval':('设置持续执行任务时轮询 I/O 的间隔。','io_interval','相邻 I/O 轮询之间允许执行的调度步数。'),
  'set_global_queue_interval':('设置查询全局队列的公平性间隔。','global_queue_interval','在本地任务持续存在时检查全局队列的步数间隔。'),
+ 'set_no_stealing_queue_capacity':('设置每 worker 不可窃取队列的固定任务／恢复槽容量。','capacity','默认256；启动前配置为2..2^29范围的2的幂，运行期间不扩容，挂起前预留恢复槽。'),
  'set_idle_spin_count':('设置休眠前的有限轮询次数。','idle_spin_count','空闲轮询次数；0 表示更快进入休眠。'),
- 'set_submit_interval':('保存提交间隔配置。','submit_interval','保留的批量提交间隔；当前 epoll/kqueue 请求在等待时直接尝试操作。'),
+ 'set_submit_interval':('设置批量提交间隔参数。','submit_interval','批量提交间隔；epoll/kqueue在等待时直接尝试操作。'),
 }
 
 SOCKET_OPTIONS = {
@@ -446,6 +481,15 @@ def documentation(spec, name, parameters, result_type, member):
         brief, parameter, description = CONFIG[name]
         entry = (brief,'返回当前 config_builder&，支持链式配置。','最终配置合法性在运行时配置入口验证。')
         params[parameter] = description
+    if short == 'Error':
+        if name == 'context':
+            entry=('借用错误持有的诊断上下文。','返回const shared_ptr<const error_context>&；没有上下文时为空。','借用期间须保持Error对象存活。')
+        elif name == 'with_context':
+            entry=('复制错误并附加共享诊断。','返回保留错误码、错误域及进度的新Error。')
+            params['details']='与错误副本共享的不可变诊断上下文。'
+        elif name == 'with_progress':
+            entry=('复制错误并更新累计进度。','返回保留错误域和诊断上下文的新Error。')
+            params['bytes']='更新后的累计已完成字节数。'
     option = name.removeprefix('set_')
     if spec['group'] == 'network' and option in SOCKET_OPTIONS:
         label = SOCKET_OPTIONS[option]
@@ -467,6 +511,8 @@ def documentation(spec, name, parameters, result_type, member):
             params.update(permits='初始可用许可数量。',count='初始参与者或剩余计数。',expected='每轮必须到达的参与者数量。')
     if public == 'faio::io' and name == 'write_all_buf':
         entry=('接管拥有型缓冲区并写出全部有效字节。','等待后返回 expected<io_transfer>；成功时 buffer 归还原缓冲，bytes 为总写出量。','失败通过 error().transferred() 报告部分进度。')
+    if short == 'Metadata' and name in ('modified', 'accessed'):
+        entry=('读取快照中的文件修改时间。' if name == 'modified' else '读取快照中的文件访问时间。','返回system_clock::time_point。')
     if short == 'File' and name == 'read_exact':
         entry=('反复读取，直到填满整个缓冲区。','等待后返回 expected<size_t>；成功值等于缓冲长度。','提前 EOF 返回 UnexpectedEOF；error().transferred() 保留部分进度。')
     if short == 'DirBuilder' and name == 'create':

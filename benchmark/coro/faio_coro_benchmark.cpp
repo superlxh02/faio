@@ -1,5 +1,17 @@
-// 与本目录 tokio-benchmark 配对；场景语义与计时边界见 README.md。
-#include "faio/faio.hpp"
+/**
+ * @file benchmark/coro/faio_coro_benchmark.cpp
+ * @brief 协程与同步原语性能基准。
+ */
+#include "faio/coroutine/composition.hpp"
+#include "faio/detail/runtime/context.hpp"
+#include "faio/detail/sync.hpp"
+#include "faio/runtime/default.hpp"
+#include <coroutine>
+#include <cstddef>
+#include <ratio>
+#include <string>
+#include <utility>
+#include <variant>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -9,40 +21,43 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
-#include <thread>
 #include <vector>
 
 namespace {
 using clock_type = std::chrono::steady_clock;
-// 仅在创建 worker 前设置，此后所有线程只读；批量模式关闭逐操作读时钟。
+/** @brief 仅在创建 worker 前设置，此后所有线程只读；批量模式不在每次操作时读取时钟。 */
 bool sample_enabled = true;
 bool warming = false;
 std::filesystem::path sample_directory;
 
+/** @brief 按采样模式读取单次操作的起始时刻。 */
 clock_type::time_point sample_start() {
   return sample_enabled ? clock_type::now() : clock_type::time_point{};
 }
 
+/** @brief 计算单次操作的纳秒耗时，批量模式返回零。 */
 double sample_elapsed(clock_type::time_point t) {
   return sample_enabled ? std::chrono::duration<double, std::nano>(clock_type::now() - t).count()
                         : 0.;
 }
 
+/** @brief 保存协程场景的摊销成本、延迟样本与迁移次数。 */
 struct measurement {
-  double ns_per_op{};           // 整段耗时/操作数，包含逐次采样开销。
-  std::vector<double> samples;  // 已预分配，每条样本写入后不再修改。
-  std::size_t migrations{};     // yield 前后 worker 编号变化的次数；不代表 CPU 核迁移。
+  double ns_per_op{};
+  std::vector<double> samples;
+  std::size_t migrations{};
 };
 
+/** @brief 计算指定时刻以来的纳秒耗时。 */
 double elapsed(clock_type::time_point start) {
   return std::chrono::duration<double, std::nano>(clock_type::now() - start).count();
 }
 
+/** @brief 输出摊销成本、延迟分位数与样本数量。 */
 void report(const std::string& name, measurement result) {
   if (warming)
     return;
   if (sample_enabled && !sample_directory.empty()) {
-    // 保留采样次序，CSV 输出在计时结束之后；Python 脚本压缩归档。
     std::ofstream out(sample_directory / (name + ".csv"));
     out.exceptions(std::ios::badbit | std::ios::failbit);
     out << std::setprecision(17) << "sample_index,latency_ns\n";
@@ -58,14 +73,17 @@ void report(const std::string& name, measurement result) {
             << ',' << result.migrations << ',' << result.samples.size() << '\n';
 }
 
+/** @brief 为基准构造使用指定 worker 数量的运行时配置。 */
 faio::runtime::Config config(std::size_t workers) {
   return faio::ConfigBuilder{}.set_num_workers(workers).build();
 }
 
+/** @brief 返回固定整数的惰性协程，用作测试负载。 */
 faio::task<std::uint64_t> one() {
   co_return 1;
 }
 
+/** @brief 测量已就绪的同步原语、消息通道和任务等待操作。 */
 faio::task<measurement> ready_paths(std::size_t n, int mode) {
   measurement r{0, std::vector<double>(n)};
   faio::sync::semaphore sem{1};
@@ -108,6 +126,7 @@ faio::task<measurement> ready_paths(std::size_t n, int mode) {
   co_return r;
 }
 
+/** @brief 测量协程主动让出及恢复的延迟与线程迁移。 */
 faio::task<measurement> yields(std::size_t n) {
   measurement r{0, std::vector<double>(n)};
   auto start = clock_type::now();
@@ -122,6 +141,7 @@ faio::task<measurement> yields(std::size_t n) {
   co_return r;
 }
 
+/** @brief 测量组合任务的等待与分支竞速。 */
 faio::task<measurement> combinators(std::size_t n, int mode) {
   measurement r{0, std::vector<double>(n)};
   std::uint64_t sum = 0;
@@ -148,7 +168,7 @@ faio::task<measurement> combinators(std::size_t n, int mode) {
   co_return r;
 }
 
-// 分组接口按每组 32 个 task 计时，n 是组数；与逐消息指标不能直接混算。
+/** @brief 分组接口按每组 32 个 task 计时，n 是组数；不能与按消息计量的指标直接混合计算。 */
 faio::task<measurement> task_groups(std::size_t n, bool scoped) {
   measurement r{0, std::vector<double>(n)};
   auto start = clock_type::now();
@@ -178,6 +198,7 @@ faio::task<measurement> task_groups(std::size_t n, bool scoped) {
   co_return r;
 }
 
+/** @brief 测量单参与者屏障的立即完成路径。 */
 faio::task<measurement> barrier_ready(std::size_t n) {
   faio::sync::barrier barrier{1};
   measurement r{0, std::vector<double>(n)};
@@ -191,6 +212,7 @@ faio::task<measurement> barrier_ready(std::size_t n) {
   co_return r;
 }
 
+/** @brief 记录提交到开始执行的耗时并递减剩余任务计数。 */
 faio::task<void> record(clock_type::time_point sent,
                         double& output,
                         std::atomic<std::size_t>& left) {
@@ -200,12 +222,14 @@ faio::task<void> record(clock_type::time_point sent,
   co_return;
 }
 
+/** @brief 在运行时的 worker 内批量提交延迟记录任务。 */
 faio::task<void> internal_submit(measurement& r, std::atomic<std::size_t>& left) {
   for (auto& sample : r.samples)
     faio::spawn_detached(record(sample_start(), sample, left));
   co_return;
 }
 
+/** @brief 测量外部线程或 worker 批量提交任务的成本。 */
 measurement burst(std::size_t n, std::size_t workers, bool internal) {
   faio::runtime::detail::runtime_context ctx{config(workers)};
   measurement r{0, std::vector<double>(n)};
@@ -221,11 +245,13 @@ measurement burst(std::size_t n, std::size_t workers, bool internal) {
       left.wait(seen);
   }
   r.ns_per_op = elapsed(start) / n;
-  return r;  // runtime 关闭不计入新横向测试。
+  return r;
 }
 
-// 两边消息均为 16 字节：8 字节负载 + 8 字节时间戳；Rust Instant 本身可能为 16
-// 字节。
+/**
+ * @brief 两种实现的消息均为 16 字节：8 字节负载 + 8 字节时间戳；Rust Instant 本身可能为 16
+ * 字节。
+ */
 struct message {
   std::uint64_t value;
   std::int64_t sent_ns;
@@ -233,6 +259,7 @@ struct message {
 
 static_assert(sizeof(message) == 16);
 
+/** @brief 读取单调时钟的纳秒时间戳。 */
 std::int64_t timestamp_ns() {
   return sample_enabled ? std::chrono::duration_cast<std::chrono::nanoseconds>(
                               clock_type::now().time_since_epoch())
@@ -242,12 +269,14 @@ std::int64_t timestamp_ns() {
 
 using channel = faio::sync::mpsc<message>;
 
+/** @brief 向有界通道发送带时间戳与序号的消息。 */
 faio::task<void> producer(channel::sender tx, std::size_t n, std::size_t offset) {
   for (std::size_t i = 0; i < n; ++i)
     if (!(co_await tx.send({i + offset, timestamp_ns()})))
       throw std::runtime_error("closed");
 }
 
+/** @brief 测量多生产者消息通道吞吐与交付延迟。 */
 faio::task<measurement> pipeline(std::size_t n, std::size_t producers, std::size_t capacity) {
   auto endpoints = channel::make(capacity);
   auto& tx = endpoints.first;
@@ -274,8 +303,10 @@ faio::task<measurement> pipeline(std::size_t n, std::size_t producers, std::size
   co_return r;
 }
 
-// 两个独立的单 worker runtime 保证两个协程恢复目标位于不同线程。
-// 这是两次信号量交接的 RTT；不能把 RTT/2 冒充单向实测分位数。
+/**
+ * @brief 两个独立的单 worker 运行时保证两个协程在不同线程上恢复。
+ * 测得的是两次信号量交接的 RTT；RTT/2 不能视为实测的单向延迟分位数。
+ */
 faio::task<void> echo(faio::sync::semaphore& request, faio::sync::semaphore& reply, std::size_t n) {
   for (std::size_t i = 0; i < n; ++i) {
     co_await request.acquire();
@@ -283,6 +314,7 @@ faio::task<void> echo(faio::sync::semaphore& request, faio::sync::semaphore& rep
   }
 }
 
+/** @brief 通过请求与回复许可测量逐次往返延迟。 */
 faio::task<measurement> ping(faio::sync::semaphore& request,
                              faio::sync::semaphore& reply,
                              std::size_t n) {
@@ -298,6 +330,7 @@ faio::task<measurement> ping(faio::sync::semaphore& request,
   co_return r;
 }
 
+/** @brief 测量两个独立运行时之间的许可往返延迟。 */
 measurement cross_runtime(std::size_t n) {
   faio::runtime::detail::runtime_context a{config(1)}, b{config(1)};
   faio::sync::semaphore request{0}, reply{0};
@@ -307,25 +340,29 @@ measurement cross_runtime(std::size_t n) {
   return r;
 }
 
-// 登记完成才让外部线程发送：排除“预先已有 permit”的 acquire 快路径。
+/** @brief 完成等待登记后才允许外部线程发送，避免 acquire 因已有许可而立即完成。 */
 struct observed_acquire {
   faio::sync::semaphore::acquire_awaiter inner;
-  std::atomic<std::size_t>& armed;  // 由等待协程发布，由外部线程读取。
-  std::size_t sequence;             // 本次登记的编号。
+  std::atomic<std::size_t>& armed;
+  std::size_t sequence;
 
+  /** @brief 检查被观察的信号量获取是否立即完成。 */
   bool await_ready() { return inner.await_ready(); }
 
+  /** @brief 登记获取等待并向通知线程发布就绪序号。 */
   bool await_suspend(std::coroutine_handle<> h) {
     auto* flag = &armed;
     const auto number = sequence;
     const auto suspended = inner.await_suspend(h);
     flag->store(number, std::memory_order_release);
-    return suspended;  // 发布后不再访问帧内成员。
+    return suspended;
   }
 
+  /** @brief 领取被观察的信号量获取结果。 */
   void await_resume() { inner.await_resume(); }
 };
 
+/** @brief 等待外部线程通知并记录恢复延迟。 */
 faio::task<measurement> notification_receiver(faio::sync::semaphore& sem,
                                               std::atomic<std::size_t>& armed,
                                               std::atomic<std::size_t>& ack,
@@ -340,6 +377,7 @@ faio::task<measurement> notification_receiver(faio::sync::semaphore& sem,
   co_return r;
 }
 
+/** @brief 测量普通线程唤醒挂起协程的交付延迟。 */
 measurement external_notification(std::size_t n) {
   faio::runtime::detail::runtime_context ctx{config(1)};
   faio::sync::semaphore sem{0};
@@ -360,6 +398,7 @@ measurement external_notification(std::size_t n) {
   return r;
 }
 
+/** @brief 测量同步线程进入并等待一个协程的固定开销。 */
 measurement block_entry(std::size_t n) {
   faio::runtime::detail::runtime_context ctx{config(1)};
   measurement r{0, std::vector<double>(n)};
@@ -374,7 +413,7 @@ measurement block_entry(std::size_t n) {
   return r;
 }
 
-// 单 worker 上两条任务交替交接许可，确保测到两条协程之间的切换。
+/** @brief 单个 worker 上的两个任务交替交接许可，确保测量包含两条协程之间的切换。 */
 faio::task<measurement> same_thread_handoff(std::size_t n) {
   faio::sync::semaphore request{0}, reply{0};
   auto handle = faio::spawn(echo(request, reply, n));
@@ -383,8 +422,10 @@ faio::task<measurement> same_thread_handoff(std::size_t n) {
   co_return r;
 }
 
-// 争用测试刻意在持锁/持许可期间 yield，让四个等待者形成队列。
-// samples 是完整操作的延迟；ns_per_op 是整段墙钟时间/n，两者不应混称。
+/**
+ * @brief 争用测试在持有锁或许可期间调用 yield，使四个等待者排队。
+ * samples 是完整操作的延迟；ns_per_op 是整段墙钟时间/n，两者应分开报告。
+ */
 faio::task<void> contention_child(faio::sync::mutex& mutex,
                                   faio::sync::semaphore& sem,
                                   measurement& r,
@@ -408,6 +449,7 @@ faio::task<void> contention_child(faio::sync::mutex& mutex,
   }
 }
 
+/** @brief 测量四个任务竞争互斥锁或信号量的成本。 */
 faio::task<measurement> contention(std::size_t n, bool use_mutex) {
   faio::sync::mutex mutex;
   faio::sync::semaphore sem{2};
@@ -427,6 +469,7 @@ faio::task<measurement> contention(std::size_t n, bool use_mutex) {
   co_return r;
 }
 
+/** @brief 反复参与屏障并记录本任务分配的操作延迟。 */
 faio::task<void> barrier_child(faio::sync::barrier& barrier,
                                measurement& r,
                                std::size_t begin,
@@ -438,6 +481,7 @@ faio::task<void> barrier_child(faio::sync::barrier& barrier,
   }
 }
 
+/** @brief 测量四个任务重复通过屏障的同步开销。 */
 faio::task<measurement> barrier_contended(std::size_t n) {
   faio::sync::barrier barrier{4};
   measurement r{0, std::vector<double>(n)};
@@ -453,6 +497,7 @@ faio::task<measurement> barrier_contended(std::size_t n) {
   co_return r;
 }
 
+/** @brief 通过条件变量交替更新请求与回复状态。 */
 faio::task<void> cv_echo(faio::sync::mutex& mutex,
                          faio::sync::condition_variable& cv,
                          int& turn,
@@ -466,6 +511,7 @@ faio::task<void> cv_echo(faio::sync::mutex& mutex,
   }
 }
 
+/** @brief 测量互斥锁及条件变量组合的往返通知。 */
 faio::task<measurement> cv_roundtrip(std::size_t n) {
   faio::sync::mutex mutex;
   faio::sync::condition_variable cv;
@@ -487,11 +533,13 @@ faio::task<measurement> cv_roundtrip(std::size_t n) {
   co_return r;
 }
 
+/** @brief 子任务完成时递减一次性倒计数。 */
 faio::task<void> latch_child(faio::sync::latch& latch) {
   latch.count_down();
   co_return;
 }
 
+/** @brief 测量倒计数的就绪等待或任务组汇合。 */
 faio::task<measurement> latch_groups(std::size_t n, bool ready) {
   measurement r{0, std::vector<double>(n)};
   auto start = clock_type::now();
@@ -501,7 +549,6 @@ faio::task<measurement> latch_groups(std::size_t n, bool ready) {
     if (ready)
       co_await opened.wait();
     else {
-      // 排空任务句柄，保证所有 count_down 的函数栈退出后再析构本组 latch。
       faio::sync::latch latch{32};
       std::vector<faio::join_handle<void>> handles;
       handles.reserve(32);
@@ -517,6 +564,7 @@ faio::task<measurement> latch_groups(std::size_t n, bool ready) {
   co_return r;
 }
 
+/** @brief 测量读取单调时钟的基准开销。 */
 measurement timer_calibration(std::size_t n) {
   measurement r{0, std::vector<double>(n)};
   auto start = clock_type::now();
@@ -527,8 +575,9 @@ measurement timer_calibration(std::size_t n) {
   r.ns_per_op = elapsed(start) / n;
   return r;
 }
-}  // namespace
+}
 
+/** @brief 执行协程、同步原语和并发控制场景并输出 CSV。 */
 int main(int argc, char** argv) {
   auto n = argc > 1 ? std::stoull(argv[1]) : 100000;
   n = (n / 4) * 4;
@@ -548,7 +597,6 @@ int main(int argc, char** argv) {
     report("timer_calibration", timer_calibration(n));
     for (auto workers : {1uz, 4uz}) {
       faio::runtime::detail::runtime_context ctx{config(workers)};
-      // 不计时的预热，排除首次恢复/分配器初始化。
       (void)ctx.block_on(yields(1000));
       report("yield_" + std::to_string(workers), ctx.block_on(yields(n)));
       report("handoff_rtt_w" + std::to_string(workers),

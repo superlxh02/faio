@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/traits/backend.hpp
- * @brief 跨平台异步 IO：后端封装与提交协议。
- * @details 以编译期约束检查接口形状及返回类型；概念检查本身不执行 IO，也不承担资源生命周期。
+ * @brief 后端封装与提交协议。
  */
 #pragma once
 #include "faio/detail/io/protocol/backend.hpp"
@@ -10,7 +9,7 @@
 #include <span>
 
 namespace faio::io::detail {
-/** @brief 具体后端的最小合同；构造时检查，允许平台别名先声明不完整类型。 */
+/**  @brief 具体后端的最小约定；构造时检查，允许平台别名先声明不完整类型。 */
 template <class B>
 concept backend_implementation = requires(B& object,
                                           backend_operation op,
@@ -29,4 +28,4 @@ concept backend_implementation = requires(B& object,
   { object.statistics() } noexcept -> std::same_as<backend_statistics>;
 };
 
-}
+}  // namespace faio::io::detail

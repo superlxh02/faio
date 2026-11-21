@@ -1,81 +1,116 @@
 /**
  * @file faio/detail/time/sleep.hpp
- * @brief 异步时间操作：可取消异步休眠。
- * @details 使用单调时钟推进异步等待；停止与到期共享唯一完成仲裁。组合超时在返回前排空已启动的分支，避免协程帧和借用参数提前失效。
+ * @brief 可取消的异步休眠。
  */
 #ifndef FAIO_DETAIL_TIME_SLEEP_HPP
 #define FAIO_DETAIL_TIME_SLEEP_HPP
 
+#include "faio/detail/coroutine/context/current_context.hpp"
+#include "faio/detail/runtime/common/coroutine_integration.hpp"
 #include "faio/detail/common/cancellation.hpp"
-#include "faio/detail/coroutine/task_context.hpp"
+#include "faio/detail/coroutine/context/task_context.hpp"
+#include "faio/detail/coroutine/scheduler/resume_target.hpp"
 #include "faio/detail/runtime/timer/timer.hpp"
 #include <atomic>
 #include <chrono>
 #include <coroutine>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <stop_token>
 
 namespace faio::time::detail {
-class Sleep {
+/** @brief 支持取消的定时等待器。 */
+template <class S = default_scheduler>
+class BasicSleep {
  public:
-  explicit Sleep(std::chrono::steady_clock::time_point deadline) : _deadline(deadline) {}
+  using scheduler_type = S;
 
-  Sleep(Sleep&& other) noexcept
-      : _deadline(other._deadline), _cancelled_immediate(other._cancelled_immediate) {}
+  /** @brief 构造支持取消的定时等待器。 */
+  explicit BasicSleep(std::chrono::steady_clock::time_point deadline,
+                      scheduler_ref_for<S> scheduler = {})
+      : _deadline(deadline), _scheduler(scheduler) {}
 
-  Sleep(const Sleep&) = delete;
+  /** @brief 移动构造支持取消的定时等待器。 */
+  BasicSleep(BasicSleep&& other) noexcept
+      : _deadline(other._deadline),
+        _scheduler(other._scheduler),
+        _cancelled_immediate(other._cancelled_immediate) {}
+
+  /** @brief 禁止复制支持取消的定时等待器。 */
+  BasicSleep(const BasicSleep&) = delete;
+
+  /** @brief 在登记定时任务前，根据 promise 的调度器类型设置取消后的恢复目标。 */
+  template <class Target>
+  auto rebind_scheduler(scheduler_ref_for<Target> scheduler) const {
+    if (_started)
+      throw std::logic_error("不能重新绑定已经登记的 sleep 等待器");
+    return BasicSleep<Target>{_deadline, scheduler};
+  }
+
+  /** @brief 绑定等待器的静态恢复调度器。 */
+  template <class Target>
+  auto rebind_scheduler() const {
+    return rebind_scheduler<Target>(::faio::detail::current_scheduler_for<Target>());
+  }
 
  public:
+  /** @brief 读取单调时钟的截止时间。 */
   [[nodiscard]]
   auto deadline() const noexcept -> std::chrono::steady_clock::time_point {
     return _deadline;
   }
 
-  /// @brief 如果 deadline 已经过期或恰好到期，则无需挂起
+  /** @brief deadline 已到达时无需挂起。 */
   auto await_ready() const noexcept -> bool {
     return _deadline <= std::chrono::steady_clock::now();
   }
 
-  /// @brief 将协程注册到定时器，在 deadline 到达时恢复
+  /** @brief 将协程登记到定时器，在 deadline 到期时恢复。 */
   auto await_suspend(std::coroutine_handle<> handle) -> bool {
-    auto token = ::faio::detail::current_stop_token;
+    auto* timer = ::faio::detail::current_thread_context().io.timer;
+    if (!timer)
+      throw std::logic_error("sleep 需要当前线程的定时器绑定");
+    if (!_scheduler)
+      _scheduler = ::faio::detail::require_current_scheduler_for<S>();
+    const auto target = ::faio::detail::capture_resume_target(_scheduler);
+    _started = true;
+    auto token = ::faio::detail::current_task_context().stop_token;
     if (!token.stop_possible()) {
-      runtime::detail::timer::current_timer->add_task(_deadline, handle);
+      timer->add_task(_deadline, handle, {}, target);
       return true;
     }
     if (token.stop_requested()) {
       _cancelled_immediate = true;
       return false;
     }
-    /// @brief 0=注册中、1=已挂起、2=取消、3=到期。注册阶段收到 stop
-    /// 只改状态，await_suspend 自己返回 false；挂起后 callback 才投递恢复。
     _claim = std::make_shared<std::atomic<unsigned char>>(0);
-    auto* timer = runtime::detail::timer::current_timer;
-    _callback.emplace(token,
-                      cancel_callback{_claim, timer, handle, ::faio::detail::current_scheduler()});
-    timer->add_task(_deadline, handle, _claim);
+    _callback.emplace(token, cancel_callback{_claim, timer, handle, target});
+    timer->add_task(_deadline, handle, _claim, target);
     unsigned char expected = 0;
     if (_claim->compare_exchange_strong(expected, 1, std::memory_order_acq_rel))
       return true;
-    /// @brief 注册期间已经收到 stop，请尽快清理新增的项。
     timer->request_prune();
     return false;
   }
 
-  /// @brief 到期返回；停止请求先获胜时抛 operation_cancelled，落选 select
-  /// 分支因此不会继续执行 sleep 后面的用户代码。
+  /**
+   * @brief 到期时返回；若停止请求先获胜，则抛出 operation_cancelled，
+   * 使 select 中未选中的分支不再执行 sleep 之后的用户代码。
+   */
   auto await_resume() const -> void {
     if (_cancelled_immediate || (_claim && _claim->load(std::memory_order_acquire) == 2))
       throw operation_cancelled{};
   }
 
  private:
+  /** @brief 协作取消回调。 */
   struct cancel_callback {
-    std::shared_ptr<std::atomic<unsigned char>> claim;  ///< 到期与取消共享的原子领取状态，确保协程只恢复一次。
-    runtime::detail::timer::Timer* timer;  ///< 关联的时间轮管理器，登记和取消须遵循所属线程协议。
-    std::coroutine_handle<> handle;  ///< 当前持有或等待恢复的协程帧句柄，所有权遵循所属等待协议。
-    scheduler_ref scheduler;  ///< 捕获的目标调度器，跨线程完成时将续体投递回所属运行时。
+    std::shared_ptr<std::atomic<unsigned char>>
+        claim;                            /**< 到期与取消共享的原子领取状态，确保协程只恢复一次。 */
+    runtime::detail::timer::Timer* timer; /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
+    std::coroutine_handle<> handle;       /**< 等待恢复的协程句柄，所有权由等待协议规定。 */
+    ::faio::detail::basic_resume_target<S> scheduler; /**< 到期和取消共用捕获的恢复目标。 */
 
     void operator()() const noexcept {
       unsigned char state = claim->load(std::memory_order_acquire);
@@ -91,10 +126,16 @@ class Sleep {
     }
   };
 
-  std::chrono::steady_clock::time_point _deadline;  ///< 下一次计划触发的单调时钟绝对时间点。
-  bool _cancelled_immediate{};  ///< 挂起登记前是否已经观察到停止请求。
-  std::shared_ptr<std::atomic<unsigned char>> _claim;  ///< 到期与取消共享的原子领取状态，确保协程只恢复一次。
-  std::optional<std::stop_callback<cancel_callback>> _callback;  ///< 按需就地保存的停止回调，析构时注销并等待在途回调结束。
+  std::chrono::steady_clock::time_point _deadline; /**< 计划唤醒的单调时钟绝对时间点。 */
+  bool _started{};
+  scheduler_ref_for<S> _scheduler;
+  bool _cancelled_immediate{}; /**< 挂起登记前是否已经观察到停止请求。 */
+  std::shared_ptr<std::atomic<unsigned char>>
+      _claim; /**< 到期与取消共享的原子领取状态，确保协程只恢复一次。 */
+  std::optional<std::stop_callback<cancel_callback>>
+      _callback; /**< 按需就地保存停止回调，析构时注销并等待仍在执行的回调结束。 */
 };
-}
+
+using Sleep = BasicSleep<>;
+}  // namespace faio::time::detail
 #endif

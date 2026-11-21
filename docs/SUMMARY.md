@@ -1,48 +1,44 @@
 # 目录
 
-[欢迎使用 faio](index.md)
-
-# 开始使用
+[faio 文档](index.md)
 
 - [快速开始](getting-started.md)
-- [平台与构建](platforms.md)
-- [核心概念](concepts.md)
-
-# API 参考
-
-- [接口总览](api/index.md)
+- [认识 faio · 教程](learn-faio.md)
+  - [环境准备](tutorial/setup.md)
+  - [Hello faio](tutorial/hello-faio.md)
+  - [生成任务](tutorial/spawning.md)
+  - [共享状态](tutorial/shared-state.md)
+  - [通道](tutorial/channels.md)
+  - [网络 I/O](tutorial/io.md)
+  - [分帧](tutorial/framing.md)
+  - [深入 task](tutorial/task-in-depth.md)
+  - [select 与并发组合](tutorial/select.md)
+  - [异步流](tutorial/streams.md)
+- [专题](topics/index.md)
+  - [同步与异步桥接](topics/bridging.md)
+  - [优雅停机](topics/shutdown.md)
+  - [错误处理](topics/errors.md)
+  - [日志](topics/logging.md)
+  - [单元测试](topics/testing.md)
+- [术语表](glossary.md)
+- [API 介绍](api/index.md)
   - [协程与并发](api/tasks.md)
+    - [显式任务终态 settle](api/settle.md)
+    - [异步收尾 with_cleanup](api/with_cleanup.md)
+    - [结构化任务组 task_group](api/task_group.md)
+    - [限并发 join_all_limited](api/join_all_limited.md)
+    - [聚合终态 join_settled](api/join_settled.md)
+    - [首个成功 select_success](api/select_success.md)
+    - [停止令牌 with_stop_token](api/with_stop_token.md)
+    - [截止边界 complete_before](api/complete_before.md)
   - [运行时与配置](api/runtime.md)
   - [网络 I/O](api/network.md)
   - [文件与目录](api/filesystem.md)
+  - [TLS 加密](api/tls.md)
+  - [异步进程](api/process.md)
   - [时间与超时](api/time.md)
   - [协程同步](api/sync.md)
   - [缓冲与流操作](api/io.md)
   - [错误与日志](api/errors.md)
   - [实验性接口](api/experimental.md)
-
-# 官方例程
-
-- [例程导航](examples/index.md)
-  - [协程基础](examples/coroutines.md)
-  - [同步与阻塞任务](examples/synchronization.md)
-  - [TCP 与 UDP 服务](examples/network.md)
-  - [文件与目录操作](examples/files.md)
-  - [共享计数器应用](examples/counter.md)
-  - [实验性例程](examples/experimental.md)
-
-# 模块设计
-
-- [架构与阅读路线](modules.md)
-- [协程封装](协程封装.md)
-- [协程并发](协程并发.md)
-- [异步运行时](异步运行时.md)
-- [异步 I/O](异步IO.md)
-- [网络 I/O](网络IO.md)
-- [定时器](定时器.md)
-- [协程同步](协程同步.md)
-- [实验性特性](实验性特性.md)
-
----
-
-[文档维护与部署](contributing-docs.md)
+- [API 查询](api-reference.md)

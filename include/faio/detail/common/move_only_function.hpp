@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/common/move_only_function.hpp
- * @brief 公共类型、错误与基础工具：仅移动可调用对象。
- * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ * @brief 只可移动的可调用对象。
  */
 #pragma once
 #include <concepts>
@@ -12,10 +11,11 @@
 #include <utility>
 
 namespace faio {
-/** @brief 可移动、不可复制的拥有型回调，供尚无 std::move_only_function 的
+/**
+ *  @brief 持有可调用对象的回调，只能移动，不能复制；供尚无 std::move_only_function 的
  * libc++ 使用。
- * @details 小对象保存在64字节内联区；只有过大、过度对齐或可能抛出的移动构造
- * 才分配一次稳定对象。移动与析构不分配，任务接受后可以无异常地交接所有权。
+ * @details 小对象保存在 64 字节内联区；对象过大、对齐要求过高或移动构造可能抛出异常时，
+ * 才在堆上分配地址固定的对象。移动与析构不分配内存，任务被接纳后可无异常地转移所有权。
  * 空回调不可调用，与 std::move_only_function 的前置条件相同。
  */
 template <class Signature>
@@ -24,15 +24,16 @@ class move_only_function;
 template <class R, class... Args>
 class move_only_function<R(Args...)> {
  public:
-  static constexpr std::size_t inline_capacity = 64;  ///< 可调用对象的内联存储容量，单位为字节。
+  static constexpr std::size_t inline_capacity = 64; /**< 可调用对象的内联存储容量，单位为字节。 */
 
  private:
+  /** @brief 保存调用、销毁和移动函数的操作表。 */
   struct table {
-    R (*invoke)(void*, Args&&...);  ///< 调用擦除类型后的目标对象，参数按原签名转发。
+    R (*invoke)(void*, Args&&...); /**< 通过类型擦除调用目标对象，并按原签名转发参数。 */
 
-    void (*destroy)(void*) noexcept;  ///< 销毁擦除类型后的目标对象并释放其拥有的存储。
+    void (*destroy)(void*) noexcept; /**< 通过类型擦除销毁目标对象，并释放其持有的存储。 */
 
-    void (*move)(void*, void*) noexcept;  ///< 将目标对象转移到另一存储位置，源对象随后不再拥有目标。
+    void (*move)(void*, void*) noexcept; /**< 将目标对象移入另一存储位置，源位置不再持有目标。 */
   };
 
   template <class F>
@@ -40,6 +41,7 @@ class move_only_function<R(Args...)> {
       sizeof(F) <= inline_capacity && alignof(F) <= alignof(std::max_align_t)
       && std::is_nothrow_move_constructible_v<F>;
 
+  /** @brief 取得存储中的目标可调用对象。 */
   template <class F>
   static F& target(void* storage) noexcept {
     if constexpr (fits<F>)
@@ -78,10 +80,13 @@ class move_only_function<R(Args...)> {
   template <class F>
   static constexpr bool stores_inline = fits<std::decay_t<F>>;
 
+  /** @brief 构造空回调。 */
   move_only_function() noexcept = default;
 
+  /** @brief 用 nullptr 构造空回调。 */
   move_only_function(std::nullptr_t) noexcept {}
 
+  /** @brief 构造回调并持有传入的可调用对象。 */
   template <class F>
     requires(!std::same_as<std::remove_cvref_t<F>, move_only_function>)
             && std::is_invocable_r_v<R, std::decay_t<F>&, Args...>
@@ -95,16 +100,20 @@ class move_only_function<R(Args...)> {
     table_ = &operations<callable>;
   }
 
+  /** @brief 禁止复制可调用对象的所有权。 */
   move_only_function(const move_only_function&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   move_only_function& operator=(const move_only_function&) = delete;
 
+  /** @brief 接管可调用对象，并将源对象置空。 */
   move_only_function(move_only_function&& other) noexcept
       : table_(std::exchange(other.table_, nullptr)) {
     if (table_)
       table_->move(other.storage_, storage_);
   }
 
+  /** @brief 释放原有可调用对象，再接管源对象。 */
   move_only_function& operator=(move_only_function&& other) noexcept {
     if (this != &other) {
       reset();
@@ -115,13 +124,15 @@ class move_only_function<R(Args...)> {
     return *this;
   }
 
+  /** @brief 销毁持有的可调用对象。 */
   ~move_only_function() { reset(); }
 
+  /** @brief 检查是否持有可调用对象。 */
   explicit operator bool() const noexcept { return table_ != nullptr; }
 
   R operator()(Args... args) { return table_->invoke(storage_, std::forward<Args>(args)...); }
 
-  /// @brief 按该类型约定释放或清空当前状态，重复调用遵循对象的空状态规则。
+  /** @brief 销毁持有的可调用对象并清空状态；可重复调用。 */
   void reset() noexcept {
     if (table_) {
       table_->destroy(storage_);
@@ -130,7 +141,8 @@ class move_only_function<R(Args...)> {
   }
 
  private:
-  alignas(std::max_align_t) std::byte storage_[inline_capacity];  ///< 按最大基本对齐存放小型可调用对象的内联字节区。
-  const table* table_{};  ///< 当前可调用类型的调用、析构和移动函数表；空指针表示未绑定。
+  alignas(std::max_align_t)
+      std::byte storage_[inline_capacity]; /**< 按最大基本对齐要求存放小型可调用对象的内联区。 */
+  const table* table_{}; /**< 当前类型的调用、析构和移动函数表；空指针表示未绑定对象。 */
 };
-}
+}  // namespace faio

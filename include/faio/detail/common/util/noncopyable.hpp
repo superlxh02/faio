@@ -1,22 +1,26 @@
 /**
  * @file faio/detail/common/util/noncopyable.hpp
- * @brief 公共类型、错误与基础工具：禁止复制的基类。
- * @details 供 faio 各模块复用的头文件接口；具体所有权、错误与线程访问约束见类型及成员说明。
+ * @brief 禁止复制的基类。
  */
 #ifndef FAIO_DETAIL_COMMON_UTIL_NONCOPYABLE_HPP
 #define FAIO_DETAIL_COMMON_UTIL_NONCOPYABLE_HPP
 
 namespace faio::util {
+/** @brief 禁止复制的基类。 */
 class Noncopyable {
  public:
+  /** @brief 禁止复制构造。 */
   Noncopyable(const Noncopyable&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   Noncopyable& operator=(const Noncopyable&) = delete;
 
  protected:
+  /** @brief 构造基类对象。 */
   Noncopyable() = default;
 
+  /** @brief 销毁基类对象。 */
   ~Noncopyable() noexcept = default;
 };
-}
+}  // namespace faio::util
 #endif

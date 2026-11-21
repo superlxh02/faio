@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/base/reactor.hpp
- * @brief 跨平台异步 IO：就绪反应器。
- * @details 基础包装保留具体后端的静态类型与所有权，转发注册、提交、轮询及控制接口；不以回执数量推断业务完成或负载释放。
+ * @brief 就绪反应器。
  */
 #pragma once
 #include "faio/detail/io/traits/reactor.hpp"
@@ -10,36 +9,38 @@
 
 namespace faio::io::detail {
 #if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
-/// @brief 仅单翻译单元的 reactor 契约测试启用这些确定性竞态测试入口。
+/** @brief 仅单翻译单元的 reactor 契约测试启用这些确定性竞态测试入口。 */
 enum class reactor_control_test_point { poll_after_consume, wake_before_syscall };
 #endif
 
-/// @brief CRTP readiness 合同，显式对象参数直接调用具体 reactor。
+/** @brief CRTP readiness 约定，显式对象参数直接调用具体 reactor。 */
 template <class Derived>
 class reactor_api {
  protected:
+  /** @brief 构造就绪反应器协议基类。 */
   reactor_api() = default;
+  /** @brief 销毁就绪反应器协议基类。 */
   ~reactor_api() = default;
 
  public:
-  /// @brief 登记长期资源及其事件 key；不接管原生句柄的所有权。
+  /** @brief 登记长期资源及其事件 key；不接管原生句柄的所有权。 */
   int register_resource(this Derived& self, int fd, std::uint64_t key) noexcept {
     return self.object().register_resource(fd, key);
   }
 
-  /// @brief 撤销资源登记而不关闭 fd；迟到事件仍须由上层按资源 key 过滤。
+  /** @brief 撤销资源登记而不关闭 fd；迟到事件仍须由上层按资源 key 过滤。 */
   void unregister_resource(this Derived& self, int fd) noexcept {
     self.object().unregister_resource(fd);
   }
 
-  /// @brief 在给定输出容量与等待预算内消费一批事件，保留后续未消费事件。
+  /** @brief 在给定输出容量与等待预算内消费一批事件，保留后续未消费事件。 */
   int poll(this Derived& self,
            std::span<readiness_event> out,
            std::optional<int> timeout) noexcept {
     return self.object().poll(out, timeout);
   }
 
-  /// @brief 在具体 reactor 内直接生成调用方事件，映射器在编译期内联。
+  /** @brief 在具体 reactor 内直接生成调用方事件，映射器在编译期内联。 */
   template <class Event, class Map>
   int poll_into(this Derived& self,
                 std::span<Event> out,
@@ -50,36 +51,42 @@ class reactor_api {
     return self.object().poll_into(out, timeout, map);
   }
 
-  /// @brief 发送独立控制通知，打断底层等待以处理已经发布的工作。
+  /** @brief 通过独立控制通知唤醒底层等待，处理已发布的工作。 */
   void wake(this const auto& self) noexcept { self.object().wake(); }
 
-  /// @brief 返回实际后端的静态诊断名称。
+  /** @brief 返回实际后端用于诊断的静态名称。 */
   const char* name(this const auto&) noexcept { return Derived::reactor_type::backend_name; }
 };
 
+/** @brief 就绪反应器的静态封装。 */
 template <class R>
-/// @brief 唯一拥有具体就绪反应器，移动只转交所有权而不迁移原生队列对象。
 class basic_reactor_box : public reactor_api<basic_reactor_box<R>> {
  public:
-  using reactor_type = R;  ///< 编译期选定的具体就绪反应器类型。
+  using reactor_type = R; /**< 编译期选定的具体就绪反应器类型。 */
 
+  /** @brief 构造就绪反应器的静态封装。 */
   explicit basic_reactor_box(std::unique_ptr<R> object) noexcept
     requires reactor_implementation<R>
       : object_(std::move(object)) {}
 
+  /** @brief 移动构造就绪反应器的静态封装。 */
   basic_reactor_box(basic_reactor_box&&) noexcept = default;
+  /** @brief 禁止移动赋值。 */
   basic_reactor_box& operator=(basic_reactor_box&&) = delete;
+  /** @brief 禁止复制构造就绪反应器的静态封装。 */
   basic_reactor_box(const basic_reactor_box&) = delete;
+  /** @brief 禁止复制赋值。 */
   basic_reactor_box& operator=(const basic_reactor_box&) = delete;
+  /** @brief 销毁就绪反应器的静态封装。 */
   ~basic_reactor_box() = default;
 
  private:
   friend class reactor_api<basic_reactor_box<R>>;
 
-  /// @brief 取得由当前包装唯一拥有的具体实现对象，保留静态类型转发。
+  /** @brief 访问包装器独占持有的具体实现，保留静态类型。 */
   R& object() const noexcept { return *object_; }
 
-  std::unique_ptr<R> object_;  ///< 唯一拥有的具体后端或反应器对象，静态转发不额外擦除类型。
+  std::unique_ptr<R> object_; /**< 唯一拥有的具体后端或反应器对象，静态转发不额外擦除类型。 */
 };
 
-}
+}  // namespace faio::io::detail

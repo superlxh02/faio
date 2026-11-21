@@ -1,6 +1,6 @@
-# faio 公共 API 参考
+# faio 核心公共 API 参考
 
-面向库使用者的逐项接口文档。按模块查找类型与函数，点击方法名查看完整签名、重载、形参、返回值、错误及生命周期约定。
+面向库使用者的核心公开接口查询。按下列模块查找已收录的类型与函数，点击方法名查看签名、重载、参数、返回值及生命周期约定。TLS、异步进程与实验层分别见[TLS介绍](../book/api/tls.html)、[进程介绍](../book/api/process.html)和[实验性接口介绍](../book/api/experimental.html)。
 
 - @ref tasks "协程与并发"：task、spawn、join、select、scope 与任务结果句柄。
 - @ref runtime "运行时与配置"：config_builder、运行模式、关闭策略与协程查询。
@@ -28,6 +28,6 @@ if (!count) co_return;
 
 ## 头文件与平台
 
-`<faio/faio.hpp>` 是完整入口；网络、文件和流算法可分别使用 `<faio/net.hpp>`、`<faio/fs.hpp>`、`<faio/io.hpp>`。本参考按公共名称组织，包含公开别名继承的方法。Unix 描述符页仅适用于 Unix；Linux 专有选项会在不支持的平台返回错误或不提供，详见[平台说明](../book/platforms.html)。
+`<faio/faio.hpp>` 汇集已启用的稳定功能。应用也可以按需包含功能头，例如 `<faio/net/tcp.hpp>`、`<faio/fs/file.hpp>` 或 `<faio/io/stream.hpp>`。本参考按公共名称组织，包含公开别名继承的方法。Unix 描述符页仅适用于 Unix。Linux 专有选项会在不支持的平台返回错误或不提供，详见[快速开始](../book/getting-started.html)。
 
-[开始使用](../book/getting-started.html) · [官方例程](../book/examples/index.html) · [模块讲解](../book/modules.html)
+[快速开始](../book/getting-started.html) · [API 介绍](../book/api/index.html) · [API 查询](../book/api-reference.html)

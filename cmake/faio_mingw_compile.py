@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
-"""修复 MinGW GCC 的单个 inline TLS initializer COFF 符号，不放宽链接诊断。
-
-GCC 将当前停止令牌的初始化 alias 错误导出为强符号。该 alias 只供当前
-翻译单元的 TLS wrapper 使用，局部化后每个 TU 保留自身的初始化函数；
-inline TLS 实体及一次性 guard 继续由正常 COMDAT 规则合并。
+"""@file faio_mingw_compile.py
+@brief 编译 MinGW 对象，并将指定的 TLS 初始化符号改为局部符号。
 """
 import argparse
 from pathlib import Path
@@ -15,7 +12,7 @@ SYMBOL = '_ZTHN4faio6detail18current_stop_tokenE'
 
 
 def has_lto_sections(data, big_coff):
-    """读取 COFF section 名称，fat LTO 的优化数据也必须明确拒绝。"""
+    """@brief 检查 COFF 对象是否包含 LTO 数据段。"""
     if big_coff:
         count, symbols, symbol_count = struct.unpack_from('<III', data, 44)
         section_start, symbol_size = 56, 20
@@ -40,6 +37,10 @@ def has_lto_sections(data, big_coff):
 
 
 def main():
+    """@brief 执行编译命令，并处理非 LTO COFF 对象中精确匹配的符号。
+
+    @details 输入为普通 COFF 对象时，将指定的 TLS 初始化符号改为局部符号；其他符号及链接产物保持原状。
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--objcopy', required=True)
     parser.add_argument('--nm', required=True)
@@ -49,11 +50,9 @@ def main():
     if not command:
         parser.error('compiler command required')
     if '-c' in command and any(option == '-flto' or option.startswith('-flto=') for option in command):
-        # slim LTO 对象可能只有 __gnu_lto_slim，普通 nm 看不到后续会再生成的 alias。
         print('faio: the MinGW GCC TLS compiler launcher requires non-LTO objects; '
               'disable interprocedural optimization/-flto for this target.', file=sys.stderr)
         return 1
-    # 用户原有的 ccache/sccache launcher 仍作为完整命令的一部分执行。
     completed = subprocess.run(command)
     if completed.returncode:
         return completed.returncode
@@ -67,7 +66,6 @@ def main():
             output = Path(option[2:])
     if output is None or output.suffix.lower() not in ('.obj', '.o') or not output.is_file():
         return 0
-    # 只处理 Windows COFF 对象；预编译头、归档、链接产物和其他格式不参与修复。
     with output.open('rb') as source:
         header = source.read(8)
         normal_coff = header[:2] in (b'\x64\x86', b'\x4c\x01')
@@ -80,13 +78,11 @@ def main():
     symbols = subprocess.run([args.nm, '--defined-only', '--extern-only', '--format=posix', str(output)],
                              capture_output=True, text=True, check=True)
     names = {line.split()[0] for line in symbols.stdout.splitlines() if line.strip()}
-    # 即使 -flto 隐藏在响应文件或外部 launcher 中，也不能静默接受 LTO 对象。
     if any(name.startswith('__gnu_lto') for name in names) or 'plugin needed' in symbols.stderr.lower():
         print('faio: MinGW GCC LTO object detected; the TLS workaround requires non-LTO objects.', file=sys.stderr)
         return 1
     if SYMBOL not in names:
         return 0
-    # 绝不修改其他强/弱符号，也不合并 __tls_init 的函数体。
     subprocess.run([args.objcopy, '--localize-symbol=' + SYMBOL, str(output)], check=True)
     return 0
 

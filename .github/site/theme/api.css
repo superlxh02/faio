@@ -1,55 +1,676 @@
-/* Shared visual language with the homepage and mdBook guide. */
-html { color-scheme: dark; --primary-color: #92b1ff; --primary-dark-color: #6989f5; --page-background-color: #0b0f19; --page-foreground-color: #d8dfef; --page-secondary-foreground-color: #94a3bd; --separator-color: #263147; --side-nav-background: #0e1421; --code-background: #101827; --fragment-background: #101827; --fragment-foreground: #d8dfef; --memdecl-background: #111a2b; --memdef-background: #111a2b; --memdoc-background: #0d1421; --search-background-color: #111a2b; }
-body, table, div, p, dl { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; font-size: 15px; line-height: 1.8; }
-body { margin: 0; background: #0b0f19; color: #d8dfef; }
-a, a:visited { color: #92b1ff; }
-a:hover { color: #bdceff; }
-.faio-api-nav { height: 64px; display: flex; align-items: center; gap: 28px; padding: 0 32px; border-bottom: 1px solid #263147; background: #090d16; box-sizing: border-box; }
-.faio-api-nav a { text-decoration: none; color: #a7b5cd; font-size: 14px; }
-.faio-api-nav a[aria-current] { color: #b0c7ff; }
-.faio-api-nav .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; color: #f2f5ff; font-size: 25px; font-weight: 750; letter-spacing: -1px; }
-.faio-api-nav img { width: 28px; height: 28px; }
-#titlearea { border: 0; padding: 20px 28px 16px; background: #0e1421; }
-#projectname { font-size: 24px; font-weight: 700; letter-spacing: -1px; }
-#projectbrief { font-size: 13px; color: #94a3bd; }
-#main-nav { background: #0e1421; border-bottom: 1px solid #263147; }
-.sm-dox { background: none; }
-.sm-dox a { font-family: inherit; font-size: 14px; background: none; text-shadow: none; }
-#side-nav { background: #0e1421; border-right: 1px solid #263147; }
-#nav-tree { background: #0e1421; }
-#nav-tree .item { padding: 4px 8px; }
-#nav-tree a { font: 14px/1.8 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif; }
-#nav-tree .selected { background: #1b2b4a; text-shadow: none; }
-#nav-tree .selected a { color: #c3d4ff; }
-div.header { background: #101725; border-bottom: 1px solid #263147; padding: 16px 20px; }
-div.title { font: 650 27px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif; letter-spacing: -.6px; }
-div.contents { max-width: 1240px; padding: 24px 36px 72px; margin: 0 auto; }
-h1 { font-size: 28px; } h2 { font-size: 23px; } h3 { font-size: 18px; }
-h2.groupheader { color: #e3eaff; border-bottom: 1px solid #263147; padding-bottom: 12px; margin-top: 40px; }
-.memtitle { padding: 14px 18px; border: 1px solid #293956; border-radius: 9px 9px 0 0; margin-top: 35px; background: #18243a; color: #bdd0ff; font-size: 17px; }
-.memproto { border: 1px solid #293956; box-shadow: none; border-radius: 0; padding: 16px 18px; background: #111a2b; }
-.memdoc { border: 1px solid #293956; border-top: 0; box-shadow: none; border-radius: 0 0 9px 9px; background: #0d1421; padding: 20px 24px; }
-.memdoc dl { margin: 16px 0; } .memdoc dt { color: #c4d5fa; font-weight: 650; margin-bottom: 6px; }
-.memname, .memname td, code, .fragment, .paramname { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
-.memname { line-height: 1.8; } .paramname { color: #b5c7ef; }
-.params td, .retval td { padding: 7px 12px 7px 0; vertical-align: top; }
-.params .paramname { min-width: 105px; font-weight: 600; }
-.fragment { background: #101827; border: 1px solid #293956; border-radius: 8px; padding: 15px; overflow-x: auto; }
-.memitem { scroll-margin-top: 20px; }
-.memitem:target .memdoc { border-color: #6989f5; }
-.directory td { padding: 9px; }
-.directory tr.even { background: #101827; }
-hr.footer { border: 0; border-top: 1px solid #263147; } address.footer { padding: 15px; color: #94a3bd; }
-#MSearchBox { border-radius: 6px; }
-@media (max-width: 760px) {
- .faio-api-nav { gap: 16px; padding: 0 16px; } .faio-api-nav a { font-size: 13px; }
- .faio-api-nav a:last-child { display: none; }
- div.contents { padding: 16px 16px 40px; } div.title { font-size: 22px; }
- .memproto { overflow-x: auto; } .memdoc { padding: 14px; }
+/* faio API reference · shared visual language with the homepage and mdBook. */
+:root {
+  color-scheme: light;
+  --faio-paper: #f7f8fc;
+  --faio-surface: #ffffff;
+  --faio-sidebar: #f1f3fa;
+  --faio-ink: #141830;
+  --faio-body: #4a5068;
+  --faio-faint: #6f7690;
+  --faio-line: #e3e6f0;
+  --faio-accent: #5061cf;
+  --faio-accent-ink: #4251b8;
+  --faio-accent-wash: #edeefe;
+  --faio-code: #f1f3fa;
+  --faio-code-fg: #2b3247;
+  --faio-code-line: #dde1ee;
+  --faio-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --primary-color: #4251b8;
+  --primary-dark-color: #5061cf;
+  --page-background-color: #f7f8fc;
+  --page-foreground-color: #4a5068;
+  --page-secondary-foreground-color: #6f7690;
+  --separator-color: #e3e6f0;
+  --side-nav-background: #f1f3fa;
+  --code-background: #f1f3fa;
+  --fragment-background: #f1f3fa;
+  --fragment-foreground: #2b3247;
+  --memdecl-background: #f1f3fa;
+  --memdef-background: #ffffff;
+  --memdoc-background: #ffffff;
+  --search-background-color: #ffffff;
 }
 
-#titlearea { display: none; }
+* {
+  box-sizing: border-box;
+}
 
-.memdoc dl.note { border-left: 3px solid #6389e8; background: #12203a; border-radius: 0 7px 7px 0; padding: 12px 16px; }
-.memdoc dl.note dt { color: #aac5ff; }
-.memdoc dl.note dd { margin-left: 0; color: #b9c9e8; }
+html {
+  background: var(--faio-paper);
+  scroll-padding-top: 24px;
+}
+
+body,
+table,
+div,
+p,
+dl {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+body {
+  margin: 0;
+  background: var(--faio-paper);
+  color: var(--faio-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: #d9ddfb;
+  color: var(--faio-ink);
+}
+
+a,
+a:visited {
+  color: var(--faio-accent-ink);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--faio-accent);
+}
+
+/* Top-level site navigation, injected after Doxygen generation. */
+.faio-api-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 74px;
+  padding: 0 30px;
+  border-bottom: 1px solid #0d1020;
+  background: #12162b;
+  color: #aeb5cf;
+}
+
+.faio-api-nav a {
+  color: #aeb5cf;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.faio-api-nav a:hover,
+.faio-api-nav a[aria-current] {
+  color: #ffffff;
+}
+
+.faio-api-nav .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+}
+
+.faio-api-nav img {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  box-shadow: 0 4px 12px -6px rgba(69, 82, 180, 0.55);
+}
+
+.faio-api-nav > a:last-child {
+  padding: 7px 11px;
+  border: 1px solid #2a3050;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #aeb5cf;
+  font-size: 12px;
+}
+
+.faio-api-nav > a:last-child:hover {
+  border-color: #ffffff;
+  color: #ffffff;
+}
+
+/* Doxygen navigation and class tree. */
+#titlearea {
+  display: none;
+  padding: 20px 28px 16px;
+  border: 0;
+  background: var(--faio-sidebar);
+}
+
+#projectname {
+  color: var(--faio-ink);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+#projectbrief {
+  color: var(--faio-faint);
+  font-size: 13px;
+}
+
+#main-nav {
+  border-bottom: 1px solid var(--faio-line);
+  background: var(--faio-surface);
+}
+
+.sm-dox {
+  background: none;
+}
+
+.sm-dox a {
+  background: none;
+  color: var(--faio-body);
+  font-family: inherit;
+  font-size: 13px;
+  text-shadow: none;
+}
+
+.sm-dox a:hover,
+.sm-dox a:focus,
+.sm-dox .current > a {
+  background: var(--faio-accent-wash);
+  color: var(--faio-accent-ink);
+  text-shadow: none;
+}
+
+.sm-dox ul {
+  border: 1px solid var(--faio-line);
+  border-radius: 10px;
+  background: var(--faio-surface);
+  box-shadow: 0 16px 36px -24px rgba(24, 31, 56, 0.5);
+}
+
+#side-nav {
+  border-right: 1px solid var(--faio-line);
+  background: var(--faio-sidebar);
+}
+
+#nav-tree {
+  background: var(--faio-sidebar);
+}
+
+#nav-tree .item {
+  padding: 4px 8px;
+}
+
+#nav-tree a {
+  color: var(--faio-body);
+  font: 13px/1.8 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+
+#nav-tree a:hover {
+  color: var(--faio-accent-ink);
+}
+
+#nav-tree .selected {
+  border-radius: 7px;
+  background: var(--faio-accent-wash);
+  text-shadow: none;
+}
+
+#nav-tree .selected a {
+  color: var(--faio-accent-ink);
+  font-weight: 650;
+}
+
+/* Page heading and content. */
+div.header {
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid var(--faio-line);
+  background: var(--faio-paper);
+}
+
+div.title {
+  color: var(--faio-ink);
+  font: 750 29px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  letter-spacing: -0.035em;
+}
+
+div.contents {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 30px 38px 80px;
+}
+
+.contents h1,
+.contents h2,
+.contents h3,
+.contents h4 {
+  color: var(--faio-ink);
+}
+
+h1 {
+  font-size: 29px;
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  font-size: 23px;
+  letter-spacing: -0.025em;
+}
+
+h3 {
+  font-size: 18px;
+  letter-spacing: -0.015em;
+}
+
+h2.groupheader {
+  margin-top: 42px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--faio-line);
+  color: var(--faio-ink);
+  font-weight: 700;
+}
+
+.textblock {
+  line-height: 1.9;
+}
+
+/* Public declarations: accent heading, dark signature, light documentation. */
+.memitem {
+  margin-bottom: 20px;
+  scroll-margin-top: 20px;
+}
+
+.memtitle {
+  margin-top: 34px;
+  padding: 14px 19px;
+  border: 1px solid #d9ddfb;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--faio-accent-wash);
+  color: var(--faio-accent-ink);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.memproto {
+  padding: 17px 19px;
+  border: 1px solid var(--faio-code-line);
+  border-radius: 0;
+  background: var(--faio-code);
+  box-shadow: none;
+  color: var(--faio-code-fg);
+  overflow-x: auto;
+}
+
+.memdoc {
+  padding: 22px 25px;
+  border: 1px solid var(--faio-line);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--faio-surface);
+  box-shadow: none;
+}
+
+.memitem:target .memtitle,
+.memitem:target .memdoc {
+  border-color: var(--faio-accent);
+}
+
+.memdoc dl {
+  margin: 16px 0;
+}
+
+.memdoc dt {
+  margin-bottom: 6px;
+  color: var(--faio-ink);
+  font-weight: 650;
+}
+
+.memdoc dd {
+  line-height: 1.85;
+}
+
+.memname,
+.memname td,
+code,
+.fragment,
+.paramname {
+  font-family: var(--faio-mono);
+  font-size: 13px;
+}
+
+.memname {
+  color: var(--faio-code-fg);
+  line-height: 1.8;
+}
+
+.memname a,
+.memname a:visited {
+  color: #4251b8;
+  text-decoration: none;
+}
+
+.memname a:hover {
+  color: #5061cf;
+}
+
+.memtemplate {
+  color: #7c3aed;
+}
+
+.paramname {
+  color: var(--faio-accent-ink);
+}
+
+code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--faio-accent-wash);
+  color: var(--faio-accent-ink);
+}
+
+pre code,
+.fragment code,
+.memname code,
+.memproto code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.params td,
+.retval td {
+  padding: 8px 14px 8px 0;
+  vertical-align: top;
+}
+
+.params .paramname {
+  min-width: 110px;
+  font-weight: 600;
+}
+
+.fragment {
+  padding: 18px 20px;
+  border: 1px solid var(--faio-code-line);
+  border-radius: 12px;
+  background: var(--faio-code);
+  color: var(--faio-code-fg);
+  box-shadow: 0 12px 28px -24px rgba(24, 31, 56, 0.65);
+  overflow-x: auto;
+}
+
+.fragment .keyword,
+.fragment .keywordtype,
+.fragment .keywordflow,
+.fragment .preprocessor,
+.memproto .keyword,
+.memproto .keywordtype,
+.memproto .keywordflow,
+.memproto .preprocessor {
+  color: #7c3aed;
+}
+
+.fragment .stringliteral,
+.fragment .charliteral {
+  color: #0a7d5a;
+}
+
+.fragment .number {
+  color: #b45309;
+}
+
+.fragment .comment {
+  color: #78809a;
+}
+
+.fragment .lineno {
+  color: #78809a;
+}
+
+/* Tables and directories. */
+table.doxtable,
+table.fieldtable {
+  margin-block: 22px;
+  border: 1px solid var(--faio-line);
+  border-spacing: 0;
+  border-radius: 12px;
+  background: var(--faio-surface);
+  overflow: hidden;
+}
+
+table.doxtable th,
+table.fieldtable th {
+  background: #f1f3fa;
+  color: var(--faio-ink);
+  font-weight: 650;
+}
+
+table.doxtable td,
+table.doxtable th,
+table.fieldtable td,
+table.fieldtable th {
+  padding: 11px 14px;
+  border-color: var(--faio-line);
+}
+
+.directory td {
+  padding: 10px;
+}
+
+.directory tr.even {
+  background: #fbfbfe;
+}
+
+/* Notes, warnings and search. */
+.memdoc dl.note,
+.memdoc dl.warning,
+.memdoc dl.attention {
+  padding: 13px 17px;
+  border-left: 3px solid var(--faio-accent);
+  border-radius: 0 10px 10px 0;
+  background: var(--faio-accent-wash);
+}
+
+.memdoc dl.note dt,
+.memdoc dl.warning dt,
+.memdoc dl.attention dt {
+  color: var(--faio-accent-ink);
+}
+
+.memdoc dl.note dd,
+.memdoc dl.warning dd,
+.memdoc dl.attention dd {
+  margin-left: 0;
+  color: var(--faio-body);
+}
+
+#MSearchBox {
+  border: 1px solid var(--faio-line);
+  border-radius: 9px;
+  background: var(--faio-surface);
+  box-shadow: none;
+}
+
+#MSearchField {
+  color: var(--faio-ink);
+  font-family: inherit;
+}
+
+#MSearchResultsWindow {
+  border: 1px solid var(--faio-line);
+  border-radius: 10px;
+  background: var(--faio-surface);
+  color: var(--faio-body);
+  box-shadow: 0 18px 40px -24px rgba(24, 31, 56, 0.5);
+}
+
+#MSearchResults a {
+  color: var(--faio-accent-ink);
+}
+
+#MSearchResults .SRStatus {
+  color: var(--faio-faint);
+  background: var(--faio-surface);
+}
+
+.SRSymbol {
+  color: var(--faio-accent-ink);
+}
+
+hr.footer {
+  border: 0;
+  border-top: 1px solid var(--faio-line);
+}
+
+address.footer {
+  padding: 18px;
+  color: var(--faio-faint);
+}
+
+/* Reset Doxygen's legacy blue shadows and member-table decorations. */
+h2.groupheader,
+td h2.groupheader,
+div.groupHeader {
+  background: transparent;
+  box-shadow: none;
+}
+
+.memtitle {
+  box-shadow: none;
+}
+
+.memtitle::after {
+  background: var(--faio-accent-wash);
+}
+
+.memitem {
+  margin-right: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.memproto {
+  font-weight: 400;
+}
+
+.memItemLeft,
+.memItemRight,
+.memTemplParams,
+.mdescLeft,
+.mdescRight {
+  border-color: var(--faio-line);
+  background: var(--faio-surface);
+  color: var(--faio-body);
+}
+
+.memItemLeft,
+.memItemRight,
+.memTemplParams {
+  font-family: var(--faio-mono);
+}
+
+.memItemLeft {
+  color: var(--faio-accent-ink);
+}
+
+tr[class^="memdesc"] {
+  box-shadow: none;
+}
+
+td.ititle {
+  border-color: var(--faio-line);
+  background: var(--faio-accent-wash);
+  color: var(--faio-accent-ink);
+}
+
+div.toc {
+  border: 1px solid var(--faio-line);
+  border-radius: 12px;
+  background: var(--faio-surface);
+  color: var(--faio-body);
+}
+
+div.toc h3 {
+  color: var(--faio-accent-ink);
+  font-family: inherit;
+}
+
+div.toc li {
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+#nav-path {
+  border-top: 1px solid var(--faio-line);
+  background: var(--faio-surface);
+  color: var(--faio-faint);
+}
+
+@media (max-width: 760px) {
+  .faio-api-nav {
+    gap: 15px;
+    height: 64px;
+    padding: 0 16px;
+  }
+
+  .faio-api-nav a {
+    font-size: 11px;
+  }
+
+  .faio-api-nav .brand {
+    gap: 8px;
+    font-size: 20px;
+  }
+
+  .faio-api-nav img {
+    width: 27px;
+    height: 27px;
+  }
+
+  .faio-api-nav > a:last-child {
+    display: none;
+  }
+
+  div.header {
+    padding: 18px 16px 15px;
+  }
+
+  div.title {
+    font-size: 23px;
+  }
+
+  div.contents {
+    padding: 20px 16px 48px;
+  }
+
+  .memtitle {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .memproto {
+    padding: 14px;
+    overflow-x: auto;
+  }
+
+  .memdoc {
+    padding: 16px;
+  }
+
+  .memname,
+  .memname td,
+  code,
+  .fragment,
+  .paramname {
+    font-size: 11.5px;
+  }
+
+  .sm-dox {
+    overflow-x: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  * {
+    transition: none !important;
+  }
+}

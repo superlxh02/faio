@@ -1,4 +1,5 @@
-# Fedora Koji gcc-16.1.1-2.fc44, retrieved 2026-10-06 over HTTPS.
+# @file docker/gcc16.1.sha256
+# @brief Fedora GCC 16.1.1-2.fc44官方RPM的SHA256清单。
 # https://kojipkgs.fedoraproject.org/packages/gcc/16.1.1/2.fc44/
 36cb4ae1891109006bfff7fab966da1ff110f58b4e2373a2158da4397fc28392  aarch64/cpp-16.1.1-2.fc44.aarch64.rpm
 073ca0d06242405e0acad7b88f7368b8985b5b5ac842910e7d36c8a28b6469c6  aarch64/gcc-16.1.1-2.fc44.aarch64.rpm

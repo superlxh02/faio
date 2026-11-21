@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# A real compile/run check of the isolated Fedora GCC and libstdc++ pair.
+## @file docker/verify_experimental_toolchain.sh
+## @brief 验证 GCC 16.1 是否支持反射、标准库是否匹配，以及 Sanitizer 能否链接。
 set -euo pipefail
 
 readonly faio_toolchain_cxx="${CXX:-/opt/gcc-16.1/usr/bin/g++}"
@@ -60,8 +61,6 @@ case "${faio_toolchain_loaded}" in
     *'libgcc_s.so.1 => /opt/gcc-16.1/lib64/libgcc_s.so.1'*) ;;
     *) printf 'faio experimental: the probe loaded an unpaired libgcc\n' >&2; exit 1 ;;
 esac
-# Linking catches missing/mismatched sanitizer development libraries. Runtime
-# sanitizer tests belong to separate faio ASan+UBSan and TSan build directories.
 "${faio_toolchain_cxx}" -std=c++26 -freflection -fsanitize=address,undefined \
     "${faio_toolchain_tmp}/reflection.cpp" -o "${faio_toolchain_tmp}/asan-ubsan"
 "${faio_toolchain_cxx}" -std=c++26 -freflection -fsanitize=thread \

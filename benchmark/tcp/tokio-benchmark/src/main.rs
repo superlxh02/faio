@@ -1,9 +1,14 @@
+/**
+ * @file benchmark/tcp/tokio-benchmark/src/main.rs
+ * @brief Tokio TCP 回显性能对照。
+ */
 use std::env;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::Builder;
 
+/** @brief 处理 Tokio 连接的字节回显或 HTTP 持久响应。 */
 async fn handle(mut stream: TcpStream, echo: bool) {
-    // 与 faio 使用同样的 Nagle 设置和接收缓冲。
     stream.set_nodelay(true).unwrap();
     let mut buf = vec![0u8; 65536];
     let mut request_buf = Vec::<u8>::with_capacity(4096);
@@ -35,6 +40,7 @@ async fn handle(mut stream: TcpStream, echo: bool) {
     }
 }
 
+/** @brief 绑定基准端口并提交各连接处理任务。 */
 async fn run_server() {
     let args: Vec<String> = env::args().collect();
     let host = args.get(1).map(String::as_str).unwrap_or("0.0.0.0");
@@ -60,9 +66,23 @@ async fn run_server() {
     }
 }
 
-// 与 C++ 服务统一 worker 数，参数为 host、port、workers。
+/** @brief 解析参数并运行 Tokio TCP 回显或 HTTP 基准服务。 */
 fn main() {
-    let workers=env::args().nth(3).map(|s|s.parse::<usize>().unwrap()).unwrap_or(4);
-    assert!(workers>0);
-    tokio::runtime::Builder::new_multi_thread().worker_threads(workers).enable_all().build().unwrap().block_on(run_server());
+    let mut args = env::args();
+    let workers = args.nth(3).map(|s| s.parse::<usize>().unwrap()).unwrap_or(4);
+    assert!(workers > 0);
+    let current_thread = args.skip(1).any(|arg| arg == "--current-thread");
+    let mut builder = if current_thread {
+        assert_eq!(workers, 1, "--current-thread requires workers=1");
+        Builder::new_current_thread()
+    } else {
+        let mut builder = Builder::new_multi_thread();
+        builder.worker_threads(workers);
+        builder
+    };
+    let runtime = builder.enable_all().build().unwrap();
+    if current_thread {
+        println!("tokio tcp benchmark runtime: current_thread");
+    }
+    runtime.block_on(run_server());
 }

@@ -1,13 +1,12 @@
 /**
  * @file faio/detail/fs/platform/unix/vectored.hpp
- * @brief 文件与目录异步接口：分散聚集文件 IO。
- * @details 文件操作保持共享资源与游标归属；原生异步路径和阻塞服务路径遵循相同完成契约。关闭与析构清理须等待已经接受的借用操作排空。
+ * @brief 分散聚集文件 I/O。
  */
 #pragma once
 #include "faio/detail/fs/file.hpp"
 
 namespace faio::fs::detail {
-/** @brief 校验散布/收集数组；数组由请求复制，payload 仍由调用者借用。 */
+/**  @brief 校验分散读取或聚集写入的描述数组；请求复制数组，数据缓冲区仍从调用方借用。 */
 inline expected<std::vector<iovec>> copy_vectors(std::span<const iovec> input) {
   if (input.size() > IOV_MAX)
     return std::unexpected{make_error(EINVAL)};
@@ -22,28 +21,30 @@ inline expected<std::vector<iovec>> copy_vectors(std::span<const iovec> input) {
   return std::vector<iovec>{input.begin(), input.end()};
 }
 
-/** @brief 一份拥有型 iovec 元数据；原生提交移交数组，服务路径直接读取该数组。 */
+/**  @brief 持有一份 iovec 元数据；原生提交时移交数组，服务路径则直接读取同一个数组。 */
 struct vectored_file_operation {
-  std::shared_ptr<file_state> state;  ///< 共享持有操作状态，使异步执行与结果领取期间地址保持稳定。
-  std::vector<iovec> vectors;  ///< 分散聚集 IO 的缓冲区描述，负载仍须由调用方保持有效。
-  std::uint64_t position;  ///< 当前逻辑游标的字节偏移；更新受所属游标锁保护。
-  bool write;  ///< 本操作是否写入，用于关闭与同步时区分活跃读写。
+  std::shared_ptr<file_state>
+      state;                  /**< 共享持有操作状态，保证其在异步执行和领取结果期间地址不变。 */
+  std::vector<iovec> vectors; /**< 分散聚集 IO 的缓冲区描述，负载仍须由调用方保持有效。 */
+  std::uint64_t position;     /**< 当前逻辑游标的字节偏移；更新受所属游标锁保护。 */
+  bool write;                 /**< 本操作是否写入，用于关闭与同步时区分活跃读写。 */
 
+  /** @brief 返回当前文件请求的操作类型。 */
   io::detail::operation_kind kind() const noexcept {
     return write ? io::detail::operation_kind::writev : io::detail::operation_kind::readv;
   }
 
-  /// @brief 把紧凑请求物化为完整稳定请求，移动资源租约并初始化冷字段。
+  /** @brief 将紧凑请求展开为完整请求，固定地址、移交资源租约并初始化低频字段。 */
   io::detail::io_request into_request() && {
     io::detail::io_request request;
     request.kind = kind();
     request.fd = state->descriptor.load();
     request.offset = write && state->append ? UINT64_MAX : position;
-    /// @brief 稳定请求接管唯一数组，不再复制描述符。
     request.vectors = std::move(vectors);
     return request;
   }
 
+  /** @brief 执行当前文件请求的同步回退调用。 */
   expected<std::size_t> operator()() const noexcept {
     ssize_t count;
     do {
@@ -66,7 +67,7 @@ struct vectored_file_operation {
   }
 };
 
-/** @brief 一个 vectored syscall 使用一份文件租约，普通模式全程占用共享游标。 */
+/**  @brief 每次分散聚集系统调用使用一个文件租约，普通模式下全程占用共享游标。 */
 inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> state,
                                                  expected<std::vector<iovec>> vectors,
                                                  std::optional<std::uint64_t> offset,
@@ -96,4 +97,4 @@ inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> sta
     co_return std::unexpected{make_error(ECANCELED)};
   }
 }
-}
+}  // namespace faio::fs::detail

@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/stream/endian.hpp
- * @brief 跨平台异步 IO：整数读写与字节序。
- * @details 统一 IO 通过上下文、资源租约与等待器连接运行时；组合操作保留部分进度并在安全完成后归还负载及方向执行权。
+ * @brief 整数读写与字节序。
  */
 #pragma once
 #include "faio/detail/io/stream/algorithms.hpp"
@@ -9,12 +8,11 @@
 #include <cstring>
 
 namespace faio::io {
-/** @brief 读取固定宽度整数；字节序转换采用 C++23 std::byteswap。 */
+/**  @brief 读取固定宽度整数；字节序转换采用 C++23 std::byteswap。 */
 template <std::integral Integer, borrowed_async_reader Reader>
 task<expected<Integer>> read_integer(Reader& reader, std::endian order = std::endian::big) {
   std::array<char, sizeof(Integer)> bytes;
   auto result = co_await read_exact(reader, bytes);
-  /// @brief 仅成功登记后才允许发布 registered 标志。
   if (!result)
     co_return std::unexpected{result.error()};
   Integer value;
@@ -24,6 +22,7 @@ task<expected<Integer>> read_integer(Reader& reader, std::endian order = std::en
   co_return value;
 }
 
+/** @brief 按指定字节序写入整数。 */
 template <std::integral Integer, borrowed_async_writer Writer>
 task<expected<void>> write_integer(Writer& writer,
                                    Integer value,
@@ -61,4 +60,4 @@ FAIO_IO_ENDIAN_INTEGER(i16, std::int16_t)
 FAIO_IO_ENDIAN_INTEGER(i32, std::int32_t)
 FAIO_IO_ENDIAN_INTEGER(i64, std::int64_t)
 #undef FAIO_IO_ENDIAN_INTEGER
-}
+}  // namespace faio::io

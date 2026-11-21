@@ -2,7 +2,29 @@
   "dependencies": [
     "asio",
     "gtest",
-    { "name": "liburing", "platform": "linux" },
-    "spdlog"
-  ]
+    {
+      "name": "liburing",
+      "platform": "linux"
+    },
+    "spdlog",
+    {
+      "name": "gperftools",
+      "platform": "linux"
+    }
+  ],
+  "features": {
+    "protocols": {
+      "description": "OpenSSL for the optional TLS component",
+      "dependencies": [
+        "openssl"
+      ]
+    },
+    "experimental": {
+      "description": "Locked stdexec for experimental execution",
+      "dependencies": [
+        "faio-stdexec"
+      ]
+    }
+  },
+  "builtin-baseline": "0c2a9ace1964b818b15f7ae50ba1c42404918a7b"
 }

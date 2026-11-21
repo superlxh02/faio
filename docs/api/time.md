@@ -2,7 +2,7 @@
 
 [查看此模块的 Doxygen 逐项接口：签名、形参、返回值与重载 →](../../api/group__time.html)
 
-入口：`<faio/faio.hpp>`，时间接口位于 `faio::time`，基于 `std::chrono::steady_clock`。
+包含 `<faio/time/timer.hpp>`。时间接口位于 `faio::time`，基于 `std::chrono::steady_clock`。
 
 ## 等待与周期
 
@@ -44,4 +44,4 @@ if (!result) {
 
 超时不会回滚已经传输的字节。请求停止之后仍需等待操作最终完成，才能释放或复用借用的缓冲区。
 
-[协程竞速例程](../examples/coroutines.md) · [计数器应用中的超时](../examples/counter.md)
+[协程的停止与截止](../../examples/coroutine/cancellation_deadline.cpp) · [子进程等待超时](../../examples/process/command.cpp)

@@ -2,7 +2,7 @@
 
 [查看此模块的 Doxygen 逐项接口：签名、形参、返回值与重载 →](../../api/group__errors.html)
 
-常用聚合入口为 `<faio/faio.hpp>`；日志也可单独包含 `<faio/log.hpp>`。
+直接使用 `Error` 或 `expected<T>` 时包含 `<faio/common/error.hpp>`，使用日志时包含 `<faio/log/logger.hpp>`。
 
 ## expected 结果
 
@@ -30,7 +30,9 @@ const std::size_t bytes_read = *count;
 | `domain()` | 错误来源的 `error_domain` |
 | `transferred()` / `progress()` | 失败之前已经生效的传输字节数 |
 
-`error_domain` 包括 `faio`、`posix`、`resolver`、`win32`、`winsock`。解析器或 Windows 错误不能统一按 POSIX errno 解释。
+`error_domain` 包括 `faio`、`posix`、`resolver`、`win32`、`winsock`、`tls`、`process`。解析器或 Windows 错误不能统一按 POSIX errno 解释。
+
+`context()` 借用可选的共享诊断，包含TLS验证信息、底层原因或进程输出；视图和引用的使用期间须保持错误对象存活。`with_context()`、`with_progress()` 返回更新后的错误副本。
 
 常见 faio 错误包括 `Error::UnexpectedEOF`、`WriteZero`、`ClosedChannel`。失败或取消可能已经产生部分副作用，重试之前应先检查进度。
 

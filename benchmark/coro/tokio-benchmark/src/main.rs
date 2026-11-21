@@ -1,19 +1,27 @@
-// 与 ../faio_coro_benchmark.cpp 对齐。Tokio 无原生 CV/latch，组合实现单独标注。
+/**
+ * @file benchmark/coro/tokio-benchmark/src/main.rs
+ * @brief Tokio 协程与同步原语性能对照。
+ */
 use std::{sync::{Arc, atomic::{AtomicUsize, Ordering}}, time::Instant};
 use tokio::{runtime::{Builder, Runtime}, sync::{Semaphore, Mutex, mpsc, Notify}};
 
-// 参数在 worker 启动前写入；之后不再修改。计时辅助函数不分配内存。
 static SAMPLE_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static SAMPLE_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 static TIME_BASE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+/** @brief 按采样模式读取单次操作的起始时刻。 */
 fn sample_start() -> Option<Instant> { SAMPLE_ENABLED.load(Ordering::Relaxed).then(Instant::now) }
+/** @brief 计算单次操作的纳秒耗时，批量模式返回零。 */
 fn sample_elapsed(t: Option<Instant>) -> f64 { t.map(elapsed).unwrap_or(0.) }
+/** @brief 读取单调时钟的纳秒时间戳。 */
 fn timestamp_ns() -> u64 {
     if SAMPLE_ENABLED.load(Ordering::Relaxed) { TIME_BASE.get().unwrap().elapsed().as_nanos() as u64 } else { 0 }
 }
+/** @brief 保存摊销成本与逐次操作延迟样本。 */
 struct Measurement { ns_per_op: f64, samples: Vec<f64>, migrations: usize }
+/** @brief 计算指定时刻以来的纳秒耗时。 */
 fn elapsed(start: Instant) -> f64 { start.elapsed().as_nanos() as f64 }
+/** @brief 输出摊销成本、延迟分位数与样本数量。 */
 fn report(name: &str, mut r: Measurement) {
     if WARMING.load(Ordering::Relaxed) { return; }
     if SAMPLE_ENABLED.load(Ordering::Relaxed) {
@@ -28,8 +36,11 @@ fn report(name: &str, mut r: Measurement) {
     let p = |q: f64| r.samples[((r.samples.len()-1) as f64*q) as usize];
     println!("{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{}",name,r.ns_per_op,p(0.5),p(0.9),p(0.99),p(0.999),r.samples.last().unwrap(),r.migrations,r.samples.len());
 }
+/** @brief 创建指定 worker 数量的 Tokio 运行时。 */
 fn runtime(workers: usize) -> Runtime { Builder::new_multi_thread().worker_threads(workers).enable_all().build().unwrap() }
+/** @brief 返回固定整数的惰性协程，用作测试负载。 */
 async fn one() -> u64 { 1 }
+/** @brief 测量已就绪的同步原语、消息通道和任务等待操作。 */
 async fn ready_paths(n: usize, mode: u8) -> Measurement {
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};
     let sem=Semaphore::new(1);let mutex=Mutex::new(());let (tx,mut rx)=mpsc::channel::<u64>(64);
@@ -51,6 +62,7 @@ async fn ready_paths(n: usize, mode: u8) -> Measurement {
     if mode==4 {assert_eq!(checksum,n as u64);}
     r
 }
+/** @brief 测量协程主动让出及恢复的延迟与线程迁移。 */
 async fn yields(n: usize) -> Measurement {
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
     for i in 0..n {
@@ -60,16 +72,14 @@ async fn yields(n: usize) -> Measurement {
     }
     r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量组合任务的等待与分支竞速。 */
 async fn combinators(n: usize, mode: u8) -> Measurement {
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let mut sum=0;let start=Instant::now();
     for i in 0..n {
         let t=sample_start();
         match mode {
             0 => {sum+=tokio::spawn(one()).await.unwrap();}
-            // 对齐 faio join：两个分支是独立已提交任务，不是单任务内的 join!。
             1 => {let (a,b)=tokio::join!(tokio::spawn(one()),tokio::spawn(one()));sum+=a.unwrap()+b.unwrap();}
-            // 对齐 faio select 的提交+排空成本，赢家返回后仍等待另一个已就绪分支结束。
-            // 这里只测立即完成任务，没有把 Rust future drop 当作 C++ 协作取消。
             2 => {
                 let mut a=tokio::spawn(one());let mut b=tokio::spawn(one());
                 tokio::select! { v=&mut a => {sum+=v.unwrap();b.await.unwrap();}, v=&mut b => {sum+=v.unwrap();a.await.unwrap();} }
@@ -80,6 +90,7 @@ async fn combinators(n: usize, mode: u8) -> Measurement {
     }
     assert_eq!(sum,n as u64*if mode==1 {2}else{1});r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量 JoinSet 与已提交任务句柄组成的任务组。 */
 async fn task_groups(n:usize, scoped:bool)->Measurement {
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
     for sample in &mut r.samples {
@@ -97,16 +108,20 @@ async fn task_groups(n:usize, scoped:bool)->Measurement {
     }
     r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量单参与者屏障的立即完成路径。 */
 async fn barrier_ready(n:usize)->Measurement {
     let barrier=tokio::sync::Barrier::new(1);let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
     for sample in &mut r.samples {let t=sample_start();barrier.wait().await;*sample=sample_elapsed(t);}
     r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 组合任务计数与完成通知。 */
 struct Completion { left: AtomicUsize, done: Notify }
+/** @brief 记录提交到开始执行的耗时并递减剩余任务计数。 */
 async fn record(sent: Option<Instant>, index: usize, completion: Arc<Completion>, samples: Arc<Vec<std::sync::atomic::AtomicU64>>) {
     samples[index].store(sample_elapsed(sent) as u64,Ordering::Relaxed);
     if completion.left.fetch_sub(1,Ordering::AcqRel)==1 {completion.done.notify_one();}
 }
+/** @brief 测量外部线程或 worker 批量提交任务的成本。 */
 fn burst(n: usize, workers: usize, internal: bool) -> Measurement {
     let rt=runtime(workers);let completion=Arc::new(Completion{left:AtomicUsize::new(n),done:Notify::new()});
     let samples=Arc::new((0..n).map(|_|std::sync::atomic::AtomicU64::new(0)).collect::<Vec<_>>());
@@ -124,10 +139,13 @@ fn burst(n: usize, workers: usize, internal: bool) -> Measurement {
     let ns_per_op=elapsed(start)/n as f64;
     Measurement{ns_per_op,samples:samples.iter().map(|v|v.load(Ordering::Relaxed) as f64).collect(),migrations:0}
 }
+/** @brief 携带消息序号与单调时间戳的通道负载。 */
 struct Message { value:u64, sent_ns:u64 }
+/** @brief 向有界通道发送带时间戳与序号的消息。 */
 async fn producer(tx:mpsc::Sender<Message>,n:usize,offset:usize) {
     for i in 0..n {tx.send(Message{value:(i+offset) as u64,sent_ns:timestamp_ns()}).await.unwrap();}
 }
+/** @brief 测量多生产者消息通道吞吐与交付延迟。 */
 async fn pipeline(n:usize,producers:usize,capacity:usize)->Measurement {
     let (tx,mut rx)=mpsc::channel(capacity);let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};
     let mut handles=Vec::with_capacity(producers);let start=Instant::now();
@@ -137,19 +155,23 @@ async fn pipeline(n:usize,producers:usize,capacity:usize)->Measurement {
     for h in handles {h.await.unwrap();}
     assert_eq!(sum,(n-1) as u64*n as u64/2);r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 循环等待请求信号量，并归还回复许可。 */
 async fn echo(request:Arc<Semaphore>,reply:Arc<Semaphore>,n:usize) {
     for _ in 0..n {request.acquire().await.unwrap().forget();reply.add_permits(1);}
 }
+/** @brief 通过请求与回复许可测量逐次往返延迟。 */
 async fn ping(request:Arc<Semaphore>,reply:Arc<Semaphore>,n:usize)->Measurement {
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
     for sample in &mut r.samples {let t=sample_start();request.add_permits(1);reply.acquire().await.unwrap().forget();*sample=sample_elapsed(t);}
     r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量两个独立运行时之间的许可往返延迟。 */
 fn cross_runtime(n:usize)->Measurement {
     let a=runtime(1);let b=runtime(1);let request=Arc::new(Semaphore::new(0));let reply=Arc::new(Semaphore::new(0));
     let h=b.spawn(echo(request.clone(),reply.clone(),n));let r=a.block_on(a.spawn(ping(request,reply,n))).unwrap();
     b.block_on(h).unwrap();r
 }
+/** @brief 测量普通线程唤醒挂起协程的交付延迟。 */
 fn external_notification(n:usize)->Measurement {
     use std::{future::{poll_fn, Future}, sync::atomic::AtomicU64};
     let rt=runtime(1);let sem=Arc::new(Semaphore::new(0));let armed=Arc::new(AtomicUsize::new(0));let ack=Arc::new(AtomicUsize::new(0));
@@ -176,18 +198,19 @@ fn external_notification(n:usize)->Measurement {
     }
     let mut r=rt.block_on(h).unwrap();r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量同步线程进入并等待一个协程的固定开销。 */
 fn block_entry(n:usize)->Measurement {
     let rt=runtime(1);let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
-    // spawn 到 worker 后 block_on 等待，避免把 host 线程上直接 poll 一个 Ready future
-    // 与 faio 提交到 worker 后阻塞等待进行比较。
     for sample in &mut r.samples {let t=sample_start();assert_eq!(rt.block_on(rt.spawn(one())).unwrap(),1);*sample=sample_elapsed(t);}
     r.ns_per_op=elapsed(start)/n as f64;r
 }
 
+/** @brief 测量同一 worker 上两个任务交接许可的往返开销。 */
 async fn same_thread_handoff(n:usize)->Measurement {
     let request=Arc::new(Semaphore::new(0));let reply=Arc::new(Semaphore::new(0));
     let h=tokio::spawn(echo(request.clone(),reply.clone(),n));let r=ping(request,reply,n).await;h.await.unwrap();r
 }
+/** @brief 测量四个任务竞争互斥锁或信号量的成本。 */
 async fn contention(n:usize,use_mutex:bool)->Measurement {
     let mutex=Arc::new(Mutex::new(()));let sem=Arc::new(Semaphore::new(2));
     let done=Arc::new(AtomicUsize::new(0));let mut handles=Vec::with_capacity(4);
@@ -210,6 +233,7 @@ async fn contention(n:usize,use_mutex:bool)->Measurement {
     let samples=chunks.into_iter().flatten().collect();
     Measurement{ns_per_op,samples,migrations:0}
 }
+/** @brief 测量四个任务重复通过屏障的同步开销。 */
 async fn barrier_contended(n:usize)->Measurement {
     let barrier=Arc::new(tokio::sync::Barrier::new(4));let mut handles=Vec::with_capacity(4);
     let buffers=(0..4).map(|_|vec![0.;n/4]).collect::<Vec<_>>();let mut chunks=Vec::with_capacity(4);let start=Instant::now();
@@ -220,7 +244,7 @@ async fn barrier_contended(n:usize)->Measurement {
     let ns_per_op=elapsed(start)/n as f64;let samples=chunks.into_iter().flatten().collect();
     Measurement{ns_per_op,samples,migrations:0}
 }
-// Notify 不是原生条件变量：登记通知后解锁、醒来后重新加锁检查谓词。
+/** @brief 等待共享轮次匹配，返回时仍持有异步锁。 */
 async fn wait_turn<'a>(mutex:&'a Mutex<u8>,notify:&Notify,want:u8)->tokio::sync::MutexGuard<'a,u8> {
     let mut guard=mutex.lock().await;
     while *guard!=want {
@@ -229,6 +253,7 @@ async fn wait_turn<'a>(mutex:&'a Mutex<u8>,notify:&Notify,want:u8)->tokio::sync:
     }
     guard
 }
+/** @brief 测量 Mutex 与 Notify 组合的轮次往返通知。 */
 async fn cv_roundtrip(n:usize)->Measurement {
     let mutex=Arc::new(Mutex::new(0u8));let notify=Arc::new(Notify::new());let (m,c)=(mutex.clone(),notify.clone());
     let h=tokio::spawn(async move {for _ in 0..n {let mut g=wait_turn(&m,&c,1).await;*g=0;drop(g);c.notify_one();}});
@@ -239,6 +264,7 @@ async fn cv_roundtrip(n:usize)->Measurement {
     }
     h.await.unwrap();r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量原子计数与 Notify 组成的倒计数参考路径。 */
 async fn latch_groups(n:usize,ready:bool)->Measurement {
     let opened=Completion{left:AtomicUsize::new(0),done:Notify::new()};
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
@@ -255,12 +281,14 @@ async fn latch_groups(n:usize,ready:bool)->Measurement {
     }
     r.ns_per_op=elapsed(start)/n as f64;r
 }
+/** @brief 测量读取单调时钟的基准开销。 */
 fn timer_calibration(n:usize)->Measurement {
     let mut r=Measurement{ns_per_op:0.,samples:vec![0.;n],migrations:0};let start=Instant::now();
     for v in &mut r.samples{let t=sample_start();*v=sample_elapsed(t);}
     r.ns_per_op=elapsed(start)/n as f64;r
 }
 
+/** @brief 运行 Tokio 协程、同步原语与并发控制对照基准。 */
 fn main() {
     let n=std::env::args().nth(1).map(|s|s.parse::<usize>().unwrap()).unwrap_or(100000)/4*4;assert!(n>=32);
     let args=std::env::args().collect::<Vec<_>>();

@@ -86,6 +86,9 @@ def public_text(value, spec):
         value = value.replace(old, new)
     for old, new in spec.get('bindings', {}).items():
         value = re.sub(r'\b' + re.escape(old) + r'\b', new, value)
+    for short in ('mutex', 'semaphore', 'condition_variable', 'latch', 'barrier'):
+        value = re.sub(r'\b(?:faio::sync::)?basic_' + short + r'\s*<\s*(?:faio::)?default_scheduler\s*>', 'faio::sync::' + short, value)
+    value = re.sub(r'\b(?:faio::)?basic_scope_context\s*<\s*(?:faio::)?default_scheduler\s*>', 'faio::scope_context', value)
     for alias in ('DatagramMessage', 'DatagramSend', 'OwnedDatagram'):
         value = re.sub(r'\b' + alias + r'\s*<\s*(?:faio::net::)?SocketAddr\s*>', alias, value)
     return re.sub(r'\s+', ' ', value).strip()
@@ -362,10 +365,13 @@ def build_reference(output):
     shutil.rmtree(PUBLIC / 'xml', ignore_errors=True)
     subprocess.run(['doxygen', str(SOURCE / 'api/Doxyfile')], cwd=ROOT, check=True)
     validate_reference(report, output)
-    nav = '<nav class="faio-api-nav" aria-label="faio 导航"><a class="brand" href="../"><img src="../assets/favicon.svg" alt="">faio</a><a href="../book/">指南</a><a href="index.html" aria-current="page">API 参考</a><a href="../book/examples/">官方例程</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a></nav>'
+    nav = '<nav class="faio-api-nav" aria-label="faio 导航"><a class="brand" href="../"><img src="../assets/favicon.svg" alt="">faio</a><a href="../book/getting-started.html">快速开始</a><a href="../book/api/">API 介绍</a><a href="index.html" aria-current="page">API 查询</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a></nav>'
     for page in (output / 'api').glob('*.html'):
         source = page.read_text(encoding='utf-8')
         source = source.replace('<div id="top">', '<div id="top">' + nav, 1)
+        # Version the stylesheet so deployments pick up theme changes past browser caches.
+        source = re.sub(r'href="(api|doxygen|navtree|tabs)\.css"',
+                        r'href="\1.css?v=2"', source)
         # Doxygen 1.18 emits a spurious underscore member-index filename.
         source = source.replace('functions__.html#index__', 'functions.html#index__5F')
         if page.name.startswith('functions'):

@@ -1,7 +1,6 @@
 /**
  * @file faio/detail/io/platform/windows/request_operations.hpp
- * @brief 跨平台异步 IO：统一请求系统调用实现。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 统一请求系统调用实现。
  */
 #pragma once
 #include "faio/detail/io/core/request_rules.hpp"
@@ -14,7 +13,7 @@
 #include "faio/detail/io/platform/windows/socket.hpp"
 
 namespace faio::io::detail::windows_operations {
-/// @brief 根据请求种类及资源属性判定是否需要文件执行路径。
+/** @brief 根据请求种类及资源属性判定是否需要文件执行路径。 */
 inline bool is_file_request(const io_request& req) noexcept {
   return req.kind == operation_kind::open || req.kind == operation_kind::open2
          || req.kind == operation_kind::fsync
@@ -25,10 +24,12 @@ inline bool is_file_request(const io_request& req) noexcept {
              && req.native_kind == native_handle_kind::windows_handle);
 }
 
-/// @brief 检查原生关闭是否可能阻塞，决定是否交给隔离清理服务。
+/** @brief 检查原生关闭是否可能阻塞，决定是否交给隔离清理服务。 */
 inline bool needs_deferred_close(const resource_state& resource, native_descriptor fd) noexcept {
   if (resource.native_kind == native_handle_kind::windows_handle)
     return true;
+  if (resource.native_kind == native_handle_kind::windows_pipe)
+    return false;
   ::linger option{};
   int length = sizeof(option);
   return ::getsockopt(static_cast<SOCKET>(fd),
@@ -40,8 +41,9 @@ inline bool needs_deferred_close(const resource_state& resource, native_descript
          && option.l_onoff && option.l_linger > 0;
 }
 
+/** @brief 执行原生句柄关闭。 */
 inline int close_native(native_descriptor fd, native_handle_kind kind) noexcept {
-  if (kind == native_handle_kind::windows_handle)
+  if (kind == native_handle_kind::windows_handle || kind == native_handle_kind::windows_pipe)
     return ::CloseHandle(reinterpret_cast<HANDLE>(fd))
                ? 0
                : windows::encode_windows_error(::GetLastError());
@@ -50,7 +52,7 @@ inline int close_native(native_descriptor fd, native_handle_kind kind) noexcept 
              : windows::encode_winsock_error(::WSAGetLastError());
 }
 
-/// @brief 执行统一 RECV 或 SEND 非阻塞系统调用并立即捕获错误。
+/** @brief 执行统一 RECV 或 SEND 非阻塞系统调用并立即捕获错误。 */
 template <class Request>
 inline std::int64_t perform_socket_scalar(Request& r) noexcept {
   const int size = static_cast<int>(std::min<std::size_t>(r.length, INT_MAX));
@@ -62,7 +64,7 @@ inline std::int64_t perform_socket_scalar(Request& r) noexcept {
   return value == SOCKET_ERROR ? -windows::encode_winsock_error(::WSAGetLastError()) : value;
 }
 
-/// @brief 按统一请求种类执行真实系统调用，保留短读写进度与原生错误。
+/** @brief 按统一请求种类执行真实系统调用，保留短读写进度与原生错误。 */
 inline std::int64_t perform(io_request& r, bool&) noexcept {
   const SOCKET socket = static_cast<SOCKET>(r.fd);
   int result{};
@@ -71,7 +73,6 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
       result = ::shutdown(socket, r.argument);
       break;
     case operation_kind::socket: {
-      /// @brief 原接口的flags是Linux提交扩展，不可静默忽略。
       if (r.flags)
         return -EOPNOTSUPP;
       const SOCKET created = ::WSASocketW(r.argument,
@@ -93,7 +94,6 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
     case operation_kind::getsockopt: {
       int length = static_cast<int>(r.length);
       result = ::getsockopt(socket, r.argument, r.argument2, static_cast<char*>(r.buffer), &length);
-      /// @brief 仅成功登记后才允许发布 registered 标志。
       if (!result)
         return length;
       break;
@@ -108,7 +108,6 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
     case operation_kind::socket_inq: {
       u_long bytes{};
       result = ::ioctlsocket(socket, FIONREAD, &bytes);
-      /// @brief 仅成功登记后才允许发布 registered 标志。
       if (!result)
         return bytes;
       break;
@@ -142,4 +141,4 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
   }
   return result == SOCKET_ERROR ? -windows::encode_winsock_error(::WSAGetLastError()) : result;
 }
-}
+}  // namespace faio::io::detail::windows_operations

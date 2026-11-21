@@ -1,31 +1,37 @@
 /**
  * @file faio/detail/runtime/default.hpp
- * @brief 运行时调度、线程协调与定时驱动：默认运行时服务。
- * @details 运行时按所属线程区分私有状态与跨线程发布状态。任务接纳先登记完成责任，关闭先停止接纳再排空；休眠登记后复查工作以避免丢失唤醒。
+ * @brief 默认运行时服务。
  */
 #ifndef FAIO_DETAIL_RUNTIME_DEFAULT_HPP
 #define FAIO_DETAIL_RUNTIME_DEFAULT_HPP
 
 #include "faio/detail/runtime/context.hpp"
-#include "faio/log.hpp"
+#include "faio/detail/log/logger.hpp"
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <stdexcept>
 #include <utility>
 
 namespace faio::runtime::detail {
-/// @brief 进程默认运行时。配置只允许在第一次使用前修改；外部入口用共享锁保护
-/// 提交与 shutdown 的竞争。worker 内部持有 scheduler_ref，不经过此锁。
+/**
+ * @brief 进程默认运行时。配置只允许在第一次使用前修改；外部入口用共享锁保护
+ * 提交与 shutdown 的竞争。worker 内部持有 scheduler_ref，不经过此锁。
+ */
 class default_runtime_service {
  public:
+  /** @brief 构造进程默认运行时服务。 */
   default_runtime_service() = default;
 
+  /** @brief 禁止复制构造进程默认运行时服务。 */
   default_runtime_service(const default_runtime_service&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   default_runtime_service& operator=(const default_runtime_service&) = delete;
 
+  /** @brief 配置运行时服务。 */
   void configure(runtime_config config) {
     if (::faio::detail::on_runtime_worker())
       throw std::logic_error("不能在 worker 上配置运行时");
@@ -33,10 +39,10 @@ class default_runtime_service {
     std::unique_lock lock(mutex_);
     if (context_ || stopped_)
       throw std::logic_error("运行时已启动或已关闭");
-    config_ = config;
+    config_ = std::move(config);
   }
 
-  /// @brief 显式指定请求上下文；已经绑定资源的归属仍按资源协议校验。
+  /** @brief 取得或惰性创建默认运行时上下文，并在共享锁保护下调用 action。 */
   template <class F>
   decltype(auto) with_context(F&& action) {
     std::shared_lock lock(mutex_);
@@ -55,60 +61,61 @@ class default_runtime_service {
     return std::invoke(std::forward<F>(action), *context_);
   }
 
-  /// @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。
+  /** @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。 */
   void shutdown(io::shutdown_policy policy = io::shutdown_policy::drain) {
     if (::faio::detail::on_runtime_worker())
       throw std::logic_error("不能在 worker 上关闭运行时");
-    std::unique_ptr<runtime_context> previous;
-    {
-      std::unique_lock lock(mutex_);
-      if (stopped_)
-        return;
+    std::unique_lock lock(mutex_);
+    if (stopped_)
+      return;
+    auto driver_affinity = [this]() -> std::optional<worker_affinity_scope> {
       if (context_)
-        context_->external_host().begin_quiescing();
-      stopped_ = true;
-      previous = std::move(context_);
-    }
-    /// @brief 允许已提交任务继续运行；析构会等待所有根协程退出后关闭 worker。
+        return context_->prepare_driver_affinity();
+      return {};
+    }();
+#if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
+    if (context_)
+      context_->external_host().begin_quiescing();
+#endif
+    stopped_ = true;
+    auto previous = std::move(context_);
+    lock.unlock();
     if (previous)
-      previous->stop(policy);
+      previous->stop_prebound(policy);
     previous.reset();
   }
 
  private:
-  std::shared_mutex mutex_;  ///< 外部提交持共享锁，首次初始化/配置/关闭持独占锁。
-  runtime_config config_{};  ///< 首次启动之前可修改的默认配置。
-  std::unique_ptr<runtime_context> context_;  ///< 惰性创建并独占拥有的默认运行时。
-  bool stopped_{};  ///< 关闭后置位，禁止重新创建默认运行时。
+  std::shared_mutex mutex_; /**< 外部提交持共享锁，首次初始化/配置/关闭持独占锁。 */
+  runtime_config config_{}; /**< 首次启动之前可修改的默认配置。 */
+  std::unique_ptr<runtime_context> context_; /**< 惰性创建并独占拥有的默认运行时。 */
+  bool stopped_{};                           /**< 关闭后置位，禁止重新创建默认运行时。 */
 };
 
+/** @brief 取得进程默认运行时服务。 */
 inline default_runtime_service& default_service() {
-  /// @brief 先构造 logger，使其在默认运行时完成静态析构与 worker 排空后再析构。
   (void)::faio::log::logger();
   static default_runtime_service service;
   return service;
 }
 
+/** @brief 在进程默认运行时上下文中调用函数。 */
 template <class F>
 decltype(auto) with_default_runtime(F&& action) {
   return default_service().with_context(std::forward<F>(action));
 }
-}
+}  // namespace faio::runtime::detail
 
 namespace faio::runtime {
-using config = detail::runtime_config;
-/// @brief 保留原公开类型别名；新代码可以使用下划线命名的 runtime::config。
-using Config = config;
-
-/// @brief 首次 block_on/spawn 前配置默认运行时；未配置时使用 runtime::config 默认值。
+/** @brief 首次 block_on/spawn 前配置默认运行时；未配置时使用 runtime::config 默认值。 */
 inline void configure(config options) {
-  detail::default_service().configure(options);
+  detail::default_service().configure(std::move(options));
 }
 
-/// @brief 程序需要确定性退出时调用；关闭后不再允许提交或重新启动默认运行时。
+/** @brief 程序需要确定性退出时调用；关闭后不再允许提交或重新启动默认运行时。 */
 inline void shutdown(io::shutdown_policy policy = io::shutdown_policy::drain) {
   detail::default_service().shutdown(policy);
 }
-}
+}  // namespace faio::runtime
 
 #endif

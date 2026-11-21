@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" role="img" aria-labelledby="archTitle archDesc" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <title id="archTitle">faio 整体架构</title>
+  <desc id="archDesc">从上到下四层：使用面的任务、并发、同步、时间与网络文件接口；公共运行时；I/O 域的提交与完成；平台后端 io_uring、epoll、kqueue、IOCP，以及可选组件 TLS 与进程。</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f8fc"/>
+      <stop offset="1" stop-color="#eef1f9"/>
+    </linearGradient>
+    <linearGradient id="gUser" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4f6ef7"/><stop offset="1" stop-color="#6d86ff"/>
+    </linearGradient>
+    <linearGradient id="gRt" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7a5af5"/><stop offset="1" stop-color="#9b7bff"/>
+    </linearGradient>
+    <linearGradient id="gIo" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0e9f8a"/><stop offset="1" stop-color="#2fc1a6"/>
+    </linearGradient>
+    <linearGradient id="gBe" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e58b2a"/><stop offset="1" stop-color="#f5ac4d"/>
+    </linearGradient>
+    <linearGradient id="gOpt" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d24b7a"/><stop offset="1" stop-color="#ec7199"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#9aa6bd"/>
+    </marker>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#1a2540" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="1000" height="700" rx="18" fill="url(#bg)"/>
+
+  <!-- 使用面 -->
+  <rect x="40" y="34" width="920" height="126" rx="14" fill="#ffffff" stroke="#dbe2f2" filter="url(#sh)"/>
+  <rect x="40" y="34" width="8" height="126" rx="4" fill="url(#gUser)"/>
+  <text x="66" y="60" font-size="15" font-weight="700" fill="#33406b">使用面 · 你写下的代码</text>
+  <g font-size="13.5" fill="#ffffff" text-anchor="middle">
+    <rect x="66" y="76" width="160" height="62" rx="10" fill="url(#gUser)"/>
+    <text x="146" y="103" font-weight="700">faio::task&lt;T&gt;</text>
+    <text x="146" y="122" font-size="11.5" fill="#e8edff">协程任务</text>
+
+    <rect x="242" y="76" width="160" height="62" rx="10" fill="url(#gUser)"/>
+    <text x="322" y="103" font-weight="700">并发与组合</text>
+    <text x="322" y="122" font-size="11.5" fill="#e8edff">join · select · scope</text>
+
+    <rect x="418" y="76" width="160" height="62" rx="10" fill="url(#gUser)"/>
+    <text x="498" y="103" font-weight="700">协程同步</text>
+    <text x="498" y="122" font-size="11.5" fill="#e8edff">mutex · mpsc · latch</text>
+
+    <rect x="594" y="76" width="160" height="62" rx="10" fill="url(#gUser)"/>
+    <text x="674" y="103" font-weight="700">文件与网络</text>
+    <text x="674" y="122" font-size="11.5" fill="#e8edff">fs · net · time</text>
+
+    <rect x="770" y="76" width="166" height="62" rx="10" fill="url(#gUser)"/>
+    <text x="853" y="103" font-weight="700">可等待对象</text>
+    <text x="853" y="122" font-size="11.5" fill="#e8edff">co_await awaiter</text>
+  </g>
+
+  <path d="M500 160 L500 186" stroke="#9aa6bd" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 运行时 -->
+  <rect x="40" y="190" width="920" height="112" rx="14" fill="#ffffff" stroke="#dbe2f2" filter="url(#sh)"/>
+  <rect x="40" y="190" width="8" height="112" rx="4" fill="url(#gRt)"/>
+  <text x="66" y="216" font-size="15" font-weight="700" fill="#46357e">公共运行时 · 调度与执行</text>
+  <g font-size="13.5" fill="#ffffff" text-anchor="middle">
+    <rect x="66" y="230" width="200" height="52" rx="10" fill="url(#gRt)"/>
+    <text x="166" y="252" font-weight="700">scheduler</text>
+    <text x="166" y="270" font-size="11.5" fill="#ece5ff">静态调度 · 对称转移</text>
+
+    <rect x="282" y="230" width="200" height="52" rx="10" fill="url(#gRt)"/>
+    <text x="382" y="252" font-weight="700">worker-thread</text>
+    <text x="382" y="270" font-size="11.5" fill="#ece5ff">multi / current thread</text>
+
+    <rect x="498" y="230" width="200" height="52" rx="10" fill="url(#gRt)"/>
+    <text x="598" y="252" font-weight="700">阻塞任务服务</text>
+    <text x="598" y="270" font-size="11.5" fill="#ece5ff">spawn_blocking · 文件 · DNS</text>
+
+    <rect x="714" y="230" width="222" height="52" rx="10" fill="url(#gRt)"/>
+    <text x="825" y="252" font-weight="700">协作取消与停机</text>
+    <text x="825" y="270" font-size="11.5" fill="#ece5ff">stop_token · shutdown</text>
+  </g>
+
+  <path d="M500 302 L500 328" stroke="#9aa6bd" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- I/O 域 -->
+  <rect x="40" y="332" width="920" height="118" rx="14" fill="#ffffff" stroke="#dbe2f2" filter="url(#sh)"/>
+  <rect x="40" y="332" width="8" height="118" rx="4" fill="url(#gIo)"/>
+  <text x="66" y="358" font-size="15" font-weight="700" fill="#0d6e60">I/O 域 · 一次完成的两个端点</text>
+  <g font-size="13.5" fill="#ffffff" text-anchor="middle">
+    <rect x="66" y="372" width="410" height="58" rx="10" fill="url(#gIo)"/>
+    <text x="271" y="395" font-weight="700">提交端 · IORegistrantAwaiter</text>
+    <text x="271" y="414" font-size="11.5" fill="#d8f6ee">参数固化为稳定操作槽</text>
+
+    <rect x="510" y="372" width="426" height="58" rx="10" fill="url(#gIo)"/>
+    <text x="723" y="395" font-weight="700">完成端 · io_domain</text>
+    <text x="723" y="414" font-size="11.5" fill="#d8f6ee">仲裁 · 取消 · 截止 · 发布终态</text>
+  </g>
+  <path d="M480 401 L506 401" stroke="#0e9f8a" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <path d="M500 450 L500 476" stroke="#9aa6bd" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 平台后端 -->
+  <rect x="40" y="480" width="920" height="106" rx="14" fill="#ffffff" stroke="#dbe2f2" filter="url(#sh)"/>
+  <rect x="40" y="480" width="8" height="106" rx="4" fill="url(#gBe)"/>
+  <text x="66" y="506" font-size="15" font-weight="700" fill="#8a5410">平台后端 · 编译期选定</text>
+  <g font-size="13.5" fill="#ffffff" text-anchor="middle">
+    <rect x="66" y="520" width="204" height="46" rx="9" fill="url(#gBe)"/>
+    <text x="168" y="549" font-weight="700">Linux · io_uring</text>
+    <rect x="286" y="520" width="204" height="46" rx="9" fill="url(#gBe)"/>
+    <text x="388" y="549" font-weight="700">Linux · epoll</text>
+    <rect x="506" y="520" width="204" height="46" rx="9" fill="url(#gBe)"/>
+    <text x="608" y="549" font-weight="700">macOS · kqueue</text>
+    <rect x="726" y="520" width="210" height="46" rx="9" fill="url(#gBe)"/>
+    <text x="831" y="549" font-weight="700">Windows · IOCP</text>
+  </g>
+  <text x="500" y="578" font-size="11.5" fill="#8a6a44" text-anchor="middle">io_uring / IOCP 为原生 Proactor；epoll / kqueue 经 readiness_adapter 提升为完成语义</text>
+
+  <!-- 可选组件 -->
+  <rect x="40" y="600" width="920" height="72" rx="14" fill="#fff7fa" stroke="#f0ccda" filter="url(#sh)"/>
+  <rect x="40" y="600" width="8" height="72" rx="4" fill="url(#gOpt)"/>
+  <text x="66" y="626" font-size="14" font-weight="700" fill="#9c2f57">可选组件 · 独立开关，建在既有运行时之上</text>
+  <g font-size="12.5" fill="#ffffff" text-anchor="middle">
+    <rect x="66" y="634" width="264" height="28" rx="8" fill="url(#gOpt)"/>
+    <text x="198" y="653" font-weight="700">TLS 加密 · faio::tls</text>
+    <rect x="346" y="634" width="264" height="28" rx="8" fill="url(#gOpt)"/>
+    <text x="478" y="653" font-weight="700">异步进程 · faio::process</text>
+    <rect x="626" y="634" width="310" height="28" rx="8" fill="url(#gOpt)"/>
+    <text x="781" y="653" font-weight="700">实验层 · 反射注解 / stdexec</text>
+  </g>
+</svg>

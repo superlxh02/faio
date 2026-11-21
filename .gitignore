@@ -34,8 +34,11 @@ __pycache__/
 
 # Local dotfiles and directories; repository configuration stays published.
 .*
+!.dockerignore
 !.gitignore
 !.clang-format
+!.clangd
+!.devcontainer/
 !.gitattributes
 !.github/
 
@@ -47,7 +50,7 @@ vcpkg_installed/
 _deps/
 CMakeFiles/
 CMakeScratch/
-Testing/
+/Testing/
 venv/
 dist/
 out/
@@ -89,3 +92,13 @@ install_manifest.txt
 # Local plans and benchmark results.
 /plan/
 /benchmark/result/
+
+# Reactor test policies are source headers, not generated CTest output.
+!**/include/faio/detail/io/testing/
+!**/include/faio/detail/io/testing/**
+
+# Local development process documents and editor/remote-device settings.
+/开发过程文档/
+/.zed/
+/.rkdev/
+/.zed.rkdev/

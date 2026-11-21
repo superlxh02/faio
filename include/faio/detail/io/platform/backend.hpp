@@ -1,31 +1,35 @@
 /**
  * @file faio/detail/io/platform/backend.hpp
- * @brief 跨平台异步 IO：后端封装与提交协议。
- * @details 平台层负责原生句柄、系统调用与错误转换。稳定资源归属及完成责任由 IO 域协调，取消请求不能代替在途系统调用的安全完成。
+ * @brief 后端封装与提交协议。
  */
 #pragma once
 #include "faio/detail/io/base/backend.hpp"
 #include "faio/detail/io/platform/reactor.hpp"
 
 namespace faio::io::detail {
+/** @brief 将原生请求映射为就绪等待的适配器。 */
 template <class R>
 class basic_readiness_adapter;
+/** @brief 就绪反应器的静态封装。 */
 template <class R>
 class basic_reactor_box;
+/** @brief Linux epoll 就绪反应器。 */
 class epoll_reactor;
+/** @brief BSD kqueue 就绪反应器。 */
 class kqueue_reactor;
+/** @brief Linux io_uring 原生完成后端。 */
 class uring_backend;
 #if !defined(_WIN32) || defined(FAIO_TEST_BACKEND_INJECTION)
 using readiness_adapter = basic_readiness_adapter<reactor_box>;
 #endif
-}
+}  // namespace faio::io::detail
 
 namespace faio::io::windows {
+/** @brief Windows IOCP 原生完成后端。 */
 class iocp_backend;
-}
+}  // namespace faio::io::windows
 
 #if defined(FAIO_TEST_BACKEND_INJECTION)
-/// @brief 仅单 TU 合同测试提供此头；安装消费方/生产目标不包含动态测试 seam。
 #include "faio_test/backend_override.hpp"
 #else
 namespace faio::io::detail {
@@ -38,5 +42,5 @@ using backend_box = basic_backend_box<basic_readiness_adapter<basic_reactor_box<
 #elif defined(_WIN32)
 using backend_box = basic_backend_box<windows::iocp_backend>;
 #endif
-}
+}  // namespace faio::io::detail
 #endif

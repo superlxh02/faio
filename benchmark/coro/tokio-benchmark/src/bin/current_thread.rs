@@ -1,17 +1,26 @@
+/**
+ * @file benchmark/coro/tokio-benchmark/src/bin/current_thread.rs
+ * @brief Tokio 协程与同步原语性能对照。
+ */
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
 use tokio::runtime::{Builder, Runtime};
 
+/** @brief 保存摊销成本与逐次操作延迟样本。 */
 struct Measurement { cost: f64, samples: Vec<f64> }
+/** @brief 计算指定时刻以来的纳秒耗时。 */
 fn elapsed(t: Instant) -> f64 { t.elapsed().as_nanos() as f64 }
+/** @brief 输出摊销成本、延迟分位数与样本数量。 */
 fn report(name: &str, mut r: Measurement) {
     r.samples.sort_by(f64::total_cmp);
     let p = |q: f64| r.samples[((r.samples.len()-1) as f64*q) as usize];
     println!("{name},{:.2},{:.2},{:.2},{:.2},{:.2},{}", r.cost,p(0.5),p(0.99),p(0.999),r.samples.last().unwrap(),r.samples.len());
 }
+/** @brief 返回固定整数的惰性协程，用作测试负载。 */
 async fn one() -> i32 { 42 }
+/** @brief 测量让出执行权、直接等待和提交任务的单线程成本。 */
 async fn coro(n: usize, kind: u8, sampling: bool) -> Measurement {
     let mut r = Measurement { cost: 0., samples: vec![0.;n] };
     let start = Instant::now();
@@ -26,6 +35,7 @@ async fn coro(n: usize, kind: u8, sampling: bool) -> Measurement {
     }
     r.cost = elapsed(start)/n as f64; r
 }
+/** @brief 测量逐次提交并等待阻塞任务的成本。 */
 async fn blocking_serial(n: usize, sampling: bool) -> Measurement {
     let mut r = Measurement { cost: 0., samples: vec![0.;n] };
     let start = Instant::now();
@@ -36,6 +46,7 @@ async fn blocking_serial(n: usize, sampling: bool) -> Measurement {
     }
     r.cost = elapsed(start)/n as f64; r
 }
+/** @brief 测量批量提交阻塞任务的耗时与完成延迟。 */
 async fn blocking_burst(n: usize, sampling: bool) -> Measurement {
     let mut handles = Vec::with_capacity(n);
     let start = Instant::now();
@@ -47,6 +58,7 @@ async fn blocking_burst(n: usize, sampling: bool) -> Measurement {
     for h in handles { samples.push(h.await.unwrap()); }
     Measurement { cost: elapsed(start)/n as f64, samples }
 }
+/** @brief 通过本地异步套接字发送一个字节。 */
 async fn send(s: &UnixStream, byte: u8) {
     loop {
         s.writable().await.unwrap();
@@ -57,6 +69,7 @@ async fn send(s: &UnixStream, byte: u8) {
         }
     }
 }
+/** @brief 从本地异步套接字接收一个字节。 */
 async fn recv(s: &UnixStream) -> u8 {
     let mut byte = [0];
     loop {
@@ -68,6 +81,7 @@ async fn recv(s: &UnixStream) -> u8 {
         }
     }
 }
+/** @brief 测量本地套接字单字节请求的逐次往返延迟。 */
 async fn io_roundtrip(n: usize, sampling: bool) -> Measurement {
     let (a,b) = UnixStream::pair().unwrap();
     let peer = tokio::spawn(async move { for _ in 0..n { let byte=recv(&b).await;send(&b,byte).await; } });
@@ -80,6 +94,7 @@ async fn io_roundtrip(n: usize, sampling: bool) -> Measurement {
     }
     peer.await.unwrap();r.cost=elapsed(start)/n as f64;r
 }
+/** @brief 在持续就绪任务干扰下测量定时器完成延迟。 */
 async fn timer_busy(n: usize, sampling: bool) -> Measurement {
     let done = Arc::new(AtomicBool::new(false));
     let child = done.clone();
@@ -93,6 +108,7 @@ async fn timer_busy(n: usize, sampling: bool) -> Measurement {
     }
     done.store(true,Ordering::Relaxed);worker.await.unwrap();r.cost=elapsed(start)/n as f64;r
 }
+/** @brief 测量外部线程批量提交任务的完成延迟。 */
 fn external_burst(rt: &Runtime,n: usize) -> Measurement {
     let mut handles = Vec::with_capacity(n);
     let start = Instant::now();
@@ -100,6 +116,7 @@ fn external_burst(rt: &Runtime,n: usize) -> Measurement {
     rt.block_on(async { for h in handles { assert_eq!(h.await.unwrap(),42); } });
     Measurement { cost: elapsed(start)/n as f64, samples: vec![0.;n] }
 }
+/** @brief 运行 Tokio 当前线程的协程、阻塞与 I/O 基准。 */
 fn main() {
     let args: Vec<_> = std::env::args().collect();
     let n: usize = args.get(1).map(|s| s.parse().unwrap()).unwrap_or(20000);

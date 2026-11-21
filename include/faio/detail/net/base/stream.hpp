@@ -1,80 +1,90 @@
 /**
  * @file faio/detail/net/base/stream.hpp
- * @brief 网络地址、socket 与传输协议：字节流公共封装。
- * @details 网络封装保持 socket 资源租约与所属 IO 域。流、报文和半关闭语义分别处理，借用缓冲区在完成前保持有效，原生句柄宽度由平台类型保留。
+ * @brief 字节流公共封装。
  */
 #ifndef FAIO_DETAIL_NET_BASE_STREAM_HPP
 #define FAIO_DETAIL_NET_BASE_STREAM_HPP
 #include "faio/detail/net/platform/select.hpp"
+#include "faio/detail/io/awaiter/connect.hpp"
+#include "faio/detail/io/awaiter/ready.hpp"
+#include <concepts>
 #include "faio/detail/net/base/address.hpp"
 #include "faio/detail/net/base/socket.hpp"
-#include "faio/detail/net/socket_options.hpp"
 #include "faio/detail/net/base/stream_read.hpp"
 #include "faio/detail/net/base/stream_write.hpp"
 #include <functional>
-#include <optional>
-#include <type_traits>
 
 namespace faio::net::detail {
-/** @brief 字节流的后端无关接口；每条连接保持创建时 IO domain 的共享 lease。 */
+/**  @brief 字节流的后端无关接口；每条连接持有创建时 IO domain 的共享 lease。 */
 template <class Stream, class Addr>
 class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
                    public ImplStreamWrite<BaseStream<Stream, Addr>>,
                    public ImplLocalAddr<BaseStream<Stream, Addr>, Addr>,
                    public ImplPeerAddr<BaseStream<Stream, Addr>, Addr> {
  protected:
+  /** @brief 接管源对象的状态和资源租约。 */
   explicit BaseStream(Socket&& socket) : socket_{std::move(socket)} {}
 
+  /** @brief 共享底层 socket 资源控制块。 */
   [[nodiscard]] auto share_socket() const -> Socket { return socket_.share(); }
 
+  /** @brief 转移当前流的 socket 包装。 */
   [[nodiscard]] auto take_socket() -> Socket { return std::move(socket_); }
 
  public:
-  using address_type = Addr;  ///< 字节流地址协议，用于后端中立的原生能力选择。
+  using address_type = Addr; /**< 字节流地址协议，用于在不依赖后端的情况下选择原生能力。 */
+  /** @brief 接管源对象的状态和资源租约。 */
   BaseStream(BaseStream&&) noexcept = default;
 
+  /** @brief 移动赋值资源及状态。 */
   auto operator=(BaseStream&&) noexcept -> BaseStream& = default;
 
+  /** @brief 禁止复制此对象。 */
   BaseStream(const BaseStream&) = delete;
 
+  /** @brief 禁止复制赋值。 */
   auto operator=(const BaseStream&) -> BaseStream& = delete;
 
+  /** @brief 释放字节流的 socket 资源租约。 */
   ~BaseStream() = default;
 
-  /// @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。
+  /** @brief 请求关闭 socket 的指定传输方向。 */
   auto shutdown(io::ShutdownBehavior direction = io::ShutdownBehavior::Write) noexcept {
     return socket_.shutdown(direction);
   }
 
-  /// @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。
+  /** @brief 异步关闭共享套接字，等待在途操作安全结束。 */
   auto close() noexcept { return socket_.close(); }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> native_socket_type { return socket_.fd(); }
 
-  /// @brief 读取原生句柄值，不在此接口转移关闭责任。
+  /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto as_native_handle() const noexcept -> native_socket_type { return fd(); }
 
-  /// @brief 取得底层共享资源控制块，以保持句柄身份与所属域。
+  /** @brief 取得底层共享资源控制块，保持句柄身份及所属域有效。 */
   [[nodiscard]] auto resource() const noexcept { return socket_.resource(); }
 
-  /// @brief 取得当前对象关联的 IO 上下文租约。
+  /** @brief 取得该对象关联的 I/O 上下文租约。 */
   [[nodiscard]] auto context() const noexcept { return socket_.context(); }
 
-  /** @brief 独立观察指定方向；不消费字节，不占用实际读写方向执行权。
+  /**
+   *  @brief 独立观察指定方向；不消费字节，不占用实际读写方向执行权。
    * @details 返回 expected<io::Ready>；读、写关闭提示分别查询，允许假就绪，
    *          try_* 返回 EAGAIN 后清除对应旧就绪位并重新等待。
    */
   auto ready(io::Interest interest) const noexcept { return io::ready(resource(), interest); }
 
+  /** @brief 等待 socket 或管道可读，不消费数据。 */
   auto readable() const noexcept { return ready(io::Interest::readable); }
 
+  /** @brief 等待 socket 或管道可写，不执行实际写入。 */
   auto writable() const noexcept { return ready(io::Interest::writable); }
 
-  /** @brief 自定义短非阻塞 syscall，所选读写方向由资源 gate 保证互斥。
+  /**
+   *  @brief 自定义短非阻塞 syscall，所选读写方向由资源 gate 保证互斥。
    * @details callable 返回 expected<T>，接收 fd
-   * 或无参数；不得递归进入同一对象。 本显式同步接口在 io_uring 上仍执行
-   * callable，不将其转换为原生 opcode。
+   * 或无参数；不得递归进入同一对象。 本显式同步接口在 io_uring 上仍调用 callable，不将其转换为原生 opcode。
    */
   template <class F>
   auto try_io(io::Interest interest, F&& function) const {
@@ -86,7 +96,8 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
     });
   }
 
-  /** @brief 在 would_block 时观察 readiness 并再次执行自定义非阻塞 syscall。
+  /**
+   *  @brief 在 would_block 时观察 readiness 并再次执行自定义非阻塞 syscall。
    * @details callable 与资源按值保存；io_uring 观察使用 POLL_ADD，
    *          内建 read/write 使用各自原生请求，不经过本兼容接口。
    */
@@ -97,12 +108,12 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
         resource(), interest, std::move(function));
   }
 
-  /** @brief 导出只在无在途操作时成功；所有半边共享的状态同时变为 detached。 */
+  /**  @brief 导出只在无在途操作时成功；所有半部共享的状态同时变为 detached。 */
   [[nodiscard]] auto into_native() -> expected<owned_native_socket> {
     return socket_.into_native();
   }
 
-  /// @brief 接管显式传入的原生句柄，按平台规则建立资源包装。
+  /** @brief 接管显式传入的原生句柄，按平台规则建立资源包装。 */
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_socket native)
       -> expected<Stream> {
     if (auto placement = native.validate_import(context); !placement)
@@ -124,10 +135,9 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
     return Stream{std::move(*socket)};
   }
 
-  /** @brief 建立数字端点连接；地址按值保存在组合协程帧，避免悬空借用。 */
+  /**  @brief 建立数字端点连接；地址按值保存在组合协程帧，避免悬空借用。 */
   static auto connect(Addr address, io::io_context context = io::io_context::current())
       -> task<expected<Stream>> {
-    /// @brief 异步连接组合的句柄创建同样使用统一原生 SOCKET 请求，不预先 ::socket。
     auto socket =
         co_await Socket::create_async(address.family(), SOCK_STREAM, 0, std::move(context));
     if (!socket)
@@ -138,11 +148,12 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
     co_return Stream{std::move(*socket)};
   }
 
+  /** @brief 连接到指定对端，返回连接结果。 */
   static auto connect(io::io_context context, Addr address) -> task<expected<Stream>> {
     co_return co_await connect(std::move(address), std::move(context));
   }
 
-  /** @brief 按输入顺序尝试多个端点；每个失败 socket 在下一次尝试前释放。 */
+  /**  @brief 按输入顺序尝试多个端点；每个失败 socket 在下一次尝试前释放。 */
   static auto connect(std::span<const Addr> addresses,
                       io::io_context context = io::io_context::current())
       -> task<expected<Stream>> {
@@ -156,14 +167,17 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
     co_return std::unexpected{last};
   }
 
+  /** @brief 连接到指定对端，返回连接结果。 */
   static auto connect(io::io_context context, std::span<const Addr> addresses)
       -> task<expected<Stream>> {
     co_return co_await connect(addresses, std::move(context));
   }
 
  private:
-  /** @brief resource 与 callable 按值保存，task 延迟恢复不依赖原包装对象的
-   * this。 */
+  /**
+   *  @brief resource 与 callable 按值保存，task 延迟恢复不依赖原包装对象的
+   * this。
+   */
   template <class Result, class F>
   static auto async_io_impl(std::shared_ptr<io::detail::resource_state> resource,
                             io::Interest interest,
@@ -183,7 +197,7 @@ class BaseStream : public ImplStreamRead<BaseStream<Stream, Addr>>,
     }
   }
 
-  Socket socket_;  ///< 拥有或共享底层 socket 包装，跨挂起保持原生资源身份。
+  Socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
 };
-}
+}  // namespace faio::net::detail
 #endif
