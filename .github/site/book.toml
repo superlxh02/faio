@@ -14,7 +14,7 @@ command = "python3 ../../.github/site/scripts/docs_links.py"
 after = ["links"]
 
 [output.html]
-theme = "../../target/docs/theme"
+theme = "mdbook-theme"
 default-theme = "light"
 preferred-dark-theme = "light"
 smart-punctuation = true

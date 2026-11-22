@@ -8,6 +8,9 @@ GROUPS = [
  ('time','时间与超时','单调时钟等待、周期定时器和 I/O deadline。'),
  ('sync','协程同步','互斥锁、信号量、条件变量、闩、屏障和 MPSC 通道。'),
  ('io','缓冲与流算法','缓冲区、完整传输、读写适配和原生描述符。'),
+ ('tls','TLS 安全传输','证书与信任配置、握手、加密流及连接信息。'),
+ ('process','异步进程','启动命令、子进程生命周期、标准流与输出捕获。'),
+ ('experimental','实验性接口','实验运行时、反射、异步入口及 Sender/Receiver 互操作。'),
  ('errors','错误与日志','expected、Error、错误域与日志入口。'),
 ]
 
@@ -19,6 +22,8 @@ TYPE_HEADERS = {
     'faio/net/address.hpp': ('faio::net::SocketAddr', 'faio::net::Ipv4Addr', 'faio::net::Ipv6Addr',
                              'faio::net::HostPort'),
     'faio/net/tcp.hpp': ('faio::net::TcpStream', 'faio::net::TcpListener', 'faio::net::TcpSocket',
+                         'faio::net::TcpStream::ReadHalf', 'faio::net::TcpStream::WriteHalf',
+                         'faio::net::TcpStream::OwnedReadHalf', 'faio::net::TcpStream::OwnedWriteHalf',
                          'faio::net::accept_options', 'faio::net::owned_native_socket',
                          'faio::io::io_context', 'faio::io::Ready'),
     'faio/net/udp.hpp': ('faio::net::UdpSocket', 'faio::net::DatagramMessage', 'faio::net::DatagramSend',
@@ -46,8 +51,8 @@ def export(public, group, description, source=None, **kwargs):
 
 
 EXPORTS = [
- export('faio::task','tasks','惰性的、移动独占的协程任务。',members=['task','with_no_stealing','with_stealing','with_bind_core','with_no_bind_core'],fields={'value_type':'协程完成后的值类型；void 表示无业务返回值。'},note='调用协程函数仅创建任务；co_await、spawn 或 block_on 才驱动执行。移动后原任务为空。'),
- export('faio::join_handle','tasks','并发任务的一次性结果句柄。',members=['join_handle','done','request_stop','stop_token','wait','get'],note='协程中 co_await 句柄；普通线程使用 wait/get。结果只能领取一次，丢弃句柄不会自动停止任务。'),
+ export('faio::task','tasks','惰性的、移动独占的协程任务。',members=['task','operator co_await','with_lifecycle','with_no_stealing','with_stealing','with_bind_core','with_no_bind_core'],fields={'value_type':'任务完成后的值类型。','scheduler_type':'驱动此任务的调度器类型。'},note='调用协程函数仅创建任务；co_await、spawn 或 block_on 才驱动执行。移动后原任务为空。'),
+ export('faio::join_handle','tasks','并发任务的一次性结果句柄。',members=['join_handle','operator co_await','done','request_stop','stop_token','wait','get'],fields={'value_type':'句柄交付的任务结果类型。','scheduler_type':'驱动所关联任务的调度器类型。'},note='协程中 co_await 句柄；普通线程使用 wait/get。结果只能领取一次，丢弃句柄不会自动停止任务。'),
  export('faio::scope_context','tasks','scope 回调中用于派生和停止子任务的作用域。',source='faio::basic_scope_context',concrete=True,bindings={'S':'default_scheduler'},members=['spawn','request_stop','stop_token']),
  export('faio::config_builder','runtime','在运行时启动前构造和验证运行配置。',note='先配置再调用 block_on/spawn。配置运行时后再次修改 builder 不影响已经启动的服务。'),
  export('faio::runtime::config','runtime','由 config_builder::build() 返回的配置值。',source='faio::runtime::detail::runtime_config',members=[],note='优先通过 config_builder 设置配置；配置对象可以按值传入 runtime::configure。'),
@@ -98,8 +103,22 @@ EXPORTS += [
  export('faio::net::OwnedDatagram','network','拥有缓冲区的数据报接收结果。',source='faio::net::detail::OwnedDatagram',concrete=True,bindings={'Addr':'SocketAddr'},fields={'buffer':'完成后归还的拥有型缓冲区。','message':'负载量、来源地址及截断信息。'}),
  export('faio::net::owned_native_socket','network','平台原生 socket 的移动独占 RAII 所有者。',source='faio::net::detail::owned_native_socket',exclude=['validate_import']),
  export('faio::io::borrowed_buffer','io','显式声明借用可写字节范围的 I/O 参数。',fields={'bytes':'在操作完成前保持内存与地址有效的字节视图。'}),
- export('faio::io::Ready','io','资源就绪观察结果。',fields={},note='就绪只是提示；仍需通过非阻塞操作判断实际能否读取或写入。'),
+ export('faio::io::Ready','io','资源就绪观察结果。',fields={'flags':'本次观察到的就绪标志位。','generation':'资源代际，用于按观察结果清除就绪状态。'},note='就绪只是提示；仍需通过非阻塞操作判断实际能否读取或写入。'),
 ]
+
+for direction, action in [('ReadHalf', '读'), ('WriteHalf', '写')]:
+    for owned in (False, True):
+        name = ('Owned' if owned else '') + direction
+        owner = 'faio::net::TcpStream'
+        source = 'Basic' + direction
+        excluded = [source, 'resource'] if owned else [source, 'resource', 'reunite', 'forget']
+        factory = 'into_split()' if owned else 'split()'
+        EXPORTS.append(export(
+            owner + '::' + name, 'network', 'TcpStream::' + factory + ' 返回的' + action + '半部。',
+            source='faio::net::detail::' + source, parent=owner, concrete=True, exclude=excluded,
+            fields={'address_type':'底层 TCP 连接的地址类型。'} if direction == 'WriteHalf' else {},
+            bindings={'Stream':'TcpStream', 'Addr':'SocketAddr', 'Owned':str(owned).lower()},
+        ))
 
 ENUMS = [
  ('faio','error_domain','errors','原生错误码的解释来源。',{'faio':'库定义错误。','posix':'POSIX errno。','resolver':'名称解析错误。','win32':'Win32 错误码。','winsock':'Winsock 错误码。','tls':'TLS配置、握手、证书验证或记录层错误。','process':'进程启动、等待、管道或捕获错误。'}),
@@ -120,7 +139,7 @@ FUNCTION_GROUPS = [
  dict(source='faio::net::detail',public='faio::net',group='network',members=['lookup_host']),
  dict(source='faio::fs',public='faio::fs',group='filesystem'),
  dict(source='faio::time',public='faio::time',group='time'),
- dict(source='faio::io',public='faio::io',group='io',members=['take','chain','split','read_exact','write_all','write_all_buf','read_to_end','read_to_string','copy','copy_bidirectional','read_until','read_line','lines','split_by_delimiter','read_integer','write_integer','empty','repeat','sink','duplex','current_context']),
+ dict(source='faio::io',public='faio::io',group='io',members=['take','chain','split','read_exact','write_all','write_all_buf','read_to_end','read_to_string','copy','copy_bidirectional','read_until','read_line','lines','split_by_delimiter','empty','repeat','sink','duplex','current_context']),
  dict(source='faio::log',public='faio::log',group='errors',members=['logger']),
 ]
 
@@ -300,8 +319,6 @@ METHODS = {
  'read_line':('读取一行并追加到字符串。','等待后返回 expected<size_t>，表示本次追加字节数。'),
  'lines':('为读取器创建逐行异步迭代适配器。','返回行读取适配器。'),
  'split_by_delimiter':('按分隔符分段读取。','返回分段异步读取适配器。'),
- 'read_integer':('按指定字节序读取整数。','等待后返回 expected 整数结果，提前 EOF 失败。'),
- 'write_integer':('按指定字节序写出整数。','等待后返回 expected<void>。'),
  'repeat':('创建重复生成同一字节的读取器。','返回读取器；使用 take 或显式上限限制读取量。'),
  'sink':('创建丢弃所有输入的写入器。','返回写入器，成功写入量等于传入长度。'),
  'duplex':('创建有界内存双工流。','返回一对可读写端点。'),
@@ -477,6 +494,23 @@ def documentation(spec, name, parameters, result_type, member):
     entry = METHODS.get(name)
     params = dict(PARAMETERS)
     note = ''
+    if name == 'operator co_await' and short in ('task', 'join_handle'):
+        entry = ('把任务的结果消费权交给等待方。', 'co_await 取得任务结果 T；T 为 void 时无值，任务异常沿等待链传播。',
+                 '等待后原对象为空。task 只能按右值等待。' if short == 'task' else '左值和右值句柄均可等待一次，等待后原句柄为空。')
+    if short == 'task' and name == 'with_lifecycle':
+        entry = ('给任务设置首次执行前和退出后的回调。', '返回包装后的同类型惰性任务，保留原任务的结果与异常。')
+        params.update(policy='按值保存的策略，满足 task_lifecycle_policy。', before='首次执行前调用的无参回调。',
+                      after='退出时接收 const task_exit& 的 noexcept 回调。')
+    if short == 'latch' and name == 'wait':
+        entry = ('等待倒计数归零。', '计数已归零时立即完成。co_await 后无返回值，等待被取消时抛出 operation_cancelled。')
+    if short == 'barrier' and name == 'arrive_and_wait':
+        entry = ('登记本轮到达并等待其余参与者。', '本轮全部到达后 co_await 完成，无返回值。取消会打破屏障并唤醒其他等待者。')
+    if spec.get('parent') == 'faio::net::TcpStream':
+        if name == 'reunite':
+            entry = ('重新合并同一次 into_split() 得到的两个半部。', '成功返回 expected<TcpStream>；拆分身份不匹配时返回 ReuniteFailed。')
+            params.update(reader='同一次拆分得到的拥有型读半部。', writer='同一次拆分得到的拥有型写半部。')
+        elif name == 'forget':
+            entry = ('取消拥有型写半部析构时的自动写半关闭。', '无返回值。')
     if short == 'config_builder' and name in CONFIG:
         brief, parameter, description = CONFIG[name]
         entry = (brief,'返回当前 config_builder&，支持链式配置。','最终配置合法性在运行时配置入口验证。')

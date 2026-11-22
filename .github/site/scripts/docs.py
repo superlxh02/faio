@@ -2,6 +2,7 @@
 """Build and preview the same static site locally and on GitHub Actions."""
 import argparse
 from functools import partial
+from hashlib import sha256
 from html import escape
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -62,9 +63,14 @@ def build_book(destination):
         setup()
     # Override mdBook's bundled highlighter with locally installed languages for
     # C++, shell, PowerShell, CMake and diagrams. Keep mdBook's legacy call API.
-    theme = WORK / "theme"
     shutil.copyfile(SOURCE / "book.toml", WORK / "book.toml")
-    shutil.copytree(SOURCE / "theme", theme, dirs_exist_ok=True)
+    additions = WORK / "theme"
+    additions.mkdir(exist_ok=True)
+    for name in ("book.css", "book.js"):
+        shutil.copyfile(SOURCE / "theme" / name, additions / name)
+    # Only these generated overrides belong in mdBook's built-in theme directory.
+    theme = WORK / "mdbook-theme"
+    theme.mkdir(exist_ok=True)
     pieces = [(HIGHLIGHTER / "highlight.min.js").read_text(encoding="utf-8")]
     pieces.extend((HIGHLIGHTER / f"languages/{language}.min.js").read_text(encoding="utf-8") for language in ("cmake", "powershell"))
     pieces.append("hljs.registerLanguage('mermaid', () => ({contains:[], disableAutodetect:true})); hljs.highlightBlock = element => hljs.highlightElement(element);")
@@ -115,7 +121,7 @@ class Links(HTMLParser):
             if name == "id" or (tag == "a" and name == "name"):
                 self.anchors.add(value)
             if value and ((tag in ("a", "link") and name == "href") or (tag in ("script", "img", "iframe") and name == "src")):
-                self.targets.append(value)
+                self.targets.append((tag, value))
 
 
 def check_public_api(directory=None):
@@ -138,8 +144,11 @@ def check_links(directory=SITE):
         parser = Links()
         parser.feed(page.read_text(encoding="utf-8"))
         parsed[page.resolve()] = parser
+    script_hashes = {}
     for page in pages:
-        for target in parsed[page.resolve()].targets:
+        relative_page = page.relative_to(directory)
+        page_scripts = {}
+        for tag, target in parsed[page.resolve()].targets:
             parts = urlsplit(target)
             if parts.scheme or parts.netloc:
                 continue
@@ -153,26 +162,33 @@ def check_links(directory=SITE):
                 failures.add(f"{page.relative_to(directory)} → {target}")
             elif parts.fragment and path in parsed and unquote(parts.fragment) not in parsed[path].anchors:
                 failures.add(f"{page.relative_to(directory)} → {target} (锚点不存在)")
+            elif tag == "script" and relative_page.parts[0] == "book":
+                if path not in script_hashes:
+                    script_hashes[path] = sha256(path.read_bytes()).digest()
+                digest = script_hashes[path]
+                if digest in page_scripts:
+                    failures.add(f"{relative_page} 重复加载相同脚本：{page_scripts[digest]} 与 {target}")
+                page_scripts[digest] = target
     if failures:
-        raise RuntimeError("发现失效的站内链接或资源：\n" + "\n".join(sorted(failures)[:60]))
+        raise RuntimeError("站内链接或资源检查失败：\n" + "\n".join(sorted(failures)[:60]))
     print(f"已检查 {len(pages)} 个 HTML 页面的站内链接、锚点与资源。", flush=True)
 
 
 def fingerprint():
     files = []
-    for directory in (ROOT / "docs", SOURCE, ROOT / "include", ROOT / "examples"):
+    for directory in (ROOT / "docs", SOURCE, ROOT / "include", ROOT / "cxx-module", ROOT / "examples"):
         for current, directories, names in os.walk(directory):
             directories[:] = [name for name in directories if name not in ("node_modules", ".obsidian", "__pycache__")]
             files.extend(Path(current) / name for name in names)
     return tuple((str(path), path.stat().st_mtime_ns) for path in sorted(files))
 
 
-def serve(args):
+def serve(port):
     build()
     handler = partial(SimpleHTTPRequestHandler, directory=str(SITE))
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     Thread(target=server.serve_forever, daemon=True).start()
-    print(f"Local: http://127.0.0.1:{args.port}/", flush=True)
+    print(f"Local: http://127.0.0.1:{port}/", flush=True)
     print("监听文档、页面、头文件和例程变更；构建完成后刷新浏览器。Ctrl+C 退出。", flush=True)
     previous = fingerprint()
     try:
@@ -206,7 +222,7 @@ def main():
         elif args.command == "check":
             check_links()
         else:
-            serve(args)
+            serve(args.port)
     except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
         print(f"错误：{error}", file=sys.stderr)
         return 1

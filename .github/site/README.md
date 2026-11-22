@@ -1,6 +1,6 @@
 # faio 文档站点
 
-站点由三部分拼起来：GitHub Pages 上的静态首页、mdBook 生成的《faio 使用文档》，以及从真实头文件生成的核心公共 API 查询。三者都构建到 `target/site/`，本地和 GitHub Actions 用同一个入口 `.github/site/scripts/docs.py`，两边的行为一致。
+站点包含静态首页、mdBook 生成的《faio 使用文档》和 Doxygen 生成的公共 API 查询。本地和 GitHub Actions 都通过 `.github/site/scripts/docs.py` 构建，输出位于 `target/site/`。
 
 ## 本地构建
 
@@ -22,7 +22,7 @@ python3 .github/site/scripts/docs.py check
 python3 .github/site/scripts/docs.py serve --port 8000
 ```
 
-浏览器打开 `http://127.0.0.1:8000/`。serve 会先构建一次，之后每秒给 `docs/`、`.github/site/`、`include/` 和 `examples/` 取一次指纹，发现改动就重建，刷新页面就能看到结果。某次构建失败不会让服务退出，错误打到 stderr，改好之后会自动继续。
+浏览器打开 `http://127.0.0.1:8000/`。预览服务先构建整站，随后监听 `docs/`、`.github/site/`、`include/`、`cxx-module/` 和 `examples/`。源码或模块导出发生变化时，API 查询也会重建。构建出错时服务继续提供上一次成功的版本。
 
 ## 内容目录
 
@@ -46,9 +46,9 @@ python3 .github/site/scripts/docs.py serve --port 8000
 
 `docs/getting-started.md` 覆盖的范围比第一次构建要宽。主线之外，它还写了怎么用 `import faio;` 消费具名模块，以及 CMake、Bazel、xmake 三个入口各自的预设、配置和验证脚本。
 
-API 文档有两个入口。`/book/api/` 下是手写的介绍，覆盖核心模块、TLS、进程和实验层；`/api/` 下是核心公开 API 的查询页。查询页由 Doxygen 生成 XML 后再装配一遍：先从真实头文件跑出 XML，按 `EXPORTS` 圈定的公共导出范围裁出声明视图，最后生成类型页、函数重载、参数和返回说明。原始 XML 与声明视图分别放在 `target/docs/api-source/` 和 `target/docs/api-public/`。
+API 文档有两个入口。`/book/api/` 提供使用指南和示例，`/api/` 提供 Doxygen 查询。查询覆盖基础库、TLS、异步进程与实验组件。生成器读取 `cxx-module/` 中的模块导出，从头文件的 Doxygen XML 提取声明。
 
-加了公开类型，就去改 `api_reference_content.py` 里的 `EXPORTS`；加了公开函数，改 `FUNCTION_GROUPS`。方法、参数或枚举值缺说明，或者 Doxygen 报出文档警告，构建都会直接失败。签名、默认值和重载一律从源码提取，不在文档里手抄。
+修改模块导出或公开签名后，运行 `python3 .github/site/scripts/docs.py build` 即可更新查询页和搜索索引。已有接口的中文详解在 `api_reference_content.py` 的 `EXPORTS` 和 `FUNCTION_GROUPS` 中维护。生成的声明、XML 和覆盖清单位于 `target/docs/api-public/`。
 
 Mermaid 和代码高亮的资源随站点一起分发，页面引用的是本地文件，不走 CDN。npm 依赖、主题副本和中间文件都落在 `target/docs/`，可发布的成品在 `target/site/`。
 

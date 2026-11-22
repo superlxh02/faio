@@ -1,10 +1,10 @@
 # API 介绍
 
-<div class="api-eyebrow">PUBLIC API · C++23</div>
+<div class="api-eyebrow">PUBLIC API</div>
 
-[打开核心公开 API 的 Doxygen 参考 →](../../api/index.html)
+[打开公共 API 的 Doxygen 参考 →](../../api/index.html)
 
-Doxygen 参考覆盖任务、运行时、网络、文件、时间、同步、流操作以及错误与日志等核心公开 API，列出每个收录类型和函数的重载签名、参数、返回值与生命周期约定。TLS、异步进程和实验层不进 Doxygen，它们的调用方式分别见 [TLS 介绍](tls.md)、[进程介绍](process.md)和[实验性接口介绍](experimental.md)。
+下方各组链接到 Doxygen 查询页，可以按名称查找接口，也可以浏览所属组的类型与函数。可选组件的构建选项和使用示例见 [TLS 介绍](tls.md)、[进程介绍](process.md)和[实验性接口介绍](experimental.md)。
 
 <div class="api-grid">
 <a class="api-card" href="../../api/group__tasks.html"><span>faio</span><h3>协程与并发 <b>↗</b></h3><p>task、spawn、join、select 和 scope。</p><code>co_await faio::join(...)</code></a>
@@ -15,9 +15,9 @@ Doxygen 参考覆盖任务、运行时、网络、文件、时间、同步、流
 <a class="api-card" href="../../api/group__sync.html"><span>faio::sync</span><h3>协程同步 <b>↗</b></h3><p>互斥锁、信号量、条件变量与有界通道。</p><code>mutex · semaphore · mpsc</code></a>
 <a class="api-card" href="../../api/group__io.html"><span>faio::io</span><h3>缓冲与流操作 <b>↗</b></h3><p>缓冲区所有权、完整传输和读写适配器。</p><code>io_buffer · BufReader</code></a>
 <a class="api-card" href="../../api/group__errors.html"><span>faio · faio::log</span><h3>错误与日志 <b>↗</b></h3><p>检查操作结果，读取错误和传输进度。</p><code>expected&lt;T&gt; · Error</code></a>
-<a class="api-card" href="tls.html"><span>faio::tls</span><h3>TLS 加密 <b>↗</b></h3><p>证书、连接握手与加密字节流。</p><code>TlsConnector · TlsStream</code></a>
-<a class="api-card" href="process.html"><span>faio::process</span><h3>异步进程 <b>↗</b></h3><p>命令、标准流与进程回收。</p><code>Command · Child</code></a>
-<a class="api-card" href="experimental.html"><span>faio::experimental</span><h3>实验性接口 <b>↗</b></h3><p>异步入口注解与 Sender/Receiver 互操作。</p><code>async_main · as_sender</code></a>
+<a class="api-card" href="../../api/group__tls.html"><span>faio::tls</span><h3>TLS 加密 <b>↗</b></h3><p>证书、连接握手与加密字节流。</p><code>TlsConnector · TlsStream</code></a>
+<a class="api-card" href="../../api/group__process.html"><span>faio::process</span><h3>异步进程 <b>↗</b></h3><p>命令、标准流与进程回收。</p><code>Command · Child</code></a>
+<a class="api-card" href="../../api/group__experimental.html"><span>faio::experimental</span><h3>实验性接口 <b>↗</b></h3><p>异步入口注解与 Sender/Receiver 互操作。</p><code>as_sender · spawn_sender</code></a>
 </div>
 
 ## 包含哪个头文件

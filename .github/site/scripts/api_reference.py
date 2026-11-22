@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 import sys
 
 sys.pycache_prefix = str(Path(__file__).resolve().parents[3] / "target/docs/pycache")
+from api_reference_surface import write_surface, validate_surface
 from api_reference_content import EXPORTS, FUNCTION_GROUPS, GROUPS, ENUMS, MISSING, documentation
 
 SOURCE = Path(__file__).resolve().parent.parent
@@ -28,9 +29,10 @@ def text(node):
 
 
 class SourceModel:
-    def __init__(self):
+    def __init__(self, directory):
+        self.xml = directory / 'xml'
         self.compounds = {}
-        for item in ET.parse(MODEL / 'xml/index.xml').getroot().findall('compound'):
+        for item in ET.parse(self.xml / 'index.xml').getroot().findall('compound'):
             name = item.findtext('name')
             self.compounds[name] = item.get('refid')
         self.cache = {}
@@ -38,7 +40,7 @@ class SourceModel:
     def get(self, name):
         ref = self.compounds.get(name, name)
         if ref not in self.cache:
-            path = MODEL / 'xml' / (ref + '.xml')
+            path = self.xml / (ref + '.xml')
             if not path.exists():
                 raise RuntimeError('Doxygen source declaration not found: ' + name)
             self.cache[ref] = ET.parse(path).getroot().find('compounddef')
@@ -58,23 +60,30 @@ class SourceModel:
         return result
 
 
-def source_model():
+def source_model(platform='Linux'):
+    directory = MODEL if platform == 'Linux' else MODEL.with_name('api-source-' + platform.lower())
     digest = hashlib.sha256(subprocess.check_output(['doxygen', '--version']))
     config = SOURCE / 'api/Doxyfile.source'
-    digest.update(config.read_bytes())
+    settings = config.read_text()
+    if platform == 'macOS':
+        settings += '\nOUTPUT_DIRECTORY = target/docs/api-source-macos\nPREDEFINED = __APPLE__=1 __MACH__=1 __cpp_impl_coroutine=201902L\n'
+    if platform == 'Windows':
+        settings += ('\nOUTPUT_DIRECTORY = target/docs/api-source-windows\n'
+                     'EXCLUDE_PATTERNS =\nPREDEFINED = _WIN32=1 _MSC_VER=1940\n')
+    digest.update(settings.encode())
     for path in sorted((ROOT / 'include/faio').rglob('*')):
         if path.is_file():
             digest.update(str(path.relative_to(ROOT)).encode())
             digest.update(path.read_bytes())
-    marker = MODEL / 'fingerprint'
-    if not marker.exists() or marker.read_text() != digest.hexdigest() or not (MODEL / 'xml/index.xml').exists():
-        MODEL.mkdir(parents=True, exist_ok=True)
-        process = subprocess.run(['doxygen', str(config)], cwd=ROOT, capture_output=True, text=True)
-        (MODEL / 'generation.log').write_text(process.stdout + process.stderr, encoding='utf-8')
+    marker = directory / 'fingerprint'
+    if not marker.exists() or marker.read_text() != digest.hexdigest() or not (directory / 'xml/index.xml').exists():
+        directory.mkdir(parents=True, exist_ok=True)
+        process = subprocess.run(['doxygen', '-'], input=settings, cwd=ROOT, capture_output=True, text=True)
+        (directory / 'generation.log').write_text(process.stdout + process.stderr, encoding='utf-8')
         if process.returncode:
-            raise RuntimeError('Source XML generation failed; see target/docs/api-source/generation.log')
+            raise RuntimeError(f'Source XML generation failed; see {directory}/generation.log')
         marker.write_text(digest.hexdigest())
-    return SourceModel()
+    return SourceModel(directory)
 
 
 def public_text(value, spec):
@@ -88,6 +97,9 @@ def public_text(value, spec):
         value = value.replace(old, new)
     for old, new in spec.get('bindings', {}).items():
         value = re.sub(r'\b' + re.escape(old) + r'\b', new, value)
+    if spec.get('parent') == 'faio::net::TcpStream':
+        value = re.sub(r'Basic(ReadHalf|WriteHalf)\s*<\s*TcpStream,\s*SocketAddr,\s*(true|false)\s*>',
+                       lambda m: ('Owned' if m[2] == 'true' else '') + m[1], value)
     for short in ('mutex', 'semaphore', 'condition_variable', 'latch', 'barrier'):
         value = re.sub(r'\b(?:faio::sync::)?basic_' + short + r'\s*<\s*(?:faio::)?default_scheduler\s*>', 'faio::sync::' + short, value)
     value = re.sub(r'\b(?:faio::)?basic_scope_context\s*<\s*(?:faio::)?default_scheduler\s*>', 'faio::scope_context', value)
@@ -147,7 +159,9 @@ def declaration(member, spec, owner=None):
         default = public_text(text(param.find('defval')), spec)
         parameters.append((param_type, param_name, default))
     qualifiers = public_text(suffix(args), spec)
-    signature = ' '.join([result_type, name, *(p[0] for p in parameters), qualifiers])
+    # A public member may return its nested awaiter by name, as latch::wait does.
+    checked_result = '' if owner and result_type == 'awaiter' else result_type
+    signature = ' '.join([checked_result, name, *(p[0] for p in parameters), qualifiers])
     if re.search(r'\bdetail::|\b(?:resource_state|Socket|task_promise|handle_type|awaiter|scope_state|state)\b', signature):
         return None
     # Constructors of mixin/base implementation classes are never user factories.
@@ -221,9 +235,11 @@ def generate(model):
             if parsed is None:
                 continue
             signature, params, result_type, name = parsed
-            if signature in seen:
+            # Out-of-class definitions can spell the injected return type differently.
+            overload = (template_declaration(member, spec), signature[signature.index(name + '('):])
+            if overload in seen:
                 continue
-            seen.add(signature)
+            seen.add(overload)
             result.append(comment(spec, name, params, result_type, member))
             result.append(signature)
             report.append({'owner':spec['public'], 'name':name, 'parameters':[p[1] for p in params], 'signature':signature})
@@ -330,6 +346,8 @@ def generate(model):
     page.append(' */')
     (PUBLIC / 'periodic.dox').write_text('\n'.join(page), encoding='utf-8')
     (PUBLIC / 'coverage.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    models = {'Linux': model, 'macOS': source_model('macOS'), 'Windows': source_model('Windows')}
+    write_surface(ROOT, PUBLIC, models, EXPORTS, ENUMS, report)
     return report
 
 
@@ -365,8 +383,10 @@ def build_reference(output):
     model = source_model()
     report = generate(model)
     shutil.rmtree(PUBLIC / 'xml', ignore_errors=True)
+    shutil.rmtree(output / 'api', ignore_errors=True)
     subprocess.run(['doxygen', str(SOURCE / 'api/Doxyfile')], cwd=ROOT, check=True)
     validate_reference(report, output)
+    validate_surface(PUBLIC, output / 'api')
     nav = '<nav class="faio-api-nav" aria-label="faio 导航"><a class="brand" href="../"><img src="../assets/favicon.svg" alt="">faio</a><a href="../book/getting-started.html">快速开始</a><a href="../book/api/">API 介绍</a><a href="index.html" aria-current="page">API 查询</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a></nav>'
     for page in (output / 'api').glob('*.html'):
         source = page.read_text(encoding='utf-8')
