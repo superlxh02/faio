@@ -1,0 +1,389 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+string_flag(
+    name = "io_uring",
+    build_setting_default = "auto",
+    values = [
+        "auto",
+        "on",
+        "off",
+    ],
+)
+
+string_flag(
+    name = "allocator",
+    build_setting_default = "auto",
+    values = [
+        "auto",
+        "system",
+        "tcmalloc",
+    ],
+)
+
+bool_flag(
+    name = "tls",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "process",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "experimental",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "experimental_reflection",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "experimental_execution",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "frame_global_new",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "tls_enabled",
+    flag_values = {":tls": "true"},
+)
+
+config_setting(
+    name = "process_enabled",
+    flag_values = {":process": "true"},
+)
+
+config_setting(
+    name = "global_new_enabled",
+    flag_values = {":frame_global_new": "true"},
+)
+
+config_setting(
+    name = "experimental_enabled",
+    flag_values = {":experimental": "true"},
+)
+
+config_setting(
+    name = "reflection_enabled",
+    flag_values = {
+        ":experimental": "true",
+        ":experimental_reflection": "true",
+    },
+)
+
+config_setting(
+    name = "execution_enabled",
+    flag_values = {
+        ":experimental": "true",
+        ":experimental_execution": "true",
+    },
+)
+
+config_setting(
+    name = "modules_enabled",
+    values = {"experimental_cpp_modules": "true"},
+)
+
+config_setting(
+    name = "linux_uring_default",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":io_uring": "auto"},
+)
+
+config_setting(
+    name = "uring_requested",
+    flag_values = {":io_uring": "on"},
+)
+
+selects.config_setting_group(
+    name = "using_uring",
+    match_any = [
+        ":linux_uring_default",
+        ":uring_requested",
+    ],
+)
+
+config_setting(
+    name = "linux_allocator_auto",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":allocator": "auto"},
+)
+
+config_setting(
+    name = "tcmalloc_requested",
+    flag_values = {":allocator": "tcmalloc"},
+)
+
+config_setting(
+    name = "asan_enabled",
+    values = {"features": "asan"},
+)
+
+config_setting(
+    name = "tsan_enabled",
+    values = {"features": "tsan"},
+)
+
+config_setting(
+    name = "ubsan_enabled",
+    values = {"features": "ubsan"},
+)
+
+selects.config_setting_group(
+    name = "sanitized",
+    match_any = [
+        ":asan_enabled",
+        ":tsan_enabled",
+        ":ubsan_enabled",
+    ],
+)
+
+selects.config_setting_group(
+    name = "tcmalloc_sanitized",
+    match_all = [
+        ":sanitized",
+        ":tcmalloc_requested",
+    ],
+)
+
+# gperftools is a pinned source dependency on Linux. Its tcmalloc target uses
+# alwayslink so the allocator overrides are present in the final executable.
+cc_library(
+    name = "linux_allocator_auto_deps",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+    deps = select({
+        ":sanitized": [],
+        "//conditions:default": ["@gperftools//:tcmalloc"],
+    }),
+)
+
+URING_DEFINES = select({
+    ":using_uring": ["FAIO_HAS_IO_URING=1"],
+    "//conditions:default": ["FAIO_HAS_IO_URING=0"],
+})
+
+WINDOWS_DEFINES = select({
+    "@platforms//os:windows": [
+        "NOMINMAX",
+        "WIN32_LEAN_AND_MEAN",
+        "_WIN32_WINNT=0x0A00",
+    ],
+    "//conditions:default": [],
+})
+
+# Reflection changes the coroutine promise layout. Apply these macros to the
+# complete graph of each experimental binary in both consumption modes.
+EXP_DEFINES = select({
+    ":experimental_enabled": ["FAIO_ENABLE_EXPERIMENTAL=1"],
+    "//conditions:default": [],
+}) + select({
+    ":reflection_enabled": [
+        "FAIO_EXPERIMENTAL_HAS_REFLECTION=1",
+        "FAIO_EXPERIMENTAL_TASK_LIFECYCLE=1",
+    ],
+    "//conditions:default": [],
+}) + select({
+    ":execution_enabled": ["FAIO_EXPERIMENTAL_HAS_EXECUTION=1"],
+    "//conditions:default": [],
+})
+
+cc_library(
+    name = "runtime_deps",
+    defines = URING_DEFINES + WINDOWS_DEFINES + EXP_DEFINES + select({
+        ":global_new_enabled": ["FAIO_COROUTINE_FRAME_USE_GLOBAL_NEW=1"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "@platforms//os:linux": ["-pthread"],
+        "@platforms//os:windows": [
+            "ws2_32.lib",
+            "mswsock.lib",
+            "iphlpapi.lib",
+        ],
+        "//conditions:default": [],
+    }),
+    tags = ["manual"],
+    target_compatible_with = select({
+        "@platforms//os:freebsd": [],
+        "@platforms//os:linux": [],
+        "@platforms//os:macos": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        ":uring_requested": ["@platforms//os:linux"],
+        "//conditions:default": [],
+    }) + select({
+        ":tcmalloc_requested": ["@platforms//os:linux"],
+        "//conditions:default": [],
+    }) + select({
+        ":tcmalloc_sanitized": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:private"],
+    deps = ["@spdlog"] + select({
+        ":experimental_enabled": [":experimental_compiler"],
+        "//conditions:default": [],
+    }) + select({
+        ":using_uring": ["@liburing"],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_allocator_auto": [":linux_allocator_auto_deps"],
+        ":tcmalloc_requested": ["@gperftools//:tcmalloc"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "faio",
+    hdrs = glob(
+        [
+            "include/faio/**/*.h",
+            "include/faio/**/*.hpp",
+            "include/faio/**/*.inc",
+        ],
+        allow_empty = True,
+    ),
+    includes = ["include"] + select({
+        "@platforms//os:windows": ["include/faio/detail/io/platform/windows/compat"],
+        "//conditions:default": [],
+    }),
+    deps = [":runtime_deps"],
+)
+
+TLS_COMPATIBLE = select({
+    ":tls_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+PROCESS_COMPATIBLE = select({
+    ":process_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+cc_library(
+    name = "faio_tls",
+    defines = ["FAIO_ENABLE_TLS=1"],
+    target_compatible_with = TLS_COMPATIBLE,
+    deps = [":faio"] + select({
+        ":tls_enabled": [
+            "@openssl//:crypto",
+            "@openssl//:ssl",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "faio_process",
+    defines = ["FAIO_ENABLE_PROCESS=1"] + select({
+        "@platforms//os:linux": ["_GNU_SOURCE"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "@platforms//os:windows": [
+            "bcrypt.lib",
+            "advapi32.lib",
+        ],
+        "//conditions:default": [],
+    }),
+    target_compatible_with = PROCESS_COMPATIBLE,
+    deps = [":faio"],
+)
+
+alias(
+    name = "faio_module",
+    actual = "//cxx-module:faio",
+)
+
+alias(
+    name = "faio_module_tls",
+    actual = "//cxx-module:tls",
+)
+
+alias(
+    name = "faio_module_process",
+    actual = "//cxx-module:process",
+)
+
+alias(
+    name = "faio_module_experimental",
+    actual = "//cxx-module:experimental",
+)
+
+EXP_COMPATIBLE = select({
+    ":experimental_enabled": ["@platforms//os:linux"],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+REFLECTION_COMPATIBLE = select({
+    ":reflection_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+EXECUTION_COMPATIBLE = select({
+    ":execution_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+cc_library(
+    name = "experimental_compiler",
+    srcs = ["tools/experimental_compiler.cpp"],
+    local_defines = EXP_DEFINES,
+    target_compatible_with = EXP_COMPATIBLE,
+    visibility = ["//visibility:private"],
+)
+
+cc_library(
+    name = "faio_experimental_runtime",
+    target_compatible_with = EXP_COMPATIBLE,
+    deps = [":faio"],
+)
+
+cc_library(
+    name = "faio_experimental_reflection",
+    target_compatible_with = REFLECTION_COMPATIBLE,
+    deps = [":faio_experimental_runtime"],
+)
+
+alias(
+    name = "faio_experimental_lifecycle",
+    actual = ":faio_experimental_reflection",
+)
+
+cc_library(
+    name = "faio_experimental_execution",
+    target_compatible_with = EXECUTION_COMPATIBLE,
+    deps = [
+        ":faio_experimental_runtime",
+        "@faio_stdexec//:stdexec",
+    ],
+)
+
+# The comparison server uses the same logger without linking the faio runtime,
+# allocator or backend into the standalone Asio benchmark.
+cc_library(
+    name = "benchmark_logging",
+    hdrs = glob(
+        [
+            "include/faio/log/logger.hpp",
+            "include/faio/detail/log/logger.hpp",
+        ],
+        allow_empty = True,
+    ),
+    includes = ["include"],
+    tags = ["manual"],
+    visibility = ["//benchmark:__pkg__"],
+    deps = ["@spdlog"],
+)

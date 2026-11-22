@@ -1,0 +1,60 @@
+# Native Bazel resolves startup paths from the calling directory. tools/bazel
+# supplies this same location as an absolute path when invoked from a subpackage.
+startup --output_user_root=target/bazel/state
+# Bazel 9 forbids its extracted-repository cache inside the source workspace.
+# Downloaded archives remain cached under target/bazel/state/cache/repos.
+common --repo_contents_cache=
+build --symlink_prefix=target/bazel/
+
+build:faio_cpp23 --cxxopt=-std=c++23
+build:faio_cpp23 --repo_env=CC
+build:faio_cpp23 --repo_env=BAZEL_USE_LEGACY_MACOS_TOOLCHAIN=1
+build:faio_cpp23 --extra_toolchains=@local_config_cc_toolchains//:all
+# Fedora/aarch64 ld.bfd can crash on --start-lib links; use normal archives.
+build:faio_cpp23 --features=-supports_start_end_lib
+
+build:faio_headers --config=faio_cpp23
+build:faio_headers --@spdlog//:header_only=false
+
+build:faio_modules --config=faio_cpp23
+build:faio_modules --experimental_cpp_modules
+build:faio_modules --features=cpp_modules
+# Keep source locations in the BMI readable in a different action sandbox.
+build:faio_modules --cxxopt=-Xclang=-fmodule-file-home-is-cwd
+build:faio_modules --cxxopt=-Xclang=-fmodules-embed-all-files
+
+build:faio_epoll --//:io_uring=off
+
+build:faio_tls --//:tls=true
+build:faio_process --//:process=true
+
+# Select GCC 16.1.x through CC for these Linux-only configurations.
+build:faio_experimental --config=faio_cpp23
+build:faio_experimental --//:experimental=true
+build:faio_experimental --cxxopt=-std=c++26
+build:faio_experimental --cxxopt=-freflection
+# The allocator and unwinder fix their own language dialects at C++17/20.
+build:faio_experimental --per_file_copt=.*(aw-backtrace|gperftools).*@-fno-reflection
+build:faio_experimental_modules --config=faio_experimental
+build:faio_experimental_modules --//:experimental_execution=false
+build:faio_experimental_modules --experimental_cpp_modules
+build:faio_experimental_modules --features=cpp_modules
+build:faio_experimental_modules --cxxopt=-fmodules
+# GCC writes the output CMI to its own .d file unless this flag is supplied.
+# Bazel already tracks CMI dependencies from the module scan.
+build:faio_experimental_modules --cxxopt=-Mno-modules
+# GCC's CMI loses the internal linkage of two header-only spdlog formatters.
+# Both the scanner and compiler must see the compiled-library header layout.
+build:faio_experimental_modules --@spdlog//:header_only=false
+build:faio_experimental_modules --cxxopt=-DSPDLOG_COMPILED_LIB
+
+# Pair compiler instrumentation with the allocator's Bazel feature check.
+build:faio_asan --features=asan
+build:faio_asan --copt=-fsanitize=address
+build:faio_asan --linkopt=-fsanitize=address
+build:faio_tsan --features=tsan
+build:faio_tsan --copt=-fsanitize=thread
+build:faio_tsan --linkopt=-fsanitize=thread
+build:faio_ubsan --features=ubsan
+build:faio_ubsan --copt=-fsanitize=undefined
+build:faio_ubsan --linkopt=-fsanitize=undefined

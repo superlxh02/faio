@@ -10,7 +10,7 @@
       "name": "common",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
+      "binaryDir": "${sourceDir}/target/cmake-build-${presetName}",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "FAIO_BUILD_EXAMPLES": "ON",

@@ -1,70 +1,195 @@
-# faio 可运行示例
+# faio 示例
 
-每个程序围绕一个用户场景，只使用公开接口。程序通过 `faio::block_on` 等待异步任务，调度和 I/O 由库处理。所有非实验程序在演示完成后退出。
+这里的每个程序都对应一个能跑起来的场景，只调用 faio 的公开接口。异步任务统一交给 `faio::block_on` 驱动，调度和 I/O 由库负责。除实验示例外，程序演示完就退出，输出可以直接看，也可以交给 CTest。
 
-| 模块     | 源码                                                               | 构建目标                 | 展示内容                                           |
-|----------|--------------------------------------------------------------------|--------------------------|----------------------------------------------------|
-| 入门     | [quickstart.cpp](quickstart.cpp)                                   | `quickstart`             | 第一个异步任务，输出 42                            |
-| 协程     | [task.cpp](coroutine/task.cpp)                                     | `coroutine_task`         | 配置默认运行时、惰性创建、等待任务和领取异常       |
-| 并发上   | [composition_basics.cpp](coroutine/composition_basics.cpp)         | `composition_basics`     | 固定或动态汇合，`select` 等待落选工作退出          |
-| 并发下   | [structured_concurrency.cpp](coroutine/structured_concurrency.cpp) | `structured_concurrency` | `scope` 自动收束、分离任务通知、共享结果与组内失败 |
-| 协程     | [batch_results.cpp](coroutine/batch_results.cpp)                   | `batch_results`          | 单项终态、批量收集结果和限并发处理                 |
-| 协程     | [race_strategies.cpp](coroutine/race_strategies.cpp)               | `race_strategies`        | 首个成功与任务组内的提前交付                       |
-| 协程     | [lifecycle.cpp](coroutine/lifecycle.cpp)                           | `coroutine_lifecycle`    | 观察任务开始和结束，异步清理归还借用               |
-| 协程     | [cancellation_deadline.cpp](coroutine/cancellation_deadline.cpp)   | `cancellation_deadline`  | 外部停止令牌、截止触发和落选分支收束               |
-| 协程     | [sequence.cpp](coroutine/sequence.cpp)                             | `coroutine_sequence`     | 拉取、限并发消费、提前退出后等生产者收尾           |
-| 协程     | [custom_awaiter.cpp](coroutine/custom_awaiter.cpp)                 | `custom_awaiter`         | 同步完成与外部线程回调接入                         |
-| 协程     | [serial_domain.cpp](coroutine/serial_domain.cpp)                   | `serial_domain`          | 挂起期间保持独占，关闭后拒绝接纳并等待已有工作     |
-| 阻塞工作 | [execution.cpp](runtime/execution.cpp)                             | `blocking_work`          | 通过 `spawn_blocking` 调用同步 SDK                 |
-| 同步上   | [shared_state.cpp](sync/shared_state.cpp)                          | `sync_shared_state`      | 互斥锁、条件变量和信号量                           |
-| 同步下   | [coordination.cpp](sync/coordination.cpp)                          | `sync_coordination`      | 闩、屏障和有界 MPSC 通道                           |
-| I/O      | [stream.cpp](io/stream.cpp)                                        | `io_stream`              | 内存流、完整读写、缓冲及 EOF                       |
-| 文件     | [file_and_directory.cpp](fs/file_and_directory.cpp)                | `file_and_directory`     | 写入、读回、枚举和清理临时目录                     |
-| 网络     | [tcp_echo.cpp](net/tcp_echo.cpp)                                   | `tcp_echo`               | 本机 TCP 连接与字节流回显                          |
-| 网络     | [udp_echo.cpp](net/udp_echo.cpp)                                   | `udp_echo`               | 本机 UDP 数据报与来源地址                          |
-| TLS      | [echo.cpp](tls/echo.cpp)                                           | `tls_echo`               | 本机加密回显、显式 CA 和主机名验证                 |
-| 进程     | [command.cpp](process/command.cpp)                                 | `process_command`        | 捕获标准输出及错误、超时后终止并回收               |
+还没编译过 faio 的话，先按[快速开始](../docs/getting-started.md)选一个预设，再回到这里挑例子。
+
+## 示例清单
+
+先看两个入口程序。`quickstart` 用头文件接口建立第一个异步任务，`quickstart_module` 做同一件事，只是换成 `import faio;`。
+
+| 源码 | CMake 目标 | 展示内容 |
+|---|---|---|
+| [quickstart.cpp](quickstart.cpp) | `quickstart` | 第一个异步任务，输出 42 |
+| [module/quickstart.cpp](module/quickstart.cpp) | `quickstart_module` | 导入 `faio` 并等待异步任务，输出 42 |
+
+下面一组是协程和任务组合。它们覆盖任务生命周期、并发汇合、取消这些容易写错的地方。
+
+| 源码 | CMake 目标 | 展示内容 |
+|---|---|---|
+| [coroutine/task.cpp](coroutine/task.cpp) | `coroutine_task` | 配置默认运行时、惰性创建、等待任务和领取异常 |
+| [coroutine/composition_basics.cpp](coroutine/composition_basics.cpp) | `composition_basics` | 固定或动态汇合，`select` 等待落选工作退出 |
+| [coroutine/structured_concurrency.cpp](coroutine/structured_concurrency.cpp) | `structured_concurrency` | `scope` 自动收束、分离任务通知、共享结果与组内失败 |
+| [coroutine/batch_results.cpp](coroutine/batch_results.cpp) | `batch_results` | 单项终态、批量收集结果和限并发处理 |
+| [coroutine/race_strategies.cpp](coroutine/race_strategies.cpp) | `race_strategies` | 首个成功与任务组内的提前交付 |
+| [coroutine/lifecycle.cpp](coroutine/lifecycle.cpp) | `coroutine_lifecycle` | 观察任务开始和结束，异步清理归还借用 |
+| [coroutine/cancellation_deadline.cpp](coroutine/cancellation_deadline.cpp) | `cancellation_deadline` | 外部停止令牌、截止触发和落选分支收束 |
+| [coroutine/sequence.cpp](coroutine/sequence.cpp) | `coroutine_sequence` | 拉取、限并发消费、提前退出后等生产者收尾 |
+| [coroutine/custom_awaiter.cpp](coroutine/custom_awaiter.cpp) | `custom_awaiter` | 同步完成与外部线程回调接入 |
+| [coroutine/serial_domain.cpp](coroutine/serial_domain.cpp) | `serial_domain` | 挂起期间保持独占，关闭后拒绝接纳并等待已有工作 |
+
+这一组涉及运行时、同步原语和 I/O 基础：从线程池承接阻塞调用，到锁、通道、流和文件系统。
+
+| 源码 | CMake 目标 | 展示内容 |
+|---|---|---|
+| [runtime/execution.cpp](runtime/execution.cpp) | `blocking_work` | 通过 `spawn_blocking` 调用同步 SDK |
+| [sync/shared_state.cpp](sync/shared_state.cpp) | `sync_shared_state` | 互斥锁、条件变量和信号量 |
+| [sync/coordination.cpp](sync/coordination.cpp) | `sync_coordination` | 闩、屏障和有界 MPSC 通道 |
+| [io/stream.cpp](io/stream.cpp) | `io_stream` | 内存流、完整读写、缓冲及 EOF |
+| [fs/file_and_directory.cpp](fs/file_and_directory.cpp) | `file_and_directory` | 写入、读回、枚举和清理临时目录 |
+
+网络和系统集成示例都只访问本机。TCP、UDP 和 TLS 使用回环地址，端口由系统分配，不会占用固定端口。
+
+| 源码 | CMake 目标 | 展示内容 |
+|---|---|---|
+| [net/tcp_echo.cpp](net/tcp_echo.cpp) | `tcp_echo` | 本机 TCP 连接与字节流回显 |
+| [net/udp_echo.cpp](net/udp_echo.cpp) | `udp_echo` | 本机 UDP 数据报与来源地址 |
+| [tls/echo.cpp](tls/echo.cpp) | `tls_echo` | 本机加密回显、显式 CA 和主机名验证 |
+| [process/command.cpp](process/command.cpp) | `process_command` | 捕获标准输出及错误、超时后终止并回收 |
+
+表里写的是 CMake 目标名。Bazel 和 xmake 大部分沿用，只有少量前缀或别名不同：
+
+- CMake 的 `quickstart` 在 xmake 里叫 `quickstart_header`；Bazel 仍叫 `quickstart`。
+- `sync_shared_state` 和 `sync_coordination` 在 Bazel、xmake 中都叫 `shared_state`、`coordination`。
+- xmake 的头文件版 TLS 与进程示例叫 `tls_echo_header`、`process_command_header`。
+- 模块版示例统一用 `*_module` 后缀，例如 `tls_echo_module`、`process_command_module`。
 
 ## 构建与运行
 
-在仓库根目录执行。预设按 [快速开始](../docs/getting-started.md) 选择。macOS 示例：
+### CMake
+
+示例和库共用一次配置，可执行文件落在 `target/cmake-build-<preset>/examples/`。以 macOS 预设为例：
 
 ```sh
 cmake --preset mac-main-release
 cmake --build --preset mac-main-release --target faio_examples
-./build/mac-main-release/examples/quickstart
-./build/mac-main-release/examples/structured_concurrency
-./build/mac-main-release/examples/tcp_echo
+./target/cmake-build-mac-main-release/examples/quickstart
+./target/cmake-build-mac-main-release/examples/structured_concurrency
+./target/cmake-build-mac-main-release/examples/tcp_echo
 ctest --preset mac-main-release -L example --output-on-failure
 ```
 
-`faio_examples` 构建所有已启用的非实验示例，也可使用表中的名称单独构建。启用测试时，CTest 的 `example` 标签运行这一组程序。TCP、UDP 和 TLS 只使用本机回环，端口由系统分配。
+`faio_examples` 聚合头文件版的非实验示例。也可以把表中的目标名直接交给 `cmake --build --preset <preset> --target <target>` 单独构建。开启 `FAIO_BUILD_TESTS` 后，每个程序注册成名为 `example_<target>` 的测试，带 `example` 标签；上面的 `ctest` 命令按标签把它们一起跑一遍。
 
-TLS 需要 `FAIO_ENABLE_TLS=ON`。传入测试证书、私钥和 CA：
+TLS 和进程组件默认关闭。启用 `FAIO_ENABLE_TLS=ON` 后，`tls_echo` 需要依次传入服务端证书、私钥和客户端信任的 CA：
 
 ```sh
-./build/mac-main-release/examples/tls_echo tests/fixtures/server.pem tests/fixtures/server.key tests/fixtures/ca.pem
+./target/cmake-build-mac-main-release/examples/tls_echo tests/fixtures/server.pem tests/fixtures/server.key tests/fixtures/ca.pem
 ```
 
-这些证书和密钥用于本机测试。进程示例需要 `FAIO_ENABLE_PROCESS=ON`，请通过可执行文件的路径启动，示例会用同一路径启动子角色。
+这些文件只用于本机测试。进程示例在 `FAIO_ENABLE_PROCESS=ON` 后参与构建，直接运行即可，不要只传一个裸文件名，程序会用 `argv[0]` 定位自身来启动子进程：
+
+```sh
+./target/cmake-build-mac-main-release/examples/process_command
+```
+
+### Bazel
+
+Bazel 版本锁在 9.2.0。头文件示例：
+
+```sh
+bazel run --config=faio_headers //examples:quickstart
+bazel run --config=faio_headers //examples:structured_concurrency
+bazel test --config=faio_headers //examples:tcp_echo //examples:udp_echo
+```
+
+模块示例和模块版组件示例：
+
+```sh
+bazel run --config=faio_modules //examples:quickstart_module
+bazel test --config=faio_modules --config=faio_tls --config=faio_process \
+  //examples:tls_echo_module //examples:process_command_module
+```
+
+`examples` 包里的程序大多是 `cc_test`，所以 `bazel run` 和 `bazel test` 都能用；约定是失败时返回非零状态。TLS 和进程的头文件版目标也要带上对应配置：`--config=faio_tls`、`--config=faio_process`。`CC` 需要指向支持 C++23 的 Clang，macOS 上可用的版本见 [快速开始](../docs/getting-started.md)。
+
+### xmake
+
+使用 xmake 3.0.1 或更新版本。只跑头文件示例时保持 `--faio_modules=n`：
+
+```sh
+xmake f -c -y -m release --toolchain=clang \
+  --cxx=/path/to/llvm/bin/clang++ --ld=/path/to/llvm/bin/clang++
+xmake build quickstart_header
+xmake run quickstart_header
+xmake run coroutine_task
+```
+
+打开模块后，`quickstart_module` 和 `*_module` 系列目标才存在：
+
+```sh
+xmake f -c -y -m release --toolchain=clang \
+  --cxx=/path/to/llvm/bin/clang++ --ld=/path/to/llvm/bin/clang++ \
+  --faio_modules=y --faio_tls=y --faio_process=y
+xmake run quickstart_module
+xmake run tls_echo_module
+```
+
+xmake 默认把构建产物放在 `target/xmake/`。切换工具链或开关时记得加 `-c` 清掉旧配置。
+
+## 具名模块示例
+
+[`module/`](module/README.md) 是一个可以单独配置的下游 CMake 工程，演示怎样从源码或安装包接入 `faio::module`。它使用 `cxx-module/` 的导入入口和 `include/faio/` 的共享实现，程序本身只做一件事：`import faio;`，睡 10 毫秒，输出 `The answer is 42`。
+
+从源码接入时，在仓库根目录执行：
+
+```sh
+cmake -S examples/module -B target/cmake-build-module-example -G Ninja \
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+cmake --build target/cmake-build-module-example
+./target/cmake-build-module-example/quickstart_module
+```
+
+把示例复制到别的工程后，用 `-DFAIO_SOURCE_DIR=/path/to/faio` 指向 faio 仓库。工具链需要 CMake 3.28+、Ninja 1.11+、同一 LLVM 发行版的编译器与 `clang-scan-deps`。核心模块还依赖 spdlog；在 Linux 开发容器里把命令中的 `clang++` 换成 `clang++-23`。
+
+从安装包接入时，先构建并安装模块包。`FAIO_MODULE_EXAMPLE_USE_PACKAGE=ON` 会改用 `find_package(faioModules CONFIG REQUIRED)`：
+
+```sh
+cmake -S cxx-module -B target/cmake-build-module-provider -G Ninja \
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
+  -DFAIO_ENABLE_IO_URING=OFF
+cmake --build target/cmake-build-module-provider
+cmake --install target/cmake-build-module-provider --prefix "$PWD/target/faio-module-prefix"
+
+cmake -S examples/module -B target/cmake-build-module-example-installed -G Ninja \
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
+  -DFAIO_MODULE_EXAMPLE_USE_PACKAGE=ON -DCMAKE_PREFIX_PATH="$PWD/target/faio-module-prefix"
+cmake --build target/cmake-build-module-example-installed
+./target/cmake-build-module-example-installed/quickstart_module
+```
+
+两种 CMake 接入方式都输出 `The answer is 42`。安装包的接口源码要和下游使用同一套编译器、标准库和构建配置，BMI 由下游重建。
+
+如果不想单独配置 `examples/module`，根目录构建打开 `FAIO_BUILD_MODULES=ON` 后也能直接构建 `quickstart_module`：
+
+```sh
+cmake -S . -B target/cmake-build-modules -G Ninja -DCMAKE_CXX_COMPILER=clang++ \
+  -DFAIO_BUILD_MODULES=ON
+cmake --build target/cmake-build-modules --target quickstart_module
+./target/cmake-build-modules/tests/modules/quickstart_module
+```
+
+对应的 Bazel 和 xmake 命令分别是 `bazel run --config=faio_modules //examples:quickstart_module`，以及配置时加 `--faio_modules=y` 后执行 `xmake run quickstart_module`。模块构建的完整工具链约束和下游配置见[模块移植说明](../cxx-module/README.md)。
 
 ## 实验示例
 
-每个程序以 `[[= faio::experimental::main(app)]]` 声明异步入口。应用实现 `faio::task<int> app(int, char**)`，库负责启动、退出收束和交付退出状态。
+实验示例走另一套入口：程序用 `[[= faio::experimental::main(app)]]` 声明，应用实现 `faio::task<int> app(int, char**)`，启动、退出收束和退出状态交给库处理。
 
-| 源码                                                            | 构建目标                           | 展示内容                                     |
-|-----------------------------------------------------------------|------------------------------------|----------------------------------------------|
-| [async_main.cpp](experimental/entry/async_main.cpp)             | `faio_experimental_async_main`     | 转交命令行参数，并发等待和进程退出码         |
-| [exit_cleanup.cpp](experimental/entry/exit_cleanup.cpp)         | `faio_experimental_exit_cleanup`   | 入口返回、请求后台任务停止、等待异步清理     |
-| [annotated_task.cpp](experimental/lifecycle/annotated_task.cpp) | `faio_experimental_annotated_task` | 惰性任务的前置钩子、成功和异常终态           |
-| [sender_bridge.cpp](experimental/execution/sender_bridge.cpp)   | `faio_experimental_sender_bridge`  | 将协程接入 stdexec Sender 图，并异步领取结果 |
+| 源码 | CMake 目标 | 展示内容 |
+|---|---|---|
+| [experimental/entry/async_main.cpp](experimental/entry/async_main.cpp) | `faio_experimental_async_main` | 转交命令行参数，并发等待和进程退出码 |
+| [experimental/entry/exit_cleanup.cpp](experimental/entry/exit_cleanup.cpp) | `faio_experimental_exit_cleanup` | 入口返回、请求后台任务停止、等待异步清理 |
+| [experimental/lifecycle/annotated_task.cpp](experimental/lifecycle/annotated_task.cpp) | `faio_experimental_annotated_task` | 惰性任务的前置钩子、成功和异常终态 |
+| [experimental/execution/sender_bridge.cpp](experimental/execution/sender_bridge.cpp) | `faio_experimental_sender_bridge` | 将协程接入 stdexec Sender 图，并异步领取结果 |
 
-工具链要求 Linux、GCC 16.1.x、配套 libstdc++ 和 C++26。启用实验反射后，可构建全部已启用的示例。Sender 示例还要求启用 `FAIO_EXPERIMENTAL_EXECUTION` 并准备锁定的 stdexec，见 [实验性接口](../docs/api/experimental.md)。
+这一组只支持 Linux、GCC 16.1.x、配套 libstdc++ 和 C++26。启用实验反射后构建：
 
 ```sh
 cmake --preset linux-all-release
 cmake --build --preset linux-all-release --target faio_experimental_examples
-./build/linux-all-release/examples/experimental/faio_experimental_async_main faio
-./build/linux-all-release/examples/experimental/faio_experimental_exit_cleanup
+./target/cmake-build-linux-all-release/examples/experimental/faio_experimental_async_main faio
+./target/cmake-build-linux-all-release/examples/experimental/faio_experimental_exit_cleanup
 ctest --preset linux-all-release -L experimental -R '^example_' --output-on-failure
 ```
+
+Sender 示例还要求开启 `FAIO_EXPERIMENTAL_EXECUTION`，并准备好锁定的 stdexec，细节见[实验性接口](../docs/api/experimental.md)。

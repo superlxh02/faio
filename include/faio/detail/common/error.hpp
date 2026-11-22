@@ -183,7 +183,7 @@ inline auto Error::message() const noexcept -> std::string_view {
  * @return 进度为零的错误对象。
  */
 [[nodiscard]]
-static inline auto make_error(int err) -> Error {
+inline auto make_error(int err) -> Error {
   return Error{err};
 }
 

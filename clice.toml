@@ -1,0 +1,13 @@
+#:schema https://docs.clice.io/clice-config.schema.json
+
+# /workspace 在 dev container 里是 macOS 共享挂载（FUSE），clice 的索引数据库需要
+# 本地文件系统语义，所以把缓存放到本地临时盘；宿主机上 /tmp 同样是本地盘。
+cache_dir = "/tmp/faio-clice-cache"
+
+# faio 的 CMakePresets 把 compile_commands.json 写在 target/cmake-build-<preset>/ 下，而 clice
+# 默认只扫描项目根目录和直接子目录，因此这里显式指定数据库位置：
+#   target/compile_commands.json -> cmake-build-<preset>/compile_commands.json
+# 该软链由 devcontainer 的 postCreateCommand 建立，切换预设后需要重新指向。
+# 显式声明还能避免 clice 误选 CLion 生成的 cmake-build-* 目录。
+[[rules]]
+compile_commands = ["target"]

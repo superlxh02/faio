@@ -1,0 +1,238 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+cc_test(
+    name = "header_contract",
+    size = "small",
+    srcs = ["//examples:quickstart.cpp"],
+    features = ["-cpp_modules"],
+    deps = ["//:faio"],
+)
+
+cc_test(
+    name = "module_contract",
+    size = "small",
+    srcs = [
+        "modules/foundation_main.cpp",
+        "modules/foundation_peer.cpp",
+    ],
+    deps = ["//:faio_module"],
+)
+
+exports_files(
+    ["modules/quickstart.cpp"],
+    visibility = ["//examples:__pkg__"],
+)
+
+cc_test(
+    name = "quickstart_module",
+    size = "small",
+    srcs = ["modules/quickstart.cpp"],
+    deps = ["//:faio_module"],
+)
+
+cc_test(
+    name = "unit",
+    size = "medium",
+    srcs = ["test_helpers.hpp"] + glob(
+        ["test_*.cpp"],
+        exclude = [
+            "test_process.cpp",
+            "test_tls.cpp",
+        ],
+    ),
+    features = ["-cpp_modules"],
+    deps = [
+        "//:faio",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_binary(
+    name = "process_child",
+    testonly = True,
+    srcs = ["process_child.cpp"],
+    linkopts = select({
+        "@platforms//os:windows": ["shell32.lib"],
+        "//conditions:default": [],
+    }),
+)
+
+cc_test(
+    name = "tls",
+    size = "small",
+    srcs = [
+        "bazel_runfiles.hpp",
+        "test_tls.cpp",
+    ],
+    data = glob([
+        "fixtures/*.pem",
+        "fixtures/*.key",
+    ]),
+    features = ["-cpp_modules"],
+    local_defines = ["FAIO_BAZEL_RUNFILES"],
+    deps = [
+        "//:faio_tls",
+        "@googletest//:gtest_main",
+        "@rules_cc//cc/runfiles",
+    ],
+)
+
+cc_test(
+    name = "process",
+    size = "small",
+    srcs = [
+        "bazel_runfiles.hpp",
+        "test_helpers.hpp",
+        "test_process.cpp",
+    ],
+    data = [":process_child"],
+    features = ["-cpp_modules"],
+    local_defines = ["FAIO_BAZEL_RUNFILES"],
+    deps = [
+        "//:faio_process",
+        "@googletest//:gtest_main",
+        "@rules_cc//cc/runfiles",
+    ],
+)
+
+TLS_FIXTURES = [
+    "fixtures/server.pem",
+    "fixtures/server.key",
+    "fixtures/ca.pem",
+]
+
+TLS_ARGS = ["$(rootpath %s)" % path for path in TLS_FIXTURES]
+
+exports_files(
+    TLS_FIXTURES,
+    visibility = ["//examples:__pkg__"],
+)
+
+cc_test(
+    name = "core_module",
+    size = "small",
+    srcs = ["modules/core_contract.cpp"],
+    deps = ["//:faio_module"],
+)
+
+cc_test(
+    name = "tls_module",
+    size = "small",
+    srcs = ["modules/tls_contract.cpp"],
+    args = TLS_ARGS,
+    data = TLS_FIXTURES,
+    deps = ["//:faio_module_tls"],
+)
+
+cc_test(
+    name = "process_module",
+    size = "small",
+    srcs = ["modules/process_contract.cpp"],
+    deps = ["//:faio_module_process"],
+)
+
+cc_test(
+    name = "both_modules",
+    size = "small",
+    srcs = ["modules/both_contract.cpp"],
+    deps = [
+        "//:faio_module_process",
+        "//:faio_module_tls",
+    ],
+)
+
+cc_test(
+    name = "both_headers",
+    size = "small",
+    srcs = ["modules/both_contract.cpp"],
+    cxxopts = ["-DFAIO_USE_HEADERS=1"],
+    features = ["-cpp_modules"],
+    deps = [
+        "//:faio_process",
+        "//:faio_tls",
+    ],
+)
+
+[
+    cc_test(
+        name = "experimental_" + component,
+        size = "small",
+        srcs = ["experimental/test_" + component + ".cpp"],
+        features = ["-cpp_modules"],
+        deps = [
+            "//:faio_experimental_" + component,
+            "@googletest//:gtest_main",
+        ],
+    )
+    for component in [
+        "runtime",
+        "reflection",
+        "lifecycle",
+        "execution",
+    ]
+]
+
+cc_test(
+    name = "experimental_entry",
+    size = "small",
+    srcs = ["experimental/test_entry.cpp"],
+    features = ["-cpp_modules"],
+    deps = ["//:faio_experimental_reflection"],
+)
+
+cc_test(
+    name = "experimental_module",
+    size = "small",
+    srcs = ["modules/experimental_contract.cpp"],
+    deps = ["//:faio_module_experimental"],
+)
+
+cc_test(
+    name = "experimental_headers",
+    size = "small",
+    srcs = ["modules/experimental_contract.cpp"],
+    cxxopts = ["-DFAIO_USE_HEADERS=1"],
+    features = ["-cpp_modules"],
+    deps = ["//:faio_experimental_runtime"] + select({
+        "//:execution_enabled": ["//:faio_experimental_execution"],
+        "//conditions:default": [],
+    }),
+)
+
+# Reuse the exact importing programs as normal header-mode tests as well.
+HEADER_CONTRACTS = {
+    "foundation_headers": (
+        [
+            "modules/foundation_main.cpp",
+            "modules/foundation_peer.cpp",
+        ],
+        "//:faio",
+    ),
+    "core_headers": (
+        ["modules/core_contract.cpp"],
+        "//:faio",
+    ),
+    "tls_headers": (
+        ["modules/tls_contract.cpp"],
+        "//:faio_tls",
+    ),
+    "process_headers": (
+        ["modules/process_contract.cpp"],
+        "//:faio_process",
+    ),
+}
+
+[
+    cc_test(
+        name = name,
+        size = "small",
+        srcs = spec[0],
+        args = TLS_ARGS if name == "tls_headers" else [],
+        cxxopts = ["-DFAIO_USE_HEADERS=1"],
+        data = TLS_FIXTURES if name == "tls_headers" else [],
+        features = ["-cpp_modules"],
+        deps = [spec[1]],
+    )
+    for name, spec in HEADER_CONTRACTS.items()
+]

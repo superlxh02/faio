@@ -12,13 +12,15 @@ import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+import sys
 
+sys.pycache_prefix = str(Path(__file__).resolve().parents[3] / "target/docs/pycache")
 from api_reference_content import EXPORTS, FUNCTION_GROUPS, GROUPS, ENUMS, MISSING, documentation
 
 SOURCE = Path(__file__).resolve().parent.parent
 ROOT = SOURCE.parent.parent
-MODEL = ROOT / 'build/api-source'
-PUBLIC = ROOT / 'build/api-public'
+MODEL = ROOT / 'target/docs/api-source'
+PUBLIC = ROOT / 'target/docs/api-public'
 
 
 def text(node):
@@ -70,7 +72,7 @@ def source_model():
         process = subprocess.run(['doxygen', str(config)], cwd=ROOT, capture_output=True, text=True)
         (MODEL / 'generation.log').write_text(process.stdout + process.stderr, encoding='utf-8')
         if process.returncode:
-            raise RuntimeError('Source XML generation failed; see build/api-source/generation.log')
+            raise RuntimeError('Source XML generation failed; see target/docs/api-source/generation.log')
         marker.write_text(digest.hexdigest())
     return SourceModel()
 
@@ -390,6 +392,6 @@ if __name__ == '__main__':
     parser.add_argument('--build', action='store_true', help='Generate and validate the published HTML reference')
     args = parser.parse_args()
     if args.build:
-        build_reference(ROOT / 'build/docs-staging')
+        build_reference(ROOT / 'target/docs/staging')
     else:
         generate(source_model())

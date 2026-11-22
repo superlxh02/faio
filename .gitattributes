@@ -7,6 +7,7 @@ cmake/*.cmake.in text eol=lf
 # Google 风格的格式配置和全部项目 C++ 源码使用统一 LF 换行。
 .clang-format text eol=lf
 *.cpp text eol=lf
+*.cppm text eol=lf
 *.cc text eol=lf
 *.cxx text eol=lf
 *.c++ text eol=lf

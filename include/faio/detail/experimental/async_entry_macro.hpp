@@ -8,8 +8,6 @@
 #ifdef main
 #error "faio experimental: async_main.h requires main not to be a macro"
 #else
-#include "faio/detail/experimental/async_entry.hpp"
-
 #pragma push_macro("main")
 #define main(entry_name)                                                                       \
   _Pragma("pop_macro(\"main\")") main]]                                         \

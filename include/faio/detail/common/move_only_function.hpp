@@ -51,30 +51,37 @@ class move_only_function<R(Args...)> {
   }
 
   template <class F>
-  inline static constexpr table operations{
-      [](void* object, Args&&... args) -> R {
-        if constexpr (std::is_void_v<R>)
-          std::invoke(target<F>(object), std::forward<Args>(args)...);
-        else
-          return std::invoke(target<F>(object), std::forward<Args>(args)...);
-      },
-      [](void* object) noexcept {
-        if constexpr (fits<F>)
-          std::destroy_at(std::launder(reinterpret_cast<F*>(object)));
-        else
-          std::destroy_at(std::launder(reinterpret_cast<std::unique_ptr<F>*>(object)));
-      },
-      [](void* from, void* to) noexcept {
-        if constexpr (fits<F>) {
-          auto* source = std::launder(reinterpret_cast<F*>(from));
-          std::construct_at(reinterpret_cast<F*>(to), std::move(*source));
-          std::destroy_at(source);
-        } else {
-          auto* source = std::launder(reinterpret_cast<std::unique_ptr<F>*>(from));
-          std::construct_at(reinterpret_cast<std::unique_ptr<F>*>(to), std::move(*source));
-          std::destroy_at(source);
-        }
-      }};
+  static R invoke_target(void* object, Args&&... args) {
+    if constexpr (std::is_void_v<R>)
+      std::invoke(target<F>(object), std::forward<Args>(args)...);
+    else
+      return std::invoke(target<F>(object), std::forward<Args>(args)...);
+  }
+
+  template <class F>
+  static void destroy_target(void* object) noexcept {
+    if constexpr (fits<F>)
+      std::destroy_at(std::launder(reinterpret_cast<F*>(object)));
+    else
+      std::destroy_at(std::launder(reinterpret_cast<std::unique_ptr<F>*>(object)));
+  }
+
+  template <class F>
+  static void move_target(void* from, void* to) noexcept {
+    if constexpr (fits<F>) {
+      auto* source = std::launder(reinterpret_cast<F*>(from));
+      std::construct_at(reinterpret_cast<F*>(to), std::move(*source));
+      std::destroy_at(source);
+    } else {
+      auto* source = std::launder(reinterpret_cast<std::unique_ptr<F>*>(from));
+      std::construct_at(reinterpret_cast<std::unique_ptr<F>*>(to), std::move(*source));
+      std::destroy_at(source);
+    }
+  }
+
+  // Named targets avoid serializing lambda closures in GCC's module cache.
+  template <class F>
+  inline static constexpr table operations{&invoke_target<F>, &destroy_target<F>, &move_target<F>};
 
  public:
   template <class F>

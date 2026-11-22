@@ -42,11 +42,18 @@ __pycache__/
 !.gitattributes
 !.github/
 
+!/.bazelrc
+!/.bazelversion
+!/.cargo/
+!/.cargo/config.toml
+
 # Build directories, dependencies, caches and package-manager output.
 **/*[Bb][Uu][Ii][Ll][Dd]*/
 node_modules/
 target/
 vcpkg_installed/
+/bazel-*
+gcm.cache/
 _deps/
 CMakeFiles/
 CMakeScratch/
@@ -75,6 +82,9 @@ obj/
 *.exp
 *.pch
 *.gch
+*.pcm
+*.ifc
+*.gcm
 *.pyc
 *.pyo
 *.class

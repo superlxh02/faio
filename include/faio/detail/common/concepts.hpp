@@ -7,7 +7,8 @@
 #include <concepts>
 #include <coroutine>
 #include <span>
-#include <sys/socket.h>
+
+#include "faio/detail/io/platform/native_types.hpp"
 
 namespace faio {
 template <typename Addr>

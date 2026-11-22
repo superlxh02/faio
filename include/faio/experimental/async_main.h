@@ -5,6 +5,9 @@
 #ifndef FAIO_EXPERIMENTAL_ASYNC_MAIN_H
 #define FAIO_EXPERIMENTAL_ASYNC_MAIN_H
 
+#ifndef main
+#include "faio/detail/experimental/async_entry.hpp"
+#endif
 #include "faio/detail/experimental/async_entry_macro.hpp"
 
 #endif

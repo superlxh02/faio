@@ -4,6 +4,8 @@
 .rkdev
 .tools
 .cache
+.clice
+.xmake
 .history
 .workbuddy
 **/.cache
@@ -18,6 +20,7 @@ CMakeFiles
 Testing
 build
 cmake-build-*
+bazel-*
 vcpkg_installed
 **/target
 **/__pycache__

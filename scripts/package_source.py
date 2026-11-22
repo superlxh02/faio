@@ -15,7 +15,8 @@ def main():
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     excluded = {'.git', '.idea', '.vscode', '.history', '.workbuddy', '.rkdev', '.cache',
-                'node_modules', 'target', '__pycache__', 'vcpkg_installed',
+                '.clice', '.tmp', '.zed', '.xmake', 'gcm.cache', '_deps', 'CMakeFiles',
+                'node_modules', 'dist', 'target', '__pycache__', 'vcpkg_installed',
                 '开发过程文档', '阅读笔记'}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     generated = {p.resolve() for p in (args.output,
@@ -24,13 +25,25 @@ def main():
     files = []
     with tarfile.open(args.output,'w:gz') as archive:
         for current, directories, filenames in os.walk(repo):
-            directories[:] = sorted(d for d in directories if d not in excluded and d != 'build' and not d.startswith('cmake-build-') and not (Path(current) == repo / 'benchmark' and d == 'result'))
+            directory = Path(current)
+            directories[:] = sorted(
+                name for name in directories
+                if name not in excluded
+                and name != 'build'
+                and not name.startswith('cmake-build-')
+                and not (directory == repo and name.startswith('bazel-'))
+                and not (directory == repo / 'benchmark' and name == 'result')
+            )
             for filename in sorted(filenames):
                 path = Path(current) / filename
                 if path.resolve() in generated: continue
                 relative = path.relative_to(repo)
-                if path.name == '.DS_Store': continue
-                if path.suffix in {'.o','.obj','.exe','.a','.dylib','.so','.pyc'}: continue
+                if path.name in {'.DS_Store', 'clice.toml', 'CMakeUserPresets.json', 'compile_commands.json'}:
+                    continue
+                if path.suffix in {'.o', '.obj', '.exe', '.a', '.dylib', '.so', '.pyc', '.pcm', '.ifc', '.gcm'}:
+                    continue
+                if path.is_symlink() and path.parent == repo and filename.startswith('bazel-'):
+                    continue
                 archive.add(path, arcname=relative, recursive=False)
                 files.append(relative.as_posix())
     args.output.with_suffix(args.output.suffix+'.manifest').write_text('\n'.join(files)+'\n')

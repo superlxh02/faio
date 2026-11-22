@@ -6,15 +6,15 @@ language = "zh-CN"
 src = "../../docs"
 
 [build]
-build-dir = "../../build/site/book"
+build-dir = "../../target/site/book"
 extra-watch-dirs = ["../../examples", "../../include", "theme"]
 
 [preprocessor.repository-links]
-command = "python3 scripts/docs_links.py"
+command = "python3 ../../.github/site/scripts/docs_links.py"
 after = ["links"]
 
 [output.html]
-theme = "../../build/docs-theme"
+theme = "../../target/docs/theme"
 default-theme = "light"
 preferred-dark-theme = "light"
 smart-punctuation = true

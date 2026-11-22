@@ -1,0 +1,90 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+NON_WINDOWS = select({
+    "@platforms//os:windows": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
+FRAME_SOURCES = [
+    "coro/frame_allocation_benchmark.cpp",
+    "coro/frame_allocation_workloads.cpp",
+    "coro/frame_allocation_workloads.hpp",
+]
+
+BENCHMARKS = {
+    "faio_tcp_benchmark": ["tcp/faio_tcp_benchmark.cpp"],
+    "faio_coro_benchmark": ["coro/faio_coro_benchmark.cpp"],
+    "faio_frame_allocation_benchmark": FRAME_SOURCES,
+    "faio_frame_allocation_new_benchmark": FRAME_SOURCES,
+    "faio_io_cpu_benchmark": ["io/faio_io_cpu_benchmark.cpp"],
+    "faio_blocking_pool_benchmark": ["io/blocking_pool_benchmark.cpp"],
+    "faio_mpsc_ready_queue_benchmark": ["coro/mpsc_ready_queue_benchmark.cpp"],
+    "faio_current_thread_benchmark": ["coro/current_thread_benchmark.cpp"],
+}
+
+[
+    cc_binary(
+        name = name,
+        srcs = sources,
+        features = ["-cpp_modules"],
+        local_defines = ["FAIO_COROUTINE_FRAME_USE_GLOBAL_NEW=1"] if name == "faio_frame_allocation_new_benchmark" else [],
+        tags = ["manual"],
+        target_compatible_with = NON_WINDOWS if name == "faio_current_thread_benchmark" else [],
+        deps = ["//:faio"],
+    )
+    for name, sources in BENCHMARKS.items()
+]
+
+cc_binary(
+    name = "asio_tcp_benchmark",
+    srcs = ["tcp/asio_tcp_benchmark.cpp"],
+    features = ["-cpp_modules"],
+    linkopts = select({
+        "@platforms//os:windows": [
+            "ws2_32.lib",
+            "mswsock.lib",
+        ],
+        "//conditions:default": ["-pthread"],
+    }),
+    local_defines = select({
+        "@platforms//os:windows": [
+            "NOMINMAX",
+            "WIN32_LEAN_AND_MEAN",
+            "_WIN32_WINNT=0x0A00",
+        ],
+        "//conditions:default": [],
+    }),
+    tags = ["manual"],
+    deps = [
+        "//:benchmark_logging",
+        "@faio_benchmark_asio//:asio",
+    ],
+)
+
+cc_binary(
+    name = "tcp_connect_load",
+    srcs = ["tcp/tcp_connect_load.cpp"],
+    features = ["-cpp_modules"],
+    linkopts = ["-pthread"],
+    tags = ["manual"],
+    target_compatible_with = NON_WINDOWS,
+)
+
+cc_binary(
+    name = "tcp_echo_load",
+    srcs = ["tcp/tcp_echo_load.cpp"],
+    features = ["-cpp_modules"],
+    linkopts = select({
+        "@platforms//os:windows": ["ws2_32.lib"],
+        "//conditions:default": ["-pthread"],
+    }),
+    local_defines = select({
+        "@platforms//os:windows": [
+            "NOMINMAX",
+            "WIN32_LEAN_AND_MEAN",
+            "_WIN32_WINNT=0x0A00",
+        ],
+        "//conditions:default": [],
+    }),
+    tags = ["manual"],
+)

@@ -1,4 +1,4 @@
 CompileFlags:
-  CompilationDatabase: build/linux-all-debug
+  CompilationDatabase: target/cmake-build-linux-all-debug
   Remove: [-std=*]
   Add: [-std=c++26]

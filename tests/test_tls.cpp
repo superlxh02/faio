@@ -10,13 +10,20 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#ifdef FAIO_BAZEL_RUNFILES
+#include "bazel_runfiles.hpp"
+#endif
 
 namespace {
 using namespace faio::tls;
 
 /** @brief 读取测试证书或私钥。 */
 std::string fixture(const char* name) {
+#ifdef FAIO_BAZEL_RUNFILES
+  std::ifstream file(faio_test::bazel_runfile(std::string("tests/fixtures/") + name), std::ios::binary);
+#else
   std::ifstream file(std::string(FAIO_TLS_FIXTURE_DIR) + "/" + name, std::ios::binary);
+#endif
   return {std::istreambuf_iterator<char>(file), {}};
 }
 

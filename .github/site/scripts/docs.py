@@ -17,8 +17,10 @@ from urllib.parse import unquote, urlsplit
 
 SOURCE = Path(__file__).resolve().parent.parent
 ROOT = SOURCE.parent.parent
-SITE = ROOT / "build/site"
-MERMAID = SOURCE / "node_modules/mermaid/dist/mermaid.min.js"
+SITE = ROOT / "target/site"
+WORK = ROOT / "target/docs"
+MERMAID = WORK / "node_modules/mermaid/dist/mermaid.min.js"
+HIGHLIGHTER = WORK / "node_modules/@highlightjs/cdn-assets"
 
 
 def run(*args):
@@ -33,7 +35,10 @@ def require_tools():
 
 def setup():
     require_tools()
-    run("npm", "ci", "--prefix", str(SOURCE), "--ignore-scripts", "--no-audit", "--no-fund")
+    WORK.mkdir(parents=True, exist_ok=True)
+    for manifest in ("package.json", "package-lock.json"):
+        shutil.copyfile(SOURCE / manifest, WORK / manifest)
+    run("npm", "ci", "--prefix", str(WORK), "--ignore-scripts", "--no-audit", "--no-fund")
     run("mdbook", "--version")
 
 
@@ -50,27 +55,31 @@ def highlight_cpp(source):
     return '<pre><code>' + "".join(rendered) + '</code></pre>'
 
 
-def build():
-    require_tools()
-    check_public_api()
-    if not MERMAID.exists():
+def build_book(destination):
+    lock = WORK / "package-lock.json"
+    if (not MERMAID.is_file() or not HIGHLIGHTER.is_dir() or not lock.is_file()
+            or lock.read_bytes() != (SOURCE / "package-lock.json").read_bytes()):
         setup()
-    output = ROOT / "build/docs-staging"
-    shutil.rmtree(output, ignore_errors=True)
-    output.mkdir(parents=True)
     # Override mdBook's bundled highlighter with locally installed languages for
     # C++, shell, PowerShell, CMake and diagrams. Keep mdBook's legacy call API.
-    theme = ROOT / "build/docs-theme"
-    theme.mkdir(parents=True, exist_ok=True)
-    highlighter = SOURCE / "node_modules/@highlightjs/cdn-assets"
-    if not highlighter.exists():
-        setup()
-    pieces = [(highlighter / "highlight.min.js").read_text(encoding="utf-8")]
-    pieces.extend((highlighter / f"languages/{language}.min.js").read_text(encoding="utf-8") for language in ("cmake", "powershell"))
+    theme = WORK / "theme"
+    shutil.copyfile(SOURCE / "book.toml", WORK / "book.toml")
+    shutil.copytree(SOURCE / "theme", theme, dirs_exist_ok=True)
+    pieces = [(HIGHLIGHTER / "highlight.min.js").read_text(encoding="utf-8")]
+    pieces.extend((HIGHLIGHTER / f"languages/{language}.min.js").read_text(encoding="utf-8") for language in ("cmake", "powershell"))
     pieces.append("hljs.registerLanguage('mermaid', () => ({contains:[], disableAutodetect:true})); hljs.highlightBlock = element => hljs.highlightElement(element);")
     (theme / "highlight.js").write_text("\n".join(pieces), encoding="utf-8")
     shutil.copyfile(SOURCE / "assets/favicon.svg", theme / "favicon.svg")
-    run("mdbook", "build", str(SOURCE), "--dest-dir", str(output / "book"))
+    run("mdbook", "build", str(WORK), "--dest-dir", str(destination))
+
+
+def build():
+    require_tools()
+    check_public_api()
+    output = WORK / "staging"
+    shutil.rmtree(output, ignore_errors=True)
+    output.mkdir(parents=True)
+    build_book(output / "book")
     check_public_api(output / "book/api")
     shutil.copytree(SOURCE / "assets", output / "assets", dirs_exist_ok=True)
     source = (ROOT / "examples/quickstart.cpp").read_text(encoding="utf-8")
@@ -81,12 +90,12 @@ def build():
     (output / "404.html").write_text('''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>页面未找到 · faio</title><style>body{background:#090b11;color:#b7c8eb;font:18px/1.8 system-ui;max-width:640px;margin:18vh auto;padding:24px}a{color:#8daeff}</style><h1>404 / 这条路径暂未连接。</h1><p>请检查地址，或使用浏览器返回上一页。</p><p><a href="https://superlxh02.github.io/faio/">返回 faio 首页 →</a></p></html>''', encoding="utf-8")
     shutil.rmtree(output / "book/.obsidian", ignore_errors=True)
     shutil.copyfile(ROOT / "LICENSE", output / "assets/LICENSE.txt")
-    shutil.copyfile(SOURCE / "node_modules/mermaid/LICENSE", output / "book/mermaid-LICENSE.txt")
-    shutil.copyfile(highlighter / "LICENSE", output / "book/highlight-LICENSE.txt")
+    shutil.copyfile(WORK / "node_modules/mermaid/LICENSE", output / "book/mermaid-LICENSE.txt")
+    shutil.copyfile(HIGHLIGHTER / "LICENSE", output / "book/highlight-LICENSE.txt")
     run(sys.executable, str(SOURCE / "scripts/api_reference.py"), "--build")
     check_public_api(output / "api")
     check_links(output)
-    previous = ROOT / "build/docs-previous"
+    previous = WORK / "previous"
     shutil.rmtree(previous, ignore_errors=True)
     if SITE.exists():
         SITE.rename(previous)

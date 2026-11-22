@@ -30,7 +30,7 @@ ARG BUILD_JOBS=4
 RUN case "${BUILD_TYPE}" in Release) faio_preset=linux-main-release ;; Debug) faio_preset=linux-main-debug ;; *) exit 2 ;; esac \
     && cmake --preset "$faio_preset" -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build --preset "$faio_preset" --parallel "${BUILD_JOBS}" \
-    && cmake --install "build/$faio_preset" \
+    && cmake --install "target/cmake-build-${faio_preset}" \
     && for faio_manifest in benchmark/coro/tokio-benchmark/Cargo.toml benchmark/io/tokio-benchmark/Cargo.toml benchmark/tcp/tokio-benchmark/Cargo.toml; do \
         if [ "${BUILD_TYPE}" = Release ]; then \
             cargo build --manifest-path "$faio_manifest" --locked --release --jobs "${BUILD_JOBS}"; \

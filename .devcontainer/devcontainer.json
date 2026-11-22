@@ -1,5 +1,5 @@
 {
-  "name": "faio · GCC 16.1 / C++26",
+  "name": "faio-gcc16-cxx26",
   "build": {
     "dockerfile": "../docker/dev-image.dockerfile",
     "context": ".."
@@ -7,11 +7,13 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/faio,type=bind,consistency=cached",
   "workspaceFolder": "/workspace/faio",
   "mounts": [
-    "source=faio-build-${devcontainerId},target=/workspace/faio/build,type=volume"
+    "source=faio-target-${devcontainerId},target=/workspace/faio/target,type=volume"
   ],
   "containerEnv": {
     "CC": "/opt/gcc-16.1/usr/bin/gcc",
-    "CXX": "/opt/gcc-16.1/usr/bin/g++"
+    "CXX": "/opt/gcc-16.1/usr/bin/g++",
+    "CCACHE_DIR": "/workspace/faio/target/ccache",
+    "XMAKE_CONFIGDIR": "/workspace/faio/target/xmake"
   },
   "runArgs": [
     "--cap-add=SYS_PTRACE",
@@ -19,7 +21,7 @@
   ],
   "init": true,
   "remoteUser": "root",
-  "postCreateCommand": ["cmake", "--preset", "linux-all-debug"],
+  "postCreateCommand": "bazel --version && xmake --version && cmake --preset linux-all-debug -DCMAKE_CXX_COMPILER=\"$CXX\" && ln -sfn cmake-build-linux-all-debug/compile_commands.json target/compile_commands.json",
   "waitFor": "postCreateCommand",
   "customizations": {
     "jetbrains": {
@@ -27,11 +29,14 @@
     },
     "vscode": {
       "extensions": [
+        "clice-io.clice",
         "llvm-vs-code-extensions.vscode-clangd",
         "ms-vscode.cmake-tools",
         "ms-vscode.cpptools"
       ],
       "settings": {
+        "clice.executable": "/root/.local/bin/clice",
+        "clangd.enable": false,
         "clangd.path": "/usr/local/bin/clangd",
         "clangd.arguments": [
           "--background-index",

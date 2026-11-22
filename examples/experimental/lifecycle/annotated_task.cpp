@@ -4,16 +4,22 @@
  * @details 创建任务时只保存参数。首次等待时才执行前置钩子，任务退出后执行后置钩子，
  * 再将值或原异常交给等待方。
  */
-#include <faio/faio.hpp>
-#include <faio/experimental/lifecycle.h>
-
 #include <atomic>
+#include <coroutine>
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <utility>
 
+#if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
+#include <meta>
+import faio.experimental;
+#include <faio-module/entry.hpp>
+#else
+#include <faio/faio.hpp>
+#include <faio/experimental/lifecycle.h>
 #include <faio/experimental/async_main.h>
+#endif
 
 namespace quote_demo {
 /** @brief 表示供应商暂时无法给出报价。 */

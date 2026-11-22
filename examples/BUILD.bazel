@@ -1,0 +1,124 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+exports_files(
+    ["quickstart.cpp"],
+    visibility = ["//tests:__pkg__"],
+)
+
+cc_binary(
+    name = "quickstart",
+    srcs = ["quickstart.cpp"],
+    features = ["-cpp_modules"],
+    deps = ["//:faio"],
+)
+
+cc_binary(
+    name = "quickstart_module",
+    srcs = ["module/quickstart.cpp"],
+    deps = ["//:faio_module"],
+)
+
+# Each program returns a nonzero status on a contract failure. cc_test also
+# permits `bazel run //examples:<name>` for individual examples.
+HEADER_EXAMPLES = {
+    "coroutine_task": "coroutine/task.cpp",
+    "composition_basics": "coroutine/composition_basics.cpp",
+    "structured_concurrency": "coroutine/structured_concurrency.cpp",
+    "batch_results": "coroutine/batch_results.cpp",
+    "race_strategies": "coroutine/race_strategies.cpp",
+    "coroutine_lifecycle": "coroutine/lifecycle.cpp",
+    "cancellation_deadline": "coroutine/cancellation_deadline.cpp",
+    "coroutine_sequence": "coroutine/sequence.cpp",
+    "custom_awaiter": "coroutine/custom_awaiter.cpp",
+    "serial_domain": "coroutine/serial_domain.cpp",
+    "blocking_work": "runtime/execution.cpp",
+    "shared_state": "sync/shared_state.cpp",
+    "coordination": "sync/coordination.cpp",
+    "io_stream": "io/stream.cpp",
+    "file_and_directory": "fs/file_and_directory.cpp",
+    "tcp_echo": "net/tcp_echo.cpp",
+    "udp_echo": "net/udp_echo.cpp",
+}
+
+[
+    cc_test(
+        name = name,
+        size = "small",
+        srcs = [source],
+        features = ["-cpp_modules"],
+        deps = ["//:faio"],
+    )
+    for name, source in HEADER_EXAMPLES.items()
+]
+
+TLS_FIXTURES = ["//tests:fixtures/" + path for path in [
+    "server.pem",
+    "server.key",
+    "ca.pem",
+]]
+
+TLS_ARGS = ["$(rootpath %s)" % path for path in TLS_FIXTURES]
+
+[
+    cc_test(
+        name = name,
+        size = "small",
+        srcs = ["tls/echo.cpp"],
+        args = TLS_ARGS,
+        cxxopts = ["-DFAIO_USE_MODULES=1"] if module else [],
+        data = TLS_FIXTURES,
+        features = [] if module else ["-cpp_modules"],
+        deps = ["//:faio_module_tls" if module else "//:faio_tls"],
+    )
+    for name, module in [
+        ("tls_echo", False),
+        ("tls_echo_module", True),
+    ]
+]
+
+[
+    cc_test(
+        name = name,
+        size = "small",
+        srcs = ["process/command.cpp"],
+        cxxopts = ["-DFAIO_USE_MODULES=1"] if module else [],
+        features = [] if module else ["-cpp_modules"],
+        deps = ["//:faio_module_process" if module else "//:faio_process"],
+    )
+    for name, module in [
+        ("process_command", False),
+        ("process_command_module", True),
+    ]
+]
+
+# The annotated entry macro used by all four examples requires reflection.
+EXPERIMENTAL_EXAMPLES = {
+    "async_main": ("experimental/entry/async_main.cpp", "reflection"),
+    "exit_cleanup": ("experimental/entry/exit_cleanup.cpp", "reflection"),
+    "annotated_task": ("experimental/lifecycle/annotated_task.cpp", "lifecycle"),
+    "sender_bridge": ("experimental/execution/sender_bridge.cpp", "execution"),
+}
+
+[
+    cc_test(
+        name = name + ("_module" if module else ""),
+        size = "small",
+        srcs = [spec[0]],
+        cxxopts = ["-DFAIO_USE_MODULES=1"] if module else [],
+        features = [] if module else ["-cpp_modules"],
+        target_compatible_with = select({
+            "//:reflection_enabled": [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }) + (select({
+            "//:execution_enabled": [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }) if spec[1] == "execution" else []),
+        deps = ["//:faio_module_experimental"] if module else ["//:faio_experimental_" + spec[1]],
+    )
+    for name, spec in EXPERIMENTAL_EXAMPLES.items()
+    for module in [
+        False,
+        True,
+    ]
+]

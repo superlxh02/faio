@@ -4,17 +4,23 @@
  * @details 先将一项基础报价转换为 Sender，再用 stdexec::then 计算总价。
  * 异步入口提交整个图，在等待期间让出执行权，完成后领取结果。
  */
-#include <faio/faio.hpp>
-#include <faio/experimental/execution.h>
-
-#include <stdexec/execution.hpp>
-
+#include <coroutine>
 #include <cstdio>
 #include <cstdlib>
 #include <tuple>
 #include <utility>
 
+#include <stdexec/execution.hpp>
+
+#if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
+#include <meta>
+import faio.experimental;
+#include <faio-module/entry.hpp>
+#else
+#include <faio/faio.hpp>
+#include <faio/experimental/execution.h>
 #include <faio/experimental/async_main.h>
+#endif
 
 namespace {
 /**

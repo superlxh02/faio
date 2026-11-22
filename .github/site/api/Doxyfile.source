@@ -1,5 +1,5 @@
 PROJECT_NAME = faio-source-model
-OUTPUT_DIRECTORY = build/api-source
+OUTPUT_DIRECTORY = target/docs/api-source
 INPUT = include/faio
 RECURSIVE = YES
 FILE_PATTERNS = *.hpp *.h

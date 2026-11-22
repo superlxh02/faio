@@ -1,0 +1,57 @@
+module(name = "faio")
+
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "gperftools", version = "2.19.1")
+
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2", dev_dependency = True)
+
+bazel_dep(name = "openssl", version = "3.5.9.bcr.1")
+bazel_dep(name = "liburing", version = "2.14")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_cc", version = "0.2.25")
+bazel_dep(name = "spdlog", version = "1.17.0")
+
+# Let project builds select the rules_cc toolchain backed by the requested CC.
+# A downstream root module can select its own C++23 toolchain.
+local_cc = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension", dev_dependency = True)
+use_repo(local_cc, "local_config_cc_toolchains")
+
+# Same stdexec revision and checksum as scripts/experimental_dependencies.lock.json.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "faio_stdexec",
+    build_file_content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "stdexec",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "1aded329b4ada957b76c748a1057804d3e94c1b2688cb3d0393b655115d1c841",
+    strip_prefix = "stdexec-6d7ad689f4d4831c5136e4abe1c601f9a3b64e43",
+    type = "tar.gz",
+    urls = ["https://codeload.github.com/NVIDIA/stdexec/tar.gz/6d7ad689f4d4831c5136e4abe1c601f9a3b64e43"],
+)
+
+# Only the standalone comparison benchmark consumes Asio.
+http_archive(
+    name = "faio_benchmark_asio",
+    build_file_content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "asio",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    defines = ["ASIO_STANDALONE"],
+    visibility = ["//visibility:public"],
+)
+""",
+    dev_dependency = True,
+    sha256 = "fca22af78cda421dc53c90676b7653c1fbe88596f08712edfab22475a924c333",
+    strip_prefix = "asio-03cf5f86a780dd102f1cdd3a59d1244d12143e46",
+    type = "tar.gz",
+    urls = ["https://codeload.github.com/chriskohlhoff/asio/tar.gz/03cf5f86a780dd102f1cdd3a59d1244d12143e46"],
+)

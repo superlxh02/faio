@@ -1,0 +1,10 @@
+# Exclude generated build trees and private copies of unrelated Bazel projects.
+ignore_directories([
+    ".cache",
+    ".history",
+    ".rkdev",
+    "build",
+    "cmake-build-*",
+    "target",
+    "开发过程文档",
+])

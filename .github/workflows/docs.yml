@@ -44,7 +44,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/doxygen.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/doxygen-${DOXYGEN_VERSION}/bin" >> "$GITHUB_PATH"
       - name: Install local diagram renderer
-        run: npm ci --prefix .github/site --ignore-scripts --no-audit --no-fund
+        run: python3 .github/site/scripts/docs.py setup
       - name: Build homepage and public API reference; check links
         env:
           FAIO_SOURCE_REF: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -54,14 +54,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: documentation-preview
-          path: build/site
+          path: target/site
           if-no-files-found: ignore
           retention-days: 7
       - name: Upload GitHub Pages artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build/site
+          path: target/site
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

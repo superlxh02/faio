@@ -119,7 +119,7 @@ TLS 不能直接使用只适配原生 I/O awaiter 的 `.set_timeout()`；使用 
 构建 `tls_echo`。从仓库根目录运行时，传入测试证书、私钥和 CA：
 
 ```sh
-./build/mac-main-release/examples/tls_echo tests/fixtures/server.pem tests/fixtures/server.key tests/fixtures/ca.pem
+./target/cmake-build-mac-main-release/examples/tls_echo tests/fixtures/server.pem tests/fixtures/server.key tests/fixtures/ca.pem
 ```
 
 [TLS 回显程序](../../examples/tls/echo.cpp)在本机动态端口建立一次连接，验证服务证书及 `localhost` 名称，然后回显一条定长消息并完成 TLS 关闭。`tests/fixtures` 的私钥仅用于测试。

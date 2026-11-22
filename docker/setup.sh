@@ -46,8 +46,10 @@ fi
 dnf install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs --setopt=keepcache=True --setopt=max_parallel_downloads=10 \
     asio-devel binutils ca-certificates cargo ccache cmake cpio curl \
     doxygen gcc gcc-c++ gdb gdb-gdbserver git gperftools-devel graphviz gtest-devel liburing-devel make \
-    ninja-build openssl-devel pkgconf-pkg-config python3 rust \
+    ninja-build openssl-devel openssl3-libs pkgconf-pkg-config python3 rust \
     spdlog-devel tar unzip zip clang-libs llvm-libs
+# openssl3-libs：Fedora 45 只带 OpenSSL 4，而 CLion 的 .NET (Rider/radler) 后端
+# 仍链接 libssl.so.3，缺了它 CLion devcontainer 的 C++ 索引后端会直接崩溃。
 
 faio_clangd_tmp="$(mktemp -d)"
 trap 'rm -rf "$faio_clangd_tmp"' EXIT

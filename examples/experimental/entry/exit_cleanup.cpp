@@ -2,13 +2,19 @@
  * @file examples/experimental/entry/exit_cleanup.cpp
  * @brief 入口返回时请求停止后台任务，并在退出进程前等待异步清理。
  */
-#include <faio/faio.hpp>
-
+#include <coroutine>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 
+#if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
+#include <meta>
+import faio.experimental;
+#include <faio-module/entry.hpp>
+#else
+#include <faio/faio.hpp>
 #include <faio/experimental/async_main.h>
+#endif
 
 namespace {
 /**

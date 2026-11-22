@@ -139,54 +139,15 @@ struct duplex_lane {
       writer_closed{}; /**< 写端是否已关闭，读取方排空剩余数据后观察 EOF。 */
 };
 
-/** @brief 从内存双工通道读取字节。 */
-inline task<expected<std::size_t>> duplex_read(std::shared_ptr<duplex_lane> lane,
-                                               std::span<char> bytes) {
-  if (!lane)
-    co_return std::unexpected{make_error(EBADF)};
-  if (bytes.empty())
-    co_return std::size_t{0};
-  try {
-    auto guard = co_await lane->mutex.scoped_lock();
-    co_await lane->changed.wait(lane->mutex,
-                                [&] { return lane->size || lane->writer_closed.load(); });
-    const auto count = std::min(bytes.size(), lane->size);
-    for (std::size_t i = 0; i < count; ++i)
-      bytes[i] = lane->buffer[(lane->head + i) % lane->buffer.size()];
-    lane->head = (lane->head + count) % lane->buffer.size();
-    lane->size -= count;
-    lane->changed.notify_all();
-    co_return count;
-  } catch (const operation_cancelled&) {
-    co_return std::unexpected{make_error(ECANCELED)};
-  }
-}
-
-/** @brief 向内存双工通道写入字节。 */
-inline task<expected<std::size_t>> duplex_write(std::shared_ptr<duplex_lane> lane,
-                                                std::span<const char> bytes) {
-  if (!lane)
-    co_return std::unexpected{make_error(EBADF)};
-  if (bytes.empty())
-    co_return std::size_t{0};
-  try {
-    auto guard = co_await lane->mutex.scoped_lock();
-    co_await lane->changed.wait(lane->mutex, [&] {
-      return lane->size < lane->buffer.size() || lane->reader_closed.load()
-             || lane->writer_closed.load();
-    });
-    if (lane->reader_closed.load() || lane->writer_closed.load())
-      co_return std::unexpected{make_error(EPIPE)};
-    const auto count = std::min(bytes.size(), lane->buffer.size() - lane->size);
-    for (std::size_t i = 0; i < count; ++i)
-      lane->buffer[(lane->head + lane->size + i) % lane->buffer.size()] = bytes[i];
-    lane->size += count;
-    lane->changed.notify_all();
-    co_return count;
-  } catch (const operation_cancelled&) {
-    co_return std::unexpected{make_error(ECANCELED)};
-  }
-}
+#if defined(FAIO_DETAIL_SEPARATE_DUPLEX)
+task<expected<std::size_t>> duplex_read(std::shared_ptr<duplex_lane> lane, std::span<char> bytes);
+task<expected<std::size_t>> duplex_write(std::shared_ptr<duplex_lane> lane,
+                                        std::span<const char> bytes);
+#else
+#define FAIO_DETAIL_DUPLEX_INLINE inline
+#include "faio/detail/io/stream/duplex.inc"
+#undef FAIO_DETAIL_DUPLEX_INLINE
+#endif
 }  // namespace detail
 
 /**  @brief 有界内存全双工端；写满时挂起，写半关闭后对端排空并读取 EOF。 */

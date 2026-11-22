@@ -50,7 +50,7 @@ decltype(auto) timeout(T&& operation, std::chrono::milliseconds interval) noexce
  * @brief 让当前协程等待指定时长。
  * duration <= 0 时立即返回，无需挂起。
  */
-static inline auto sleep(const std::chrono::nanoseconds& duration) {
+inline auto sleep(const std::chrono::nanoseconds& duration) {
   auto now = std::chrono::steady_clock::now();
   if (duration.count() <= 0) {
     return detail::Sleep{now};
@@ -59,18 +59,18 @@ static inline auto sleep(const std::chrono::nanoseconds& duration) {
 }
 
 /** @brief 让当前协程等待到指定的绝对时间点。 */
-static inline auto sleep_until(std::chrono::steady_clock::time_point expired_time) {
+inline auto sleep_until(std::chrono::steady_clock::time_point expired_time) {
   return detail::Sleep{expired_time};
 }
 
 /** @brief 创建周期定时器，首次在一个 period 后触发。 */
-static inline auto interval(std::chrono::nanoseconds period) {
+inline auto interval(std::chrono::nanoseconds period) {
   return detail::Interval{std::chrono::steady_clock::now(), period};
 }
 
 /** @brief 创建周期定时器，首次在 start + period 时触发。 */
-static inline auto interval_at(std::chrono::steady_clock::time_point start,
-                               std::chrono::nanoseconds period) {
+inline auto interval_at(std::chrono::steady_clock::time_point start,
+                        std::chrono::nanoseconds period) {
   return detail::Interval{start, period};
 }
 }  // namespace faio::time

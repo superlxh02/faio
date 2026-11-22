@@ -5,13 +5,25 @@
 #include "test_helpers.hpp"
 #include <faio/process/command.hpp>
 #include <gtest/gtest.h>
+#ifdef FAIO_BAZEL_RUNFILES
+#include "bazel_runfiles.hpp"
+#endif
 
 namespace {
 using namespace faio::process;
 
 /** @brief 创建指向测试子程序的命令。 */
 Command child(std::string mode, std::string value) {
-  return Command{FAIO_PROCESS_TEST_CHILD}.args({std::move(mode), std::move(value)});
+#ifdef FAIO_BAZEL_RUNFILES
+#ifdef _WIN32
+  const auto executable = faio_test::bazel_runfile("tests/process_child.exe");
+#else
+  const auto executable = faio_test::bazel_runfile("tests/process_child");
+#endif
+#else
+  const auto executable = FAIO_PROCESS_TEST_CHILD;
+#endif
+  return Command{executable}.args({std::move(mode), std::move(value)});
 }
 
 /** @brief 等待子进程并检查退出码。 */

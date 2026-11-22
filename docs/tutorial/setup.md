@@ -99,15 +99,15 @@ int main() {
 cmake --preset linux-main-release \
   -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
 cmake --build --preset linux-main-release --target quickstart
-./build/linux-main-release/examples/quickstart
+./target/cmake-build-linux-main-release/examples/quickstart
 ```
 
 如果你用的是上面独立的 `my_app` 工程，就直接在工程目录里执行普通的 CMake 流程：
 
 ```sh
-cmake -S . -B build -G Ninja
-cmake --build build
-./build/my_app
+cmake -S . -B target/cmake-build-release -G Ninja
+cmake --build target/cmake-build-release
+./target/cmake-build-release/my_app
 ```
 
 macOS 需要先把 Homebrew LLVM 的 bin 加到 PATH，再用 `mac-main-release` 预设。Windows 在 PowerShell 里先运行 `scripts/bootstrap_windows.ps1`，再用 `scripts/windows_environment.ps1 msvc`（或 `clang`、`mingw`）选好工具链，然后用对应的预设。各平台的完整命令见[快速开始](../getting-started.md)。

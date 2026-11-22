@@ -1,0 +1,19 @@
+#!/bin/sh
+# Follow Bazelisk's workspace wrapper convention with the pinned, bundled Bazel.
+set -eu
+real=/usr/local/libexec/bazel-real
+workspace=$(pwd -P)
+while [ -z "${BAZELISK_SKIP_WRAPPER:-}" ]; do
+    for marker in MODULE.bazel REPO.bazel WORKSPACE.bazel WORKSPACE; do
+        if [ -f "$workspace/$marker" ]; then
+            if [ -x "$workspace/tools/bazel" ]; then
+                export BAZEL_REAL="$real"
+                exec "$workspace/tools/bazel" "$@"
+            fi
+            exec "$real" "$@"
+        fi
+    done
+    [ "$workspace" != / ] || break
+    workspace=$(dirname "$workspace")
+done
+exec "$real" "$@"

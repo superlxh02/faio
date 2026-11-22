@@ -2,12 +2,18 @@
  * @file examples/experimental/entry/async_main.cpp
  * @brief 用注解声明异步入口，读取命令行参数并交付进程退出状态。
  */
-#include <faio/faio.hpp>
-
+#include <coroutine>
 #include <iostream>
 #include <string_view>
 
+#if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
+#include <meta>
+import faio.experimental;
+#include <faio-module/entry.hpp>
+#else
+#include <faio/faio.hpp>
 #include <faio/experimental/async_main.h>
+#endif
 
 namespace {
 /**

@@ -1,0 +1,93 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+MODULE_COMPATIBLE = select({
+    "//:modules_enabled": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+# The rules_cc 0.2.25 scanner omits deps' defines from its scan action.
+# Pass the configuration that changes this interface explicitly to both actions.
+MODULE_CXXOPTS = ["-DSPDLOG_FMT_EXTERNAL"] + select({
+    "//:experimental_enabled": ["-DFAIO_ENABLE_EXPERIMENTAL=1"],
+    "//conditions:default": [],
+}) + select({
+    "//:reflection_enabled": [
+        "-DFAIO_EXPERIMENTAL_HAS_REFLECTION=1",
+        "-DFAIO_EXPERIMENTAL_TASK_LIFECYCLE=1",
+    ],
+    "//conditions:default": [],
+}) + select({
+    "//:execution_enabled": ["-DFAIO_EXPERIMENTAL_HAS_EXECUTION=1"],
+    "//conditions:default": [],
+}) + select({
+    "//:using_uring": ["-DFAIO_HAS_IO_URING=1"],
+    "//conditions:default": ["-DFAIO_HAS_IO_URING=0"],
+}) + select({
+    "//:global_new_enabled": ["-DFAIO_COROUTINE_FRAME_USE_GLOBAL_NEW=1"],
+    "//conditions:default": [],
+})
+
+cc_library(
+    name = "faio",
+    srcs = ["duplex.cpp"],
+    cxxopts = MODULE_CXXOPTS,
+    module_interfaces = ["faio.cppm"],
+    target_compatible_with = MODULE_COMPATIBLE,
+    deps = ["//:faio"],
+)
+
+cc_library(
+    name = "tls",
+    cxxopts = MODULE_CXXOPTS,
+    module_interfaces = ["extensions/tls.cppm"],
+    target_compatible_with = MODULE_COMPATIBLE + select({
+        "//:tls_enabled": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [":faio"] + select({
+        "//:tls_enabled": [
+            "@openssl//:crypto",
+            "@openssl//:ssl",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "process",
+    cxxopts = MODULE_CXXOPTS + select({
+        "@platforms//os:linux": ["-D_GNU_SOURCE"],
+        "//conditions:default": [],
+    }),
+    linkopts = select({
+        "@platforms//os:windows": [
+            "bcrypt.lib",
+            "advapi32.lib",
+        ],
+        "//conditions:default": [],
+    }),
+    module_interfaces = ["extensions/process.cppm"],
+    target_compatible_with = MODULE_COMPATIBLE + select({
+        "//:process_enabled": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [":faio"],
+)
+
+cc_library(
+    name = "experimental",
+    hdrs = ["experimental/include/faio-module/entry.hpp"],
+    cxxopts = MODULE_CXXOPTS,
+    includes = ["experimental/include"],
+    module_interfaces = ["experimental/experimental.cppm"],
+    target_compatible_with = MODULE_COMPATIBLE + select({
+        "//:experimental_enabled": ["@platforms//os:linux"],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [":faio"] + select({
+        "//:execution_enabled": ["@faio_stdexec//:stdexec"],
+        "//conditions:default": [],
+    }),
+)

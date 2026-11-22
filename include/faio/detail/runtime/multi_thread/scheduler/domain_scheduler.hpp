@@ -27,6 +27,17 @@
 #include <vector>
 
 namespace faio::runtime::detail {
+
+/** @brief 注册项固定存放，原子入口协调远程生产者与本地注销之间的竞争。 */
+template <class W>
+struct alignas(128) domain_worker_registration {
+  static constexpr auto closed = std::size_t{1} << (std::numeric_limits<std::size_t>::digits - 1);
+  mutable std::atomic<std::size_t> producers{closed};
+  local_ready_queue<LOCAL_QUEUE_CAPACITY>* queue{};
+  mpsc_ready_queue<LOCAL_QUEUE_CAPACITY>* private_queue{};
+  basic_worker_waker_ref<W> waker{};
+};
+
 /**
  * @brief 一个 runtime 一个调度域：拥有全局队列、线程协调状态及本地队列注册表。
  * 不拥有 worker、I/O 引擎和根任务计数，不依赖它们的具体类型。
@@ -369,17 +380,9 @@ class basic_domain_scheduler {
   }
 
  private:
-  static constexpr auto registration_closed = std::size_t{1}
-                                              << (std::numeric_limits<std::size_t>::digits - 1);
+  using worker_registration = domain_worker_registration<W>;
+  static constexpr auto registration_closed = worker_registration::closed;
   static constexpr auto registration_users = registration_closed - 1;
-
-  /** @brief 注册项固定存放，原子入口协调远程生产者与本地注销之间的竞争。 */
-  struct alignas(128) worker_registration {
-    mutable std::atomic<std::size_t> producers{registration_closed};
-    local_queue_type* queue{};
-    private_queue_type* private_queue{};
-    basic_worker_waker_ref<W> waker{};
-  };
 
   /** @brief 调度器登记的生命周期租约。 */
   class registration_lease {

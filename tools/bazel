@@ -1,0 +1,13 @@
+#!/bin/sh
+# Bazelisk and the development image pass their selected native binary here.
+set -eu
+workspace=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd -P)
+
+# A direct invocation of ./tools/bazel may find Bazelisk on PATH again.
+export BAZELISK_SKIP_WRAPPER=1
+driver=${BAZEL_REAL:-bazel}
+# Bazel recognizes --version before parsing startup options and reading rc files.
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
+    exec "$driver" --version
+fi
+exec "$driver" "--output_user_root=$workspace/target/bazel/state" "$@"
