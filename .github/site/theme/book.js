@@ -1,12 +1,8 @@
 /* Extend mdBook without replacing its navigation, search, or theme machinery. */
 (() => {
   // mdBook exposes path_to_root in its template; derive the root for nested chapters.
+  // The top navigation is part of the generated HTML so it paints with the page.
   const root = typeof path_to_root === "string" ? path_to_root : "./";
-  const nav = document.createElement("nav");
-  nav.className = "faio-book-nav";
-  nav.setAttribute("aria-label", "faio 导航");
-  nav.innerHTML = `<a class="faio-book-brand" href="${root}../"><img src="${root}../assets/favicon.svg" alt="">faio</a><span class="nav-label">使用文档</span><a href="${root}getting-started.html">快速开始</a><a href="${root}learn-faio.html">认识 faio</a><a href="${root}api/index.html">API 介绍</a><a href="${root}../api/index.html">API 查询</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a>`;
-  document.body.prepend(nav);
   const icon = document.querySelector(
     'link[rel="shortcut icon"], link[rel="icon"]',
   );

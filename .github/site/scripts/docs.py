@@ -77,6 +77,36 @@ def build_book(destination):
     (theme / "highlight.js").write_text("\n".join(pieces), encoding="utf-8")
     shutil.copyfile(SOURCE / "assets/favicon.svg", theme / "favicon.svg")
     run("mdbook", "build", str(WORK), "--dest-dir", str(destination))
+    inject_book_nav(destination)
+
+
+def inject_book_nav(destination):
+    """Write the top navigation into each page so it is present before scripts run.
+
+    The navigation is fixed above mdBook's menu bar, which the stylesheet offsets
+    by the same height. Rendering it from JavaScript left that strip empty while
+    diagrams were still loading, so scrolled text passed above the menu bar.
+    """
+    for page in destination.rglob("*.html"):
+        if page.name in ("print.html", "404.html"):
+            continue
+        root = "../" * (len(page.relative_to(destination).parts) - 1)
+        site = root + "../"
+        nav = (
+            '<nav class="faio-book-nav" aria-label="faio 导航">'
+            f'<a class="faio-book-brand" href="{site}"><img src="{site}assets/favicon.svg" alt="">faio</a>'
+            '<span class="nav-label">使用文档</span>'
+            f'<a href="{root}getting-started.html">快速开始</a>'
+            f'<a href="{root}learn-faio.html">认识 faio</a>'
+            f'<a href="{root}api/index.html">API 介绍</a>'
+            f'<a href="{site}api/index.html">API 查询</a>'
+            '<a href="https://github.com/superlxh02/faio">GitHub ↗</a>'
+            "</nav>"
+        )
+        html = page.read_text(encoding="utf-8")
+        if "faio-book-nav" in html:
+            continue
+        page.write_text(html.replace("<body>", "<body>\n" + nav, 1), encoding="utf-8")
 
 
 def build():
