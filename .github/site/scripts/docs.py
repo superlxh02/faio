@@ -176,7 +176,7 @@ def check_links(directory=SITE):
 
 def fingerprint():
     files = []
-    for directory in (ROOT / "docs", SOURCE, ROOT / "include", ROOT / "cxx-module", ROOT / "examples"):
+    for directory in (ROOT / "docs", SOURCE, ROOT / "include", ROOT / "examples"):
         for current, directories, names in os.walk(directory):
             directories[:] = [name for name in directories if name not in ("node_modules", ".obsidian", "__pycache__")]
             files.extend(Path(current) / name for name in names)

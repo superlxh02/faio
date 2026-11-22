@@ -1,19 +1,27 @@
 # race_in
 
-按需包含 `<faio/coroutine/composition.hpp>`。
+任务已经交给一个任务组，想先拿走最先完成的那个结果，让落选分支在组退出时慢慢收尾时，用 `race_in`。它不等落选分支就返回，排空工作留给任务组。先包含 `<faio/coroutine/composition.hpp>`。
 
 ```cpp
-auto race_in(basic_task_group_context<S>& group, task<Ts, S>... children)
+template <class S, class... Ts>
+  requires(sizeof...(Ts) != 0)
+task<race_result<Ts...>, S> race_in(basic_task_group_context<S>& group, task<Ts, S>... children);
 ```
 
-## 语义与限制
+调用位置必须在任务组主体的词法范围内，传入该组的 `basic_task_group_context<S>&`，并且要在主体返回前启动竞速。分支借用调用方的数据时，这些数据必须一直有效到整个任务组退出，只活到 `race_in` 返回并不够。
 
-首终态就绪后，调用方可以在同一词法组中继续执行。落选工作会收到协作停止请求，组退出时完成排空。通过 `loser_error(i)` 查询已记录的迟到异常。被工作借用的资源必须活到组退出。
+等待时并行启动所有分支，任意一个分支先到达 value、error 或 stopped 终态，就会成为胜出者，组合随后向其余分支发出协作停止请求并立即返回。`operation_cancelled` 按 `settle` 的规则归类，因此一个正常停止的分支也可能先胜出，`outcome` 里对应 `stopped` 终态。
+
+`race_result<Ts...>` 的字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `index` | 胜出分支在原始参数中的位置 |
+| `outcome` | 同形状的 `std::variant<task_outcome<Ts>...>`，按 `index` 对应位置读取 |
+| `loser_error(i)` | 落选分支退出时发布的异常，尚未发布时为空 |
+
+落选分支的成功值和停止原因都不会出现在返回值里。`loser_error(i)` 只报告已经发布的异常，分支还没有退出时可能为空；想让诊断确定，先等整个任务组退出。提交某个分支失败时，`race_in` 会请求停止并抛出原异常，组在主体退出时排空已经接纳的分支。
+
+代价是一个共享的竞速状态，里面为每个分支保留一个结果槽。胜出后 `race_in` 不等落选分支，但它们在组退出前仍占用协程帧和调度配额。
 
 完整程序见 [进阶竞速](../../examples/coroutine/race_strategies.cpp)。
-
-## 成本
-
-一个拥有型竞速状态，分支通过只计生命周期的接纳登记。
-
-R25 的七个独立 macOS Release 进程配对以手写实现的进程 CPU 时间为分母。API 的中位比为 1.0064，单侧 U95 为 1.1727。两路工作，先向调用方交付首个结果，再停止并排空另一条。手写参照用 scope、信号量和独立停止源。Linux ARM64 的四次独立冷进程均测得手写路径每个完整操作 13 次 C++ 分配（5360 B），API 路径 14 次（5704 B）。证据来自 `20261115T002612Z-R25/rich/F06/decision.json`。

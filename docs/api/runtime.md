@@ -64,6 +64,26 @@ faio::runtime::configure(faio::config_builder{}
 
 单线程模式下，用户阻塞函数仍由独立阻塞池执行。
 
+## 跨运行时调度
+
+多个运行时并存时，包含 `<faio/runtime/instance.hpp>`，用 `anchored_runtime` 持有目标，用 `on(anchor, task)` 把任务投过去：
+
+```cpp
+faio::anchored_runtime remote;
+auto anchor = remote.anchor();
+
+auto work = [&]() -> faio::task<int> {
+    co_return co_await faio::on(anchor, compute());
+};
+
+int value = remote.block_on(work()); // 任务在 remote 的 worker 上执行
+```
+
+- `anchored_runtime` 固定使用多线程模式，并在析构时先关闭准入再排空；`anchor()` 可以在关闭后继续安全保存，提交时抛出 `std::logic_error`。
+- `on` 在目标实例执行子任务，结果和异常通过原生恢复目标交还来源协程。来源可以是单线程运行时。
+- 来源任务带绑核或不可窃取约束时，`on` 拒绝跨实例迁移。目标与来源是同一个实例时直接等待，不经过跨实例路径。
+- 目标没有独立驱动线程时不能使用 `anchored_runtime`；单线程运行时的任务由调用 `block_on()` 的线程驱动。
+
 ## 关闭约定
 
 关闭前要让常驻任务有退出路径。默认 drain 不会替应用发明服务停止条件；仍在监听的无限循环可能持续等待。

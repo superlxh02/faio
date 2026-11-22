@@ -1,18 +1,29 @@
 # on
 
-按需包含 `<faio/runtime/instance.hpp>`。
+同一进程里有多个运行时实例，需要把一项任务提交到另一个实例执行并取回结果时，用 `on`。目标实例由 `anchored_runtime` 拥有，通过 `anchor()` 取得准入凭据。先包含 `<faio/runtime/instance.hpp>`。
 
 ```cpp
-task<T, default_scheduler> faio::on(basic_runtime_anchor<default_scheduler> target,
-                              task<T, default_scheduler> work);
+template <class S, class T>
+task<T, S> on(basic_runtime_anchor<S> target, task<T, S> child);
+
+class anchored_runtime {
+ public:
+  explicit anchored_runtime(runtime::config cfg = {});
+  basic_runtime_anchor<> anchor() const noexcept;
+  void stop(io::shutdown_policy policy = io::shutdown_policy::drain);
+};
 ```
 
-## 语义与限制
+`on` 在目标运行时的上下文中启动 `child`，结果或异常回到来源协程的恢复目标交付。两边的静态调度器类型必须相同。目标必须是 `anchored_runtime`，它固定使用多工作线程模式并拥有独立驱动线程；默认构造的 anchor 没有绑定目标，提交时会被拒绝。
 
-同一个静态调度器类型下，工作在目标实例启动，结果通过原生恢复目标交还来源实例。目标由 `anchored_runtime` 持有，只有其创建的 anchor 能提交。外壳关闭后，已保存的 anchor 仍可安全拒绝。目标需要实际驱动的多 worker 运行时。来源可为单线程运行时。同实例直接等待，跨实例的绑核和不可窃取来源拒绝。
+目标实例与来源实例相同时，`on` 直接等待 `child`，不做跨域提交。跨实例时，来源任务不能处于绑核或不可窃取策略下，否则抛出 `std::logic_error`；来源可以是单线程运行时。
 
-## 成本
+目标关闭后，已经保存的 anchor 仍然可以安全使用，`on` 会抛出 `std::logic_error` 表示目标已关闭。`stop()` 关闭准入并按策略排空，不能在运行时 worker 上同步调用。准入登记在目标锁内完成，同时登记的任务寿命保证目标调度器在提交结束前有效。
 
-跨域使用一份完成状态、一个目标根和现有来源恢复槽。源与目标分别保持真实排空责任。相同实例无需另行提交。
+停止请求沿两条路径进入子任务：来源任务的停止令牌和目标运行时的停止令牌都会转发。子任务仍要协作响应，最终以原值、原异常或 `operation_cancelled` 结束。
 
-R25 的七个独立 macOS Release 进程配对以手写实现的进程 CPU 时间为分母。API 的中位比为 1.1026，单侧 U95 为 1.1119。current 来源驱动提交到已运行的单 worker 目标，再在来源消费结果。手写参照提交到同一原生目标 runtime 并等待结果。Linux ARM64 的四次独立冷进程均测得手写路径每个完整操作 5 次 C++ 分配（1376 B），API 路径 8 次（2088 B）。证据来自 `20261115T002612Z-R25/rich/F07/decision.json`。
+跨域调用需要一份完成状态和一个目标根任务，并在来源侧占用一个恢复槽。同实例路径没有这些额外开销。
+
+anchor 只是准入门票，不拥有运行时；`anchored_runtime` 对象本身仍由调用方负责销毁。
+
+跨实例执行目前只在测试里覆盖，可运行用例见 [跨实例调度测试](../../tests/test_coroutine_on.cpp)。

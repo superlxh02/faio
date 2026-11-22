@@ -1,7 +1,5 @@
 # 异步进程
 
-[查询异步进程类型与方法 →](../../api/group__process.html)
-
 配置和启动命令时包含 `<faio/process/command.hpp>`，操作已有子进程时包含 `<faio/process/child.hpp>`。接口位于 `faio::process`。CMake 开启 `FAIO_ENABLE_PROCESS=ON`，链接 `faio::process`；安装后使用 `find_package(faio CONFIG REQUIRED COMPONENTS process)`。组件不需要 OpenSSL。Linux 通过目标传播 `_GNU_SOURCE`，手动编译时必须在系统头之前传入 `-D_GNU_SOURCE`。进程平台基线为 Linux glibc 2.34、macOS 13、Windows 10。
 
 ## 配置与启动

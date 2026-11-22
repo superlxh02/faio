@@ -1,10 +1,10 @@
 # API 介绍
 
-<div class="api-eyebrow">PUBLIC API</div>
+<div class="api-eyebrow">PUBLIC API · C++23</div>
 
-[打开公共 API 的 Doxygen 参考 →](../../api/index.html)
+[打开核心公开 API 的 Doxygen 参考 →](../../api/index.html)
 
-下方各组链接到 Doxygen 查询页，可以按名称查找接口，也可以浏览所属组的类型与函数。可选组件的构建选项和使用示例见 [TLS 介绍](tls.md)、[进程介绍](process.md)和[实验性接口介绍](experimental.md)。
+Doxygen 参考覆盖任务、运行时、网络、文件、时间、同步、流操作以及错误与日志等核心公开 API，列出每个收录类型和函数的重载签名、参数、返回值与生命周期约定。TLS、异步进程和实验层不进 Doxygen，它们的调用方式分别见 [TLS 介绍](tls.md)、[进程介绍](process.md)和[实验性接口介绍](experimental.md)。
 
 <div class="api-grid">
 <a class="api-card" href="../../api/group__tasks.html"><span>faio</span><h3>协程与并发 <b>↗</b></h3><p>task、spawn、join、select 和 scope。</p><code>co_await faio::join(...)</code></a>
@@ -15,9 +15,9 @@
 <a class="api-card" href="../../api/group__sync.html"><span>faio::sync</span><h3>协程同步 <b>↗</b></h3><p>互斥锁、信号量、条件变量与有界通道。</p><code>mutex · semaphore · mpsc</code></a>
 <a class="api-card" href="../../api/group__io.html"><span>faio::io</span><h3>缓冲与流操作 <b>↗</b></h3><p>缓冲区所有权、完整传输和读写适配器。</p><code>io_buffer · BufReader</code></a>
 <a class="api-card" href="../../api/group__errors.html"><span>faio · faio::log</span><h3>错误与日志 <b>↗</b></h3><p>检查操作结果，读取错误和传输进度。</p><code>expected&lt;T&gt; · Error</code></a>
-<a class="api-card" href="../../api/group__tls.html"><span>faio::tls</span><h3>TLS 加密 <b>↗</b></h3><p>证书、连接握手与加密字节流。</p><code>TlsConnector · TlsStream</code></a>
-<a class="api-card" href="../../api/group__process.html"><span>faio::process</span><h3>异步进程 <b>↗</b></h3><p>命令、标准流与进程回收。</p><code>Command · Child</code></a>
-<a class="api-card" href="../../api/group__experimental.html"><span>faio::experimental</span><h3>实验性接口 <b>↗</b></h3><p>异步入口注解与 Sender/Receiver 互操作。</p><code>as_sender · spawn_sender</code></a>
+<a class="api-card" href="tls.html"><span>faio::tls</span><h3>TLS 加密 <b>↗</b></h3><p>证书、连接握手与加密字节流。</p><code>TlsConnector · TlsStream</code></a>
+<a class="api-card" href="process.html"><span>faio::process</span><h3>异步进程 <b>↗</b></h3><p>命令、标准流与进程回收。</p><code>Command · Child</code></a>
+<a class="api-card" href="experimental.html"><span>faio::experimental</span><h3>实验性接口 <b>↗</b></h3><p>异步入口注解与 Sender/Receiver 互操作。</p><code>async_main · as_sender</code></a>
 </div>
 
 ## 包含哪个头文件
@@ -69,6 +69,20 @@
 
 从旧版本升级时，按上表把原来直接位于 `faio/` 下的功能头替换为新路径。
 
+## 组合器与任务终态
+
+`<faio/coroutine/composition.hpp>` 提供的组合接口和结果类型各自有说明页：
+
+| 主题 | 页面 |
+| --- | --- |
+| 汇总与限并发 | [join_settled](join_settled.md)、[join_all_settled](join_all_settled.md)、[join_all_limited](join_all_limited.md) |
+| 竞速 | [select_success](select_success.md)、[race_in](race_in.md) |
+| 终态与清理 | [settle](settle.md)、[with_cleanup](with_cleanup.md)、[with_stop_token](with_stop_token.md)、[complete_before](complete_before.md) |
+| 任务组 | [task_group](task_group.md) |
+| 序列与调度 | [with_stream](with_stream.md)、[for_each_concurrent](for_each_concurrent.md)、[on](on.md)、[serial_domain](serial_domain.md)、[shared_task](shared_task.md) |
+
+`task_outcome`、`group_result`、`select_result` 等结果类型的字段和用法见 [协程与并发](tasks.md#任务终态与结果类型)。
+
 ## 先读懂返回值
 
 `task<T>` 表示一个异步任务，对它 `co_await` 之后拿到 `T`。网络和文件操作用 `expected<T>` 表示成功或失败：
@@ -82,6 +96,6 @@ if (!count) {
 // buffer 非空时，*count == 0 表示对端 EOF。
 ```
 
-各模块表格里说的“完成结果”，就是 `co_await` 之后取得的值。你不需要显式写出等待器类型，用 `auto` 接住操作或直接 `co_await` 就行。
+各模块表格里说的“完成结果”，就是 `co_await` 之后取得的值。等待器类型不需要显式写出：用 `auto` 接住操作，或直接 `co_await`。
 
 第一次使用建议从 [快速开始](../getting-started.md) 跑通完整程序；错误域、部分传输与异常规则见 [错误与日志](errors.md)。

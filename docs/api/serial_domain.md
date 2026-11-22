@@ -1,19 +1,26 @@
 # serial_domain
 
-按需包含 `<faio/coroutine/composition.hpp>`。
+多项操作要互斥执行，而且互斥范围跨越协程挂起点时，用 `serial_domain`。它把完整的用户任务从进入到退出串行化；协程互斥锁只保护一段临界区。先包含 `<faio/coroutine/composition.hpp>`。
 
 ```cpp
-auto faio::serial_domain<S>::run(factory)
+template <class S = default_scheduler>
+class serial_domain {
+ public:
+  template <class Factory>
+  auto run(Factory factory);
+
+  task<void, S> close();
+};
 ```
 
-## 语义与限制
+`run` 接收一个无参工厂，工厂返回 `task<R, S>`；`run` 返回同一类型的任务。等待这个任务时先取得域，再调用工厂执行任务体。第二个并发的 `run` 会等第一个任务的协程完全退出，包括期间的每次挂起。返回值、异常和取消沿原任务协议交付。
 
-域内任务从进入到退出保持独占，挂起期间也持有该域。`close()` 封闭接纳并等待已接纳任务退场。域内任务不能同步等待依赖自身释放域的工作。
+同一个域对象可以被多个任务共享；域本身不可复制，需要共享时用引用或 `shared_ptr`，并且所有 `run` 都通过同一个域实例进入。
+
+`close()` 关闭接纳并等待所有已进入或已排队的调用退出。关闭后等待新的 `run` 结果会抛出 `std::logic_error`。关闭要在域外发起：域内任务如果等待 `close()`，会因为域尚未释放而一直等不到。
+
+域内任务开始时检查停止请求，已经收到请求就抛出 `operation_cancelled`。域内任务不能同步等待同一域里的其他工作，也不能等待排在自身之后的工作，否则会自锁。需要串行化的工作应尽量短，长时间挂起会阻塞后续所有提交。
+
+域对象通过共享控制块持有状态，`run` 在创建时取得共享所有权，因此惰性任务可以晚于外层域对象销毁。代价是每次进入都要经过一次协程互斥锁和一次接纳计数，吞吐按域串行。
 
 完整程序见 [串行域](../../examples/coroutine/serial_domain.cpp)。
-
-## 成本
-
-共享控制块、原生协程 mutex 和短接纳锁。
-
-R25 的七个独立 macOS Release 进程配对以手写实现的进程 CPU 时间为分母。API 的中位比为 1.1615，单侧 U95 为 1.2442。两项工作真实 yield 后仍保持独占。手写参照用原生协程 mutex 跨挂起持锁，显式 join 后关闭。Linux ARM64 的四次独立冷进程均测得手写路径每个完整操作 10 次 C++ 分配（3776 B），API 路径 11 次（3936 B）。证据来自 `20261115T002612Z-R25/rich/F11/decision.json`。

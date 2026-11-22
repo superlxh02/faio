@@ -1,17 +1,14 @@
-# faio 公共 API 参考
+# faio 核心公共 API 参考
 
-通过搜索框输入类型、函数或成员名，也可以从 @ref public_surface "模块与头文件索引" 查找导入方式和声明。各专题列出相应的类型、重载和成员。
+面向库使用者的核心公开接口查询。按下列模块查找已收录的类型与函数，点击方法名查看签名、重载、参数、返回值及生命周期约定。TLS、异步进程与实验层分别见[TLS介绍](../book/api/tls.html)、[进程介绍](../book/api/process.html)和[实验性接口介绍](../book/api/experimental.html)。
 
-- @ref tasks "协程与并发"：task、spawn、join、select、scope 与任务结果句柄。
+- @ref tasks "协程与并发"：task、spawn、join、select、task_group、共享结果与异步序列。
 - @ref runtime "运行时与配置"：config_builder、运行模式、关闭策略与协程查询。
 - @ref network "网络 I/O"：TCP、UDP、地址解析、完整传输和 socket 选项。
 - @ref filesystem "文件与目录"：File、打开选项、元数据、目录枚举与路径操作。
 - @ref time "时间与超时"：sleep、周期触发和 I/O deadline。
 - @ref sync "协程同步"：互斥锁、信号量、条件变量、屏障和有界 MPSC。
-- @ref io "缓冲与流算法"：缓冲区、读写适配、复制与 Unix 描述符。
-- @ref tls "TLS 安全传输"：信任配置、服务端身份、握手与加密流。
-- @ref process "异步进程"：命令、子进程、标准流及输出捕获。
-- @ref experimental "实验性接口"：运行时选项、反射、异步入口与 Sender/Receiver。
+- @ref io "缓冲与流算法"：缓冲区、读写适配、内存流、复制与 Unix 描述符。
 - @ref errors "错误与日志"：expected、Error 与日志入口。
 
 ## 如何阅读异步签名

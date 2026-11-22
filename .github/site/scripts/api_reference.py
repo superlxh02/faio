@@ -15,7 +15,6 @@ import xml.etree.ElementTree as ET
 import sys
 
 sys.pycache_prefix = str(Path(__file__).resolve().parents[3] / "target/docs/pycache")
-from api_reference_surface import write_surface, validate_surface
 from api_reference_content import EXPORTS, FUNCTION_GROUPS, GROUPS, ENUMS, MISSING, documentation
 
 SOURCE = Path(__file__).resolve().parent.parent
@@ -29,10 +28,9 @@ def text(node):
 
 
 class SourceModel:
-    def __init__(self, directory):
-        self.xml = directory / 'xml'
+    def __init__(self):
         self.compounds = {}
-        for item in ET.parse(self.xml / 'index.xml').getroot().findall('compound'):
+        for item in ET.parse(MODEL / 'xml/index.xml').getroot().findall('compound'):
             name = item.findtext('name')
             self.compounds[name] = item.get('refid')
         self.cache = {}
@@ -40,7 +38,7 @@ class SourceModel:
     def get(self, name):
         ref = self.compounds.get(name, name)
         if ref not in self.cache:
-            path = self.xml / (ref + '.xml')
+            path = MODEL / 'xml' / (ref + '.xml')
             if not path.exists():
                 raise RuntimeError('Doxygen source declaration not found: ' + name)
             self.cache[ref] = ET.parse(path).getroot().find('compounddef')
@@ -60,30 +58,23 @@ class SourceModel:
         return result
 
 
-def source_model(platform='Linux'):
-    directory = MODEL if platform == 'Linux' else MODEL.with_name('api-source-' + platform.lower())
+def source_model():
     digest = hashlib.sha256(subprocess.check_output(['doxygen', '--version']))
     config = SOURCE / 'api/Doxyfile.source'
-    settings = config.read_text()
-    if platform == 'macOS':
-        settings += '\nOUTPUT_DIRECTORY = target/docs/api-source-macos\nPREDEFINED = __APPLE__=1 __MACH__=1 __cpp_impl_coroutine=201902L\n'
-    if platform == 'Windows':
-        settings += ('\nOUTPUT_DIRECTORY = target/docs/api-source-windows\n'
-                     'EXCLUDE_PATTERNS =\nPREDEFINED = _WIN32=1 _MSC_VER=1940\n')
-    digest.update(settings.encode())
+    digest.update(config.read_bytes())
     for path in sorted((ROOT / 'include/faio').rglob('*')):
         if path.is_file():
             digest.update(str(path.relative_to(ROOT)).encode())
             digest.update(path.read_bytes())
-    marker = directory / 'fingerprint'
-    if not marker.exists() or marker.read_text() != digest.hexdigest() or not (directory / 'xml/index.xml').exists():
-        directory.mkdir(parents=True, exist_ok=True)
-        process = subprocess.run(['doxygen', '-'], input=settings, cwd=ROOT, capture_output=True, text=True)
-        (directory / 'generation.log').write_text(process.stdout + process.stderr, encoding='utf-8')
+    marker = MODEL / 'fingerprint'
+    if not marker.exists() or marker.read_text() != digest.hexdigest() or not (MODEL / 'xml/index.xml').exists():
+        MODEL.mkdir(parents=True, exist_ok=True)
+        process = subprocess.run(['doxygen', str(config)], cwd=ROOT, capture_output=True, text=True)
+        (MODEL / 'generation.log').write_text(process.stdout + process.stderr, encoding='utf-8')
         if process.returncode:
-            raise RuntimeError(f'Source XML generation failed; see {directory}/generation.log')
+            raise RuntimeError('Source XML generation failed; see target/docs/api-source/generation.log')
         marker.write_text(digest.hexdigest())
-    return SourceModel(directory)
+    return SourceModel()
 
 
 def public_text(value, spec):
@@ -95,6 +86,12 @@ def public_text(value, spec):
     }
     for old, new in replacements.items():
         value = value.replace(old, new)
+    # The task APIs map void results to monostate; the implementation aliases
+    # themselves are not available through a public name.
+    value = re.sub(r'\b(?:faio::)?detail::(?:joined_value|handle_value)\s*<\s*(\w+)\s*>',
+                   r'std::conditional_t<std::is_void_v<\1>, std::monostate, \1>', value)
+    if spec['public'].startswith('faio::io::unix::'):
+        value = re.sub(r'\bnative_descriptor\b', 'int', value)
     for old, new in spec.get('bindings', {}).items():
         value = re.sub(r'\b' + re.escape(old) + r'\b', new, value)
     if spec.get('parent') == 'faio::net::TcpStream':
@@ -148,9 +145,16 @@ def declaration(member, spec, owner=None):
     if owner and name.startswith(('Base', 'Impl')):
         return None
     result_type = public_text(text(member.find('type')), spec)
+    # Applications await these operations or infer the native handle type.
+    if (result_type in {'awaiter', 'guard_awaiter', 'acquire_awaiter', 'permit_awaiter',
+                        'send_operation', 'recv_operation', 'native_socket_type'}
+            or spec['public'] == 'faio::this_coro' and result_type == name + '_t'):
+        result_type = 'auto'
     parameters = []
     for index, param in enumerate(member.findall('param')):
         param_type = public_text(text(param.find('type')), spec)
+        if param_type == 'native_socket_type' and spec['public'] == 'faio::net::owned_native_socket':
+            param_type = 'decltype(owned_native_socket{}.get())'
         param_name = param.findtext('declname')
         if not param_type or param_type == 'void':
             continue
@@ -159,9 +163,7 @@ def declaration(member, spec, owner=None):
         default = public_text(text(param.find('defval')), spec)
         parameters.append((param_type, param_name, default))
     qualifiers = public_text(suffix(args), spec)
-    # A public member may return its nested awaiter by name, as latch::wait does.
-    checked_result = '' if owner and result_type == 'awaiter' else result_type
-    signature = ' '.join([checked_result, name, *(p[0] for p in parameters), qualifiers])
+    signature = ' '.join([result_type, name, *(p[0] for p in parameters), qualifiers])
     if re.search(r'\bdetail::|\b(?:resource_state|Socket|task_promise|handle_type|awaiter|scope_state|state)\b', signature):
         return None
     # Constructors of mixin/base implementation classes are never user factories.
@@ -230,6 +232,7 @@ def generate(model):
         result.append(' */')
         result.append(('' if spec.get('concrete') else template_declaration(node, spec)) + 'class ' + short + ' {\npublic:')
         seen = set()
+        pending = set(spec.get('members', ())) | set(spec.get('fields', ()))
         for member in model.functions(spec['source']):
             parsed = declaration(member, spec, short)
             if parsed is None:
@@ -240,6 +243,7 @@ def generate(model):
             if overload in seen:
                 continue
             seen.add(overload)
+            pending.discard(member.findtext('name'))
             result.append(comment(spec, name, params, result_type, member))
             result.append(signature)
             report.append({'owner':spec['public'], 'name':name, 'parameters':[p[1] for p in params], 'signature':signature})
@@ -260,8 +264,12 @@ def generate(model):
                         raise RuntimeError('Missing enum documentation: ' + spec['public'] + '::' + name + '::' + enum_name)
                     entries.append('/** ' + description + ' */ ' + enum_name + (' ' + initializer if initializer else ''))
                 result.append('/** @brief ' + spec['fields'][name] + ' */\nenum ' + ('class ' if member.get('strong') == 'yes' else '') + name + ' {\n' + ',\n'.join(entries) + '\n};')
+                pending.discard(name)
             elif not re.search(r'\bdetail::', value):
                 result.append('/** @brief ' + spec['fields'][name] + ' */\n' + ('using ' + name + ' = ' + value if member.get('kind') == 'typedef' else value + ' ' + name) + ';')
+                pending.discard(name)
+        if pending:
+            raise RuntimeError(f"Missing selected members in {spec['public']}: {', '.join(sorted(pending))}")
         for child in nested.get(spec['public'], []):
             result.append(class_view(child))
         result.append('};')
@@ -294,6 +302,7 @@ def generate(model):
         output += ['namespace ' + namespace + ' {', class_view(spec), '}']
     for spec in FUNCTION_GROUPS:
         node = model.get(spec['source'])
+        pending = set(spec['members'])
         output.append('namespace ' + spec['public'] + ' {')
         for member in node.findall('./sectiondef/memberdef'):
             if member.get('kind') != 'function' or member.get('prot') != 'public':
@@ -302,8 +311,11 @@ def generate(model):
             if parsed is None:
                 continue
             signature, params, result_type, name = parsed
+            pending.discard(name)
             output += [comment(spec, name, params, result_type, member, spec['group']), signature]
             report.append({'owner':spec['public'], 'name':name, 'parameters':[p[1] for p in params], 'signature':signature})
+        if pending:
+            raise RuntimeError(f"Missing selected functions in {spec['public']}: {', '.join(sorted(pending))}")
         output.append('}')
     generated = '\n\n'.join(output)
     if re.search(r'\bdetail::|include/faio/detail', generated):
@@ -346,12 +358,37 @@ def generate(model):
     page.append(' */')
     (PUBLIC / 'periodic.dox').write_text('\n'.join(page), encoding='utf-8')
     (PUBLIC / 'coverage.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-    models = {'Linux': model, 'macOS': source_model('macOS'), 'Windows': source_model('Windows')}
-    write_surface(ROOT, PUBLIC, models, EXPORTS, ENUMS, report)
     return report
 
 
 def validate_reference(report, output):
+    # Check the actual client-side search index, including overloaded functions.
+    search_targets = set()
+    for shard in (output / 'api/search').glob('all_*.js'):
+        search_targets.update(re.findall(r"\['\.\./([^']+)'", shard.read_text(encoding='utf-8')))
+    required_targets = set()
+    compounds = ET.parse(PUBLIC / 'xml/index.xml').findall('compound')
+    expected = {
+        'class': {spec['public'] for spec in EXPORTS},
+        'group': {name for name, _, _ in GROUPS},
+        'page': {'index', 'periodic_timer'},
+    }
+    for kind, selected in expected.items():
+        published = {c.findtext('name') for c in compounds if c.get('kind') == kind}
+        if published != selected:
+            raise RuntimeError(f'Unexpected Doxygen {kind} index: {sorted(published ^ selected)}')
+    for compound in compounds:
+        if compound.get('kind') not in ('class', 'struct', 'group'):
+            continue
+        page = compound.get('refid')
+        required_targets.add(page + '.html')
+        for member in compound.findall('member'):
+            anchor = member.get('refid').removeprefix(page + '_1')
+            required_targets.add(page + '.html#' + anchor)
+    missing = required_targets - search_targets
+    if missing:
+        raise RuntimeError('Selected API missing from search: ' + ', '.join(sorted(missing)))
+
     members = {}
     for path in (PUBLIC / 'xml').glob('*.xml'):
         if path.name == 'index.xml':
@@ -386,7 +423,6 @@ def build_reference(output):
     shutil.rmtree(output / 'api', ignore_errors=True)
     subprocess.run(['doxygen', str(SOURCE / 'api/Doxyfile')], cwd=ROOT, check=True)
     validate_reference(report, output)
-    validate_surface(PUBLIC, output / 'api')
     nav = '<nav class="faio-api-nav" aria-label="faio 导航"><a class="brand" href="../"><img src="../assets/favicon.svg" alt="">faio</a><a href="../book/getting-started.html">快速开始</a><a href="../book/api/">API 介绍</a><a href="index.html" aria-current="page">API 查询</a><a href="https://github.com/superlxh02/faio">GitHub ↗</a></nav>'
     for page in (output / 'api').glob('*.html'):
         source = page.read_text(encoding='utf-8')

@@ -1,19 +1,36 @@
 # shared_task
 
-按需包含 `<faio/coroutine/composition.hpp>`。
+同一组里多项任务需要读取同一个只加载一次的结果时，用 `shared_task`。它把一份工作提交到任务组，返回可复制的观察句柄；结果由所有观察者共享，不复制。先包含 `<faio/coroutine/composition.hpp>`。
 
 ```cpp
-auto group.spawn_shared_uncancellable(task<T, S> work)
+template <class S = default_scheduler>
+class basic_task_group_context {
+ public:
+  template <class T>
+  auto spawn_shared_uncancellable(task<T, S> child);  // 返回 shared_task<T, S>
+};
+
+template <class T, class S = default_scheduler>
+class shared_task {
+ public:
+  task<shared_result<T, S>, S> observe_uncancellable() const;
+};
+
+template <class T, class S = default_scheduler>
+class shared_result {
+ public:
+  std::exception_ptr exception() const noexcept;
+};
 ```
 
-## 语义与限制
+`spawn_shared_uncancellable` 立即把工作提交到组里，工作只启动一次。返回的 `shared_task` 是轻量句柄，可以复制给多个子任务。每个观察者调用 `observe_uncancellable()` 等待生产完成，取得自己的 `shared_result`。
 
-组内 eager 工作启动一次。`observe_uncancellable()` 返回拥有只读结果的对象，可以重复观察成功值或异常。单个观察者无法撤回自己的等待。组退出时排空生产者，持有结果对象期间可以借用值。
+`observe_uncancellable()` 的等待不能由单个观察者单独取消。生产者仍受任务组的停止策略约束；组请求停止时，工作按协作规则退出，观察者随后在结果上看到对应的异常或取消。
 
-## 成本
+`shared_result` 持有结果状态的共享所有权。`value()` 返回结果引用，不复制结果；生产失败时每次调用都重新抛出保存的异常。`exception()` 直接返回异常指针，成功时为空。`value()` 返回的引用只在 `shared_result` 存活期间有效。`T` 为 `void` 时只表示工作已完成，没有业务值。
 
-共享结果存储和等待广播事件，使用独立观察任务帧。
+组退出时先排空生产者，已经取得的 `shared_result` 仍可继续读取。这种共享方式适合只读配置、一次性加载的句柄或较大的 move-only 结果。
 
-R25 的七个独立 macOS Release 进程配对以手写实现的进程 CPU 时间为分母。API 的中位比为 1.1654，单侧 U95 为 1.1866。同一组提前启动一个 move-only 结果，随后借用该结果两次。手写参照用 scope、立即 spawn 与保留只读所有者。Linux ARM64 的四次独立冷进程均测得手写路径每个完整操作 13 次 C++ 分配（4100 B），API 路径 17 次（5524 B）。证据来自 `20261115T002612Z-R25/rich/F05/decision.json`。
+代价是每个观察者各占一个等待协程帧，结果本身只存一份；共享状态和完成通知比普通子任务多一层间接。
 
-可运行程序见 [并发下](../../examples/coroutine/structured_concurrency.cpp)。
+完整程序见 [并发下](../../examples/coroutine/structured_concurrency.cpp)。

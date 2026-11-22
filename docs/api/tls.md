@@ -1,7 +1,5 @@
 # TLS 接口
 
-[查询 TLS 类型与方法 →](../../api/group__tls.html)
-
 配置并启动握手时包含 `<faio/tls/handshake.hpp>`，使用已建立的 TLS 流时包含 `<faio/tls/stream.hpp>`。接口位于 `faio::tls`，消费目标链接 `faio::tls`。加密使用 OpenSSL 的内存 BIO，底层读写交给 faio 传输。基础 `faio::faio` 与 `<faio/net/tcp.hpp>` 的依赖保持原有范围。
 
 ```cmake

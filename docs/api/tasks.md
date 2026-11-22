@@ -120,12 +120,28 @@ C++26 的自动函数注解通过独立 opt-in 组件 `faio::experimental_lifecy
 
 ## 并发组合
 
-| 接口 | 等待结果 | 行为 |
+组合器把多个任务编成一个等待单元。每个接口都有单独的说明页，行为差异集中在两点：结果怎么带回来，以及某个分支失败或停止后其他分支怎么办。
+
+| 接口 | 完成结果 | 行为 |
 | --- | --- | --- |
 | `join(tasks...)` | 按输入顺序排列的 tuple | 等待全部分支；`void` 对应 `std::monostate` |
-| `join_all(vector<task<T>>)` | 按输入顺序排列的结果集合 | 用于运行时决定数量、返回类型相同的任务 |
-| `select(tasks...)` | 带 `index` 和 `value` 的结果，`value` 为 variant | 获胜后请求其余分支取消，并等它们退出 |
+| `join_all(vector<task<T>>)` | 按输入顺序排列的 vector | 数量与返回类型在运行时决定 |
+| [`join_settled(tasks...)`](join_settled.md) | `tuple<task_outcome<T>...>` | 每项终态独立保存，某项失败不影响其他分支 |
+| [`join_all_settled(tasks)`](join_all_settled.md) | `vector<task_outcome<T>>` | 与上一行相同，数量在运行时决定 |
+| [`join_all_limited(limit, tasks)`](join_all_limited.md) | `vector<task_outcome<T>>` | 固定窗口限并发，结果仍按输入顺序排列 |
+| [`task_group(options, body)`](task_group.md) | `group_result<T>` | 主体内可以多次接纳子任务，退出前关闭并排空 |
+| `select(tasks...)` | `select_result` | 首个完成者胜出，随后请求其余分支停止并等待退出 |
+| [`select_success(tasks...)`](select_success.md) | `select_success_result` | 跳过失败与停止，等待第一个成功；全失败时按输入顺序收集诊断 |
+| [`settle(task)`](settle.md) | `task_outcome<T>` | 记录单个任务的结束方式，不向外抛异常 |
+| [`with_cleanup(body, cleanup)`](with_cleanup.md) | body 的类型 | 任务体退出后先执行异步清理，再交付原结果 |
+| [`with_stop_token(token, work)`](with_stop_token.md) | `task<T, S>` | 子任务同时接受父令牌与传入令牌的停止请求 |
+| [`complete_before(work, trigger)`](complete_before.md) | `deadline_outcome<T>` | 工作与触发器竞速，触发器先成功即判定截止 |
+| [`with_stream(factory, body)`](with_stream.md) | body 的类型 | 生产者按需交付，消费者逐项拉取 |
+| [`for_each_concurrent(limit, input, op)`](for_each_concurrent.md) | `task<void, S>` | 并发处理流的元素，同时在途的处理数不超过 limit |
+| [`on(anchor, task)`](on.md) | `task<T, S>` | 把任务投到另一个运行时的锚点上执行 |
 | `scope(body)` | 作用域 body 的完成结果 | 通过作用域对象派生子任务，退出前排空任务组 |
+
+竞速类里还有 [`race_in(group, tasks...)`](race_in.md)：它把竞速放进已有任务组，并在结束后提供接口，查看落选分支之后才发布的错误。任务之间需要排队执行时用 [`serial_domain`](serial_domain.md)；同一份结果要被多次观察时用 [`shared_task`](shared_task.md)。
 
 组合任务本身也是惰性的。将协程任务传给 `join` 不必预先 `spawn`；提前 `spawn` 的任务已经提交，后续等待顺序不会把它们变成串行。
 
@@ -134,6 +150,93 @@ C++26 的自动函数注解通过独立 opt-in 组件 `faio::experimental_lifecy
 auto [first, second] = co_await faio::join(
     delayed_value(20), delayed_value(22));
 ```
+
+## 任务终态与结果类型
+
+并发组合没有统一用异常表达失败。`settle`、`join_settled`、`join_all_limited` 和任务组改用 `task_outcome<T>` 把每个任务的结束方式留在结果里，由调用者自己决定怎么处理。
+
+### task_outcome
+
+`task_outcome<T>` 保存一次完成的记录，只有三种终态：
+
+| 枚举 | 取值 | 含义 |
+| --- | --- | --- |
+| `task_outcome_status` | `value` | 正常返回，值可以领取一次 |
+| | `error` | 抛出异常，异常保存在 `exception()` |
+| | `stopped` | 协作停止，`stop_reason()` 给出原因 |
+| `task_stop_reason` | `requested` | 任务已经开始执行，运行中收到了停止请求 |
+| | `not_started` | 任务从未被接纳，因停止而没有运行 |
+
+```cpp
+auto outcome = co_await faio::settle(work());
+switch (outcome.status()) {
+case faio::task_outcome_status::value:
+  use(outcome.take_value());
+  break;
+case faio::task_outcome_status::stopped:
+  // 停止可能没有附带异常，outcome.exception() 可以为空。
+  break;
+case faio::task_outcome_status::error:
+  std::rethrow_exception(outcome.exception());
+}
+```
+
+- `status()`、`stop_reason()` 和 `exception()` 只读，领取值之后仍然可以查询。
+- `take_value()` 只能调用一次，第二次调用或对非 `value` 终态调用都会抛 `std::logic_error`。
+- `value_or_throw()` 把三态折回原生协议：有值返回值，有异常重抛，纯停止抛 `operation_cancelled`。
+- `task_outcome` 只能移动。值在移动时不会抛异常时直接内联保存，否则单独分配，使结果转交不再移动用户类型。
+
+停止的判定很严格：只有子帧记录的 `operation_cancelled` 且该子任务的停止令牌确实收到了请求，才记为 `stopped`；同样是 `operation_cancelled` 的异常如果来自领取或包装值，则算 `error`。停止请求本身不会让任务提前交付结果。
+
+### 任务组与句柄
+
+`task_group(options, body)` 的主体拿到 `basic_task_group_context<S>&`，可以在词法范围内反复接纳任务：
+
+| 成员 | 用途 |
+| --- | --- |
+| `spawn_observed(task)` | 接纳并立即投递，返回 `scoped_join_handle<T, S>` |
+| `spawn_shared_uncancellable(task)` | 启动共享工作，返回 `shared_task<T, S>` |
+| `close()` | 拒绝新的接纳，已有句柄仍可在主体退出前领取 |
+| `request_stop()` | 向组内工作请求协作停止 |
+| `stop_token()` | 取得该组独立的停止令牌 |
+
+`group_options` 只有一个字段 `errors`：`group_error_policy::fail_fast` 在首次观察到错误时请求停止，`collect_all` 让其他子任务继续跑完。组退出后得到 `group_result<T>`：
+
+- `body` 是主体自己的 `task_outcome<T>`。
+- `children` 是按最终接纳顺序排列的 `std::vector<group_child_result>`，每项只含 `index`、`status` 和 `exception`，不持有成功值。
+
+`scoped_join_handle<T, S>` 用于在主体内领取某一项的结果，只能等待一次；主体退出后再等待会抛 `std::logic_error`。丢弃句柄不会取消对应任务，任务组在退出时统一排空。
+
+### 竞速结果
+
+选择器返回的也是结构体，而不是单个值：
+
+| 类型 | 字段 |
+| --- | --- |
+| `select_result<Ts...>` | `index` 是胜出分支在原始参数中的位置，`value` 是同形状的 `std::variant` |
+| `select_success_result<Ts...>` | 成功时填 `winner_index` 与 `value`；全部失败时 `failures` 按输入顺序记录每个分支 |
+| `branch_failure` | `index`、`status`、`exception` 和可选的 `stop_reason` |
+| `race_result<Ts...>` | `index`、`outcome`（胜出分支的 `task_outcome`）和诊断；`loser_error(branch)` 返回落选分支之后发布的错误，尚未发布时为空 |
+
+相同类型的多个分支在 `select` 和 `select_success` 里靠下标区分，读取 `value` 时要和 `index` 用同一个 variant 下标。
+
+### 截止结果
+
+`complete_before(work, trigger)` 返回 `deadline_outcome<T>`，终态由 `deadline_status` 表示：
+
+| 值 | 含义 |
+| --- | --- |
+| `value` | 工作先完成并成功 |
+| `work_error` | 工作先完成但抛了异常 |
+| `trigger_error` | 触发器先完成但抛了异常 |
+| `deadline` | 触发器先成功完成，判定为截止 |
+| `stopped` | 先发布终态的分支以协作停止结束 |
+
+`status()`、`exception()` 和 `take_value()` 与 `task_outcome` 的用法一致：只有 `value` 终态能领取工作结果，其余状态通过 `exception()` 取原异常。
+
+### 异步序列
+
+`with_stream(factory, body)` 把生产者与消费者的寿命绑在一起。生产者拿到 `stream_producer<T, S>`，每次 `emit(value)` 等到消费者要下一项才继续；消费者拿到 `stream_reader<T, S>`，用 `next()` 拉取，正常结束返回 `std::nullopt`。生产者的异常在消费者下一次 `next()` 时原样抛出。`stream_reader` 不能复制，也不能离开 `with_stream` 的主体。
 
 ## 自定义异步等待操作
 

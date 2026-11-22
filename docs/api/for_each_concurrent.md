@@ -1,19 +1,26 @@
 # for_each_concurrent
 
-按需包含 `<faio/coroutine/sequence.hpp>`。
+消费异步序列并且不想逐项串行处理时用它。它从流中拉取元素，交给最多 `limit` 个并发处理任务，并在返回前收束所有处理。先包含 `<faio/coroutine/sequence.hpp>`。
 
 ```cpp
-task<void, S> faio::for_each_concurrent<T, S>(std::size_t limit, stream_factory, operation_factory)
+template <class T, class S, class Factory>
+  requires std::same_as<std::invoke_result_t<Factory&, T>, task<void, S>>
+task<void, S> for_each_concurrent(std::size_t limit, stream_reader<T, S>& input,
+                                  Factory operation);
+
+template <class T, class S = default_scheduler, class StreamFactory, class OperationFactory>
+task<void, S> for_each_concurrent(std::size_t limit, StreamFactory factory,
+                                  OperationFactory operation);
 ```
 
-## 语义与限制
+借用读端的版本接收已经存在的 `stream_reader`，通常在 `with_stream` 的主体里调用。自持流的版本接收流工厂，在返回前完成生产者的停止与排空。`operation` 按值持有，多个处理任务可以并行调用它，闭包里的共享状态需要自行同步。
 
-若一次 `next()` 正在挂起，窗口为它预留一个槽。处理失败会停止后续工作并排空。工厂在词法作用域内按值持有，并发调用时需要遵守共享状态的同步契约。
+并发窗口把进行中的 `next()` 也算在内：从拉取到处理完成合计最多 `limit` 项。值为 0 或超过 `std::ptrdiff_t` 上限时，等待该任务会抛出 `std::invalid_argument`。
 
-## 成本
+任何一项处理抛出异常，组合会停止其余处理和待完成的拉取，排空已经接纳的操作后再把首个异常交给等待方。因停止请求产生的 `operation_cancelled` 不会被当成处理失败。外层 `with_stream` 随后停止并排空生产者。
 
-只计生命周期的工作根与固定并发许可。不累积全流结果。
+`limit` 与流的总长度无关，流可以无限长；窗口只限制同时在途的项数。
 
-R25 的七个独立 macOS Release 进程配对以手写实现的进程 CPU 时间为分母。API 的中位比为 1.1508，单侧 U95 为 1.5627。处理八项输入，并发窗口为二。手写参照采用容量一、按需推进的生产者及两个滚动 join 句柄。Linux ARM64 的四次独立冷进程均测得手写路径每个完整操作 38 次 C++ 分配（9944 B），API 路径 42 次（15688 B）。证据来自 `20261115T002612Z-R25/rich/F13/decision.json`。
+这个接口只保留首个失败，不累积全部结果。并发度受 `limit` 限制，窗口越大，同时在途的数据和内存越多。
 
-可运行程序见 [异步序列](../../examples/coroutine/sequence.cpp)。
+完整程序见 [异步序列](../../examples/coroutine/sequence.cpp)。

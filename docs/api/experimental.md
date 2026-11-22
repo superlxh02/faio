@@ -1,7 +1,5 @@
 # 实验性接口
 
-[查询实验性接口 →](../../api/group__experimental.html)
-
 实验层要求 Linux + GCC 16.1.x + libstdc++ 16 + C++26，通过 `FAIO_ENABLE_EXPERIMENTAL` 独立启用。基础库用户可以保持此开关关闭。
 
 ## 公共头文件

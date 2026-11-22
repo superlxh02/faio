@@ -1,7 +1,7 @@
 PROJECT_NAME = faio
 PROJECT_BRIEF = "faio 公共 C++ 接口参考"
 OUTPUT_DIRECTORY = target/docs/staging
-INPUT = target/docs/api-public/public.hpp target/docs/api-public/periodic.dox target/docs/api-public/surface.dox .github/site/api/index.md
+INPUT = target/docs/api-public/public.hpp target/docs/api-public/periodic.dox .github/site/api/index.md
 USE_MDFILE_AS_MAINPAGE = .github/site/api/index.md
 OUTPUT_LANGUAGE = Chinese
 FILE_PATTERNS = *.hpp *.md *.dox
