@@ -44,7 +44,7 @@ def setup():
 
 
 def highlight_cpp(source):
-    pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|\b(?:co_await|co_return|int|auto|const|using|namespace)\b|\b\d+(?:ms)?\b|#include)'
+    pattern = r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|\b(?:co_await|co_return|int|auto|const|using|namespace|void|while|if|return|true|false)\b|\b\d+(?:ms)?\b|#include)'
     tokens = re.split(pattern, source)
     rendered = []
     for index, token in enumerate(tokens):
@@ -54,6 +54,42 @@ def highlight_cpp(source):
         else:
             rendered.append(escape(token))
     return '<pre><code>' + "".join(rendered) + '</code></pre>'
+
+
+def strip_cpp_comments(source):
+    """Remove comments and extra blank lines from a C++ file for the homepage."""
+    text = re.sub(r"/\*[\s\S]*?\*/", "", source)
+    lines = []
+    for line in text.splitlines():
+        code = []
+        quote = ""
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if quote:
+                code.append(char)
+                if char == "\\" and index + 1 < len(line):
+                    code.append(line[index + 1])
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ""
+            elif char in "\"'":
+                quote = char
+                code.append(char)
+            elif char == "/" and line[index:index + 2] == "//":
+                break
+            else:
+                code.append(char)
+            index += 1
+        cleaned = "".join(code).rstrip()
+        if cleaned:
+            lines.append(cleaned)
+        elif lines and lines[-1]:
+            lines.append("")
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
 
 
 def build_book(destination):
@@ -118,9 +154,11 @@ def build():
     build_book(output / "book")
     check_public_api(output / "book/api")
     shutil.copytree(SOURCE / "assets", output / "assets", dirs_exist_ok=True)
-    source = (ROOT / "examples/quickstart.cpp").read_text(encoding="utf-8")
-    excerpt = source[source.index("faio::task<int> delayed_value"):source.index("\nint main()")].strip()
-    homepage = (SOURCE / "index.html").read_text(encoding="utf-8").replace("<!-- QUICKSTART_CODE -->", highlight_cpp(excerpt))
+    quickstart = (ROOT / "examples/quickstart.cpp").read_text(encoding="utf-8")
+    tcp_echo = (ROOT / "examples/net/tcp_echo.cpp").read_text(encoding="utf-8")
+    homepage = (SOURCE / "index.html").read_text(encoding="utf-8")
+    homepage = homepage.replace("<!-- QUICKSTART_CODE -->", highlight_cpp(strip_cpp_comments(quickstart)))
+    homepage = homepage.replace("<!-- TCPSERVER_CODE -->", highlight_cpp(strip_cpp_comments(tcp_echo)))
     (output / "index.html").write_text(homepage, encoding="utf-8")
     (output / ".nojekyll").touch()
     (output / "404.html").write_text('''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>页面未找到 · faio</title><style>body{background:#090b11;color:#b7c8eb;font:18px/1.8 system-ui;max-width:640px;margin:18vh auto;padding:24px}a{color:#8daeff}</style><h1>404 / 这条路径暂未连接。</h1><p>请检查地址，或使用浏览器返回上一页。</p><p><a href="https://superlxh02.github.io/faio/">返回 faio 首页 →</a></p></html>''', encoding="utf-8")

@@ -94,9 +94,8 @@
             <span class="hero-title-sub">以协程构建统一可靠的异步应用</span>
           </h1>
           <p class="hero-subtitle">
-            faio 是基于 C++ 协程的异步运行时。用 <code>task</code> 和
-            <code>co_await</code> 写出顺序的并发代码，工作窃取调度器与 I/O
-            运行时替你处理其余部分。
+            faio 是基于现代 C++ 编写的高性能异步运行时。基于 C++20
+            协程构建异步程序，提供完整的异步并发，网络/文件 IO 等基础设施。
           </p>
           <div class="hero-actions">
             <a class="btn btn-primary" href="book/getting-started.html"
@@ -113,25 +112,31 @@
           <article class="feature-card fc-easy" data-reveal>
             <h2>易用</h2>
             <p>
-              异步程序统一以 <code>faio::task</code> 组织，使用 C++20 标准协程关键字编写。header-only 设计，无需编译独立的运行时库，集成便捷。
+              异步程序统一以 <code>faio::task&lt;T&gt;</code>
+              协程任务类型组织，并统一使用 C++20
+              协程标准关键字，从而降低异步程序编写的复杂性。
             </p>
           </article>
           <article class="feature-card fc-perf" data-reveal>
             <h2>高性能</h2>
             <p>
-              多线程工作窃取调度器充分发挥多核并行能力，协程帧的内存分配经过专门优化以降低开销。I/O 建立于 Proactor 完成模型之上。
+              基于现代 C++
+              编写，提供多线程任务窃取调度器，充分利用多核并行能力，并且针对性优化了协程帧内存分配。
             </p>
           </article>
           <article class="feature-card fc-flexible" data-reveal>
             <h2>灵活</h2>
             <p>
-              提供多线程与单线程两种运行时。任务可声明窃取与绑核约束，I/O 操作可设置超时。TLS、异步进程与实验层按需启用，不参与默认构建。
+              运行时提供单线程和多线程两种模式；任务提供可配置属性，如是否可被窃取、是否绑核运行。
             </p>
           </article>
           <article class="feature-card fc-safe" data-reveal>
             <h2>安全</h2>
             <p>
-              采用 C++23 <code>std::expected</code> 表达可能失败的操作，错误以值的形式返回。协程 task 提供完整的异常链与错误处理链，异常沿等待链按原类型重抛。
+              遵循现代 C++ 的 RAII 开发原则进行内存管理；错误处理统一采用
+              <code>std::expected</code>，并且
+              <code>faio::task&lt;T&gt;</code>
+              提供了完善的异常处理链和错误处理链，支持任务的协作取消。
             </p>
           </article>
         </div>
@@ -169,13 +174,13 @@
                 C++ <span>协程并发</span></button
               ><button
                 role="tab"
-                id="tab-cmake"
+                id="tab-tcp"
                 aria-selected="false"
-                aria-controls="panel-cmake"
-                data-code-tab="cmake"
+                aria-controls="panel-tcp"
+                data-code-tab="tcp"
                 tabindex="-1"
               >
-                CMake <span>工程集成</span>
+                TCP <span>服务端</span>
               </button>
             </div>
             <a href="book/getting-started.html">完整例程 <span aria-hidden="true">↗</span></a>
@@ -191,27 +196,13 @@
             </div>
             <div
               role="tabpanel"
-              id="panel-cmake"
-              aria-labelledby="tab-cmake"
+              id="panel-tcp"
+              aria-labelledby="tab-tcp"
               tabindex="0"
               hidden
             >
-              <pre><code><span class="comment"># 先安装依赖，再通过 CMake 公共目标集成</span>
-<span class="keyword">cmake_minimum_required</span>(VERSION <span class="number">3.20</span>)
-<span class="keyword">project</span>(my_app LANGUAGES CXX)
-
-<span class="keyword">set</span>(FAIO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-<span class="keyword">set</span>(FAIO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-<span class="keyword">set</span>(FAIO_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-<span class="keyword">add_subdirectory</span>(third_party/faio)
-
-<span class="keyword">add_executable</span>(my_app main.cpp)
-<span class="keyword">target_link_libraries</span>(my_app PRIVATE faio::faio)</code></pre>
+              <!-- TCPSERVER_CODE -->
             </div>
-          </div>
-          <div class="code-statusbar">
-            <span><i></i> quickstart.cpp</span
-            ><span>等待期间 worker 不阻塞：协程挂起，线程继续调度其他任务。</span>
           </div>
         </div>
       </section>
@@ -300,9 +291,6 @@
         <div class="shell closing-inner">
           <span class="section-kicker">GET STARTED</span>
           <h2>先把 quickstart 跑起来。</h2>
-          <p>
-            quickstart 演示任务并发、等待与结果汇合，随后可查阅 API 的参数、返回值与生命周期约定。
-          </p>
           <a class="btn btn-primary" href="book/getting-started.html"
             >开始构建 <span aria-hidden="true">→</span></a
           >
@@ -322,7 +310,7 @@
             >faio</span
           ></a
         >
-        <p>Fast Async I/O · C++23 头文件库</p>
+        <p>Fast Async I/O · 基于现代C++构建的异步IO基础设施</p>
         <nav aria-label="页脚导航">
           <a href="book/api/">文档</a
           ><a href="api/">API 参考</a
