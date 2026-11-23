@@ -7,7 +7,6 @@
 
 #include <atomic>
 #include <exception>
-#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -85,13 +84,13 @@ faio::task<void> show_serial_domain() {
   co_await update_across_suspension(domain, balance);
   if (balance != 42)
     throw std::logic_error("并发更新发生覆盖");
-  std::cout << "两项跨挂起的更新均已提交，余额为 " << balance.load() << '\n';
+  faio::log::logger()->info("两项跨挂起的更新均已提交，余额为 {}", balance.load());
 
   co_await close_during_update(domain, balance);
   try {
     co_await domain.run([]() -> faio::task<void> { co_return; });
   } catch (const std::logic_error&) {
-    std::cout << "关闭已排空更新，余额为 " << balance.load() << "，后续提交已被拒绝\n";
+    faio::log::logger()->info("关闭已排空更新，余额为 {}，后续提交已被拒绝", balance.load());
     co_return;
   }
   throw std::logic_error("关闭后的串行域仍接纳了新工作");
@@ -103,7 +102,7 @@ int main() {
   try {
     faio::block_on(show_serial_domain());
   } catch (const std::exception& error) {
-    std::cerr << "串行域示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("串行域示例失败：{}", error.what());
     return 1;
   }
 }

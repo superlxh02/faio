@@ -6,7 +6,6 @@
 #include <faio/faio.hpp>
 
 #include <exception>
-#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -46,7 +45,7 @@ faio::task<void> show_tasks() {
   const int unit_price = co_await std::move(pending);
   if (!started || unit_price != 21)
     throw std::logic_error("直接等待未交付预期报价");
-  std::cout << "单价 " << unit_price << '\n';
+  faio::log::logger()->info("单价 {}", unit_price);
 
   /** @brief 两次 spawn 都先提交任务。随后按顺序领取结果，两个查询已经可以并发推进。 */
   auto first = faio::spawn(quote(20));
@@ -55,14 +54,14 @@ faio::task<void> show_tasks() {
   const int second_quote = co_await second;
   if (first_quote + second_quote != 42)
     throw std::logic_error("汇总报价错误");
-  std::cout << "总价 " << first_quote + second_quote << '\n';
+  faio::log::logger()->info("总价 {}", first_quote + second_quote);
 
   /** @brief 异常保存在任务结果中，调用方等待句柄时可以按原类型捕获。 */
   auto invalid_quote = faio::spawn(quote(-1));
   try {
     (void)co_await invalid_quote;
   } catch (const std::invalid_argument& error) {
-    std::cout << "等待方收到错误：" << error.what() << '\n';
+    faio::log::logger()->info("等待方收到错误：{}", error.what());
     co_return;
   }
   throw std::logic_error("无效报价本应产生异常");
@@ -82,7 +81,7 @@ int main() {
                                  .build());
     faio::block_on(show_tasks());
   } catch (const std::exception& error) {
-    std::cerr << "任务示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("任务示例失败：{}", error.what());
     return 1;
   }
 }

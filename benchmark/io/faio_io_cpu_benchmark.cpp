@@ -22,19 +22,6 @@
 namespace {
 using clock_type = std::chrono::steady_clock;
 
-/** @brief 领取基准操作结果，将错误转换为异常。 */
-template <class T>
-T checked(faio::expected<T> result) {
-  if (!result)
-    throw std::runtime_error(std::string{result.error().message()});
-  return std::move(*result);
-}
-/** @brief 领取基准操作结果，将错误转换为异常。 */
-void checked(faio::expected<void> result) {
-  if (!result)
-    throw std::runtime_error(std::string{result.error().message()});
-}
-
 /** @brief 输出每次操作的耗时、吞吐量与工作量校验和。 */
 void report(std::string_view scenario, clock_type::time_point start,
             std::size_t operations, std::size_t bytes, std::uint64_t checksum = 0) {
@@ -49,33 +36,61 @@ void report(std::string_view scenario, clock_type::time_point start,
 /** @brief 预热普通文件后测量指定块大小的完整读写。 */
 faio::task<void> file_case(const std::filesystem::path& path, std::size_t block_size,
                            std::size_t operations) {
-  auto file = checked(co_await faio::fs::File::open(
-      path, faio::fs::OpenOptions{}.read().write().create().truncate()));
+  auto file = co_await faio::fs::File::open(
+      path, faio::fs::OpenOptions{}.read().write().create().truncate());
+  if (!file)
+    throw std::runtime_error(std::string{file.error().message()});
+
   std::vector<char> buffer(block_size, 'f');
-  for (std::size_t i = 0; i < operations; ++i)
-    checked(co_await file.write_all(std::span<const char>{buffer}));
-  checked(co_await file.sync_data());
-  checked(co_await file.seek(0));
+  for (std::size_t i = 0; i < operations; ++i) {
+    const auto written = co_await file->write_all(std::span<const char>{buffer});
+    if (!written)
+      throw std::runtime_error(std::string{written.error().message()});
+  }
+
+  const auto warmed = co_await file->sync_data();
+  if (!warmed)
+    throw std::runtime_error(std::string{warmed.error().message()});
+  const auto rewound = co_await file->seek(0);
+  if (!rewound)
+    throw std::runtime_error(std::string{rewound.error().message()});
+
   const auto start_write = clock_type::now();
-  for (std::size_t i = 0; i < operations; ++i)
-    checked(co_await file.write_all(std::span<const char>{buffer}));
-  checked(co_await file.flush());
+  for (std::size_t i = 0; i < operations; ++i) {
+    const auto written = co_await file->write_all(std::span<const char>{buffer});
+    if (!written)
+      throw std::runtime_error(std::string{written.error().message()});
+  }
+  const auto flushed = co_await file->flush();
+  if (!flushed)
+    throw std::runtime_error(std::string{flushed.error().message()});
   report("file_write_all_" + std::to_string(block_size), start_write, operations,
          block_size * operations);
-  checked(co_await file.sync_data());
-  checked(co_await file.seek(0));
+
+  const auto synced = co_await file->sync_data();
+  if (!synced)
+    throw std::runtime_error(std::string{synced.error().message()});
+  const auto rerewound = co_await file->seek(0);
+  if (!rerewound)
+    throw std::runtime_error(std::string{rerewound.error().message()});
+
   std::fill(buffer.begin(), buffer.end(), '\0');
   const auto start_read = clock_type::now();
   std::uint64_t checksum = 0;
   for (std::size_t i = 0; i < operations; ++i) {
-    const auto count = checked(co_await file.read_exact(std::span<char>{buffer}));
-    if (count != block_size || buffer.front() != 'f' || buffer.back() != 'f')
+    const auto count = co_await file->read_exact(std::span<char>{buffer});
+    if (!count)
+      throw std::runtime_error(std::string{count.error().message()});
+    if (*count != block_size || buffer.front() != 'f' || buffer.back() != 'f')
       throw std::runtime_error("file data mismatch");
     checksum += static_cast<unsigned char>(buffer.front());
   }
   report("file_read_exact_" + std::to_string(block_size), start_read, operations,
          block_size * operations, checksum);
-  checked(co_await file.close());
+
+  const auto closed = co_await file->close();
+  if (!closed)
+    throw std::runtime_error(std::string{closed.error().message()});
 }
 
 /** @brief 执行固定轮数的整数依赖链并返回校验值。 */

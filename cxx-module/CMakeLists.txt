@@ -182,6 +182,9 @@ if(FAIO_INSTALL)
     if(FAIO_ENABLE_IO_URING)
         install(FILES "${_faio_module_support}/FindLiburing.cmake" DESTINATION "${_faio_module_package_dir}")
     endif()
+    # Consumers that import the C++23 std module need the same pre-project() switch.
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/FaioImportStd.cmake"
+        DESTINATION "${_faio_module_package_dir}")
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/faioModulesConfig.cmake"
         DESTINATION "${_faio_module_package_dir}")
 endif()

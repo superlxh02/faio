@@ -6,7 +6,6 @@
 #include <faio/faio.hpp>
 
 #include <exception>
-#include <iostream>
 #include <memory>
 #include <semaphore>
 #include <stdexcept>
@@ -48,7 +47,7 @@ faio::task<void> show_custom_awaiter() {
   if (answer != 42) {
     throw std::logic_error("自定义操作应返回 42");
   }
-  std::cout << "同步完成的操作返回 " << answer << '\n';
+  faio::log::logger()->info("同步完成的操作返回 {}", answer);
 }
 
 /**
@@ -139,9 +138,9 @@ int main() {
     input.reset();
     if (answer != 42)
       throw std::logic_error("异步回调结果应为 42");
-    std::cout << "外部线程完成的操作返回 " << answer << '\n';
+    faio::log::logger()->info("外部线程完成的操作返回 {}", answer);
   } catch (const std::exception& error) {
-    std::cerr << "自定义等待操作失败：" << error.what() << '\n';
+    faio::log::logger()->error("自定义等待操作失败：{}", error.what());
     return 1;
   }
 }

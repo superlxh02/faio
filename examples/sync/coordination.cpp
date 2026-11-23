@@ -4,7 +4,6 @@
  */
 #include <faio/faio.hpp>
 #include <array>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -90,7 +89,7 @@ faio::task<void> demonstrate() {
   const int total = std::move(result.body).value_or_throw();
   if (total != 63)
     throw std::runtime_error("两个分片的汇总结果错误");
-  std::cout << "全部分片处理完毕，结果之和为 " << total << '\n';
+  faio::log::logger()->info("全部分片处理完毕，结果之和为 {}", total);
 }
 
 }  // namespace
@@ -101,7 +100,7 @@ int main() {
     faio::block_on(demonstrate());
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << "任务协调示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("任务协调示例失败：{}", error.what());
     return 1;
   }
 }

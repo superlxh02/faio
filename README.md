@@ -8,18 +8,21 @@ faio 是一个 C++23 异步 I/O 库，默认以头文件形式提供。网络、
 
 ## 快速开始
 
-准备 CMake 3.20+、Ninja、spdlog 及平台依赖后，在仓库根目录执行：
+工具链和依赖安装见[快速开始](docs/getting-started.md)。Linux 上只编 `quickstart` 的最短路径：
 
 ```sh
-cmake --preset linux-main-release
-cmake --build --preset linux-main-release -j4
-ctest --preset linux-main-release
+sudo apt install -y libspdlog-dev
+cmake --preset linux-main-release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DFAIO_BUILD_MODULES=OFF -DFAIO_ENABLE_TLS=OFF -DFAIO_ENABLE_PROCESS=OFF \
+  -DFAIO_ENABLE_IO_URING=OFF -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
+cmake --build --preset linux-main-release --target quickstart
 ./target/cmake-build-linux-main-release/examples/quickstart
 ```
 
 构建产物统一放在 `target/` 下：CMake 写入 `target/cmake-build-<preset>/`，Bazel 写入 `target/bazel/`，xmake 写入 `target/xmake/`，Rust 对照基准写入 `target/cargo/`。
 
-macOS 把预设换成 `mac-main-release`；Windows 可在 `windows-clang-main-release`、`windows-mingw-main-release`、`windows-msvc-main-release` 中选一个。各平台的工具链准备见[快速开始](docs/getting-started.md)。
+macOS 和 Windows 的完整步骤（vcpkg 依赖、工具链和预设选择）见[快速开始](docs/getting-started.md)。
 
 ## 最小示例
 
@@ -55,7 +58,13 @@ int main() {
 export CC="$(command -v clang)"
 bazel test --config=faio_headers //...
 bazel test --config=faio_modules --config=faio_tls --config=faio_process //...
-bazel run --config=faio_modules //examples:quickstart_module
+```
+
+`quickstart_module` 默认 `import std;`，交给 GCC 16.1 及以上运行：
+
+```sh
+export CC="$(command -v g++-16)"
+bazel run --config=faio_std_modules //examples:quickstart_module
 ```
 
 xmake 需要 3.0.1 或更新版本。下面的命令在 macOS 上选择 Homebrew LLVM，Linux 开发容器里换成 `/usr/sbin/clang++`：
@@ -65,10 +74,18 @@ faio_cxx="$(brew --prefix llvm)/bin/clang++"
 xmake f -c -y -m release --toolchain=clang \
   --cxx="$faio_cxx" --ld="$faio_cxx" --faio_modules=y
 xmake test -j 4
+```
+
+同一个示例用 GCC 16.1 及以上运行（需要三个 driver）：
+
+```sh
+xmake f -c -y -m release --toolchain=gcc \
+  --cc="$(command -v gcc-16)" --cxx="$(command -v g++-16)" --ld="$(command -v g++-16)" \
+  --faio_modules=y
 xmake run quickstart_module
 ```
 
-只构建纯头文件版时，Bazel 用 `--config=faio_headers`，xmake 去掉 `--faio_modules=y` 后执行 `xmake build quickstart_header`。目标名、下游接入和已知限制见[模块移植说明](cxx-module/README.md)与[构建与验证命令](docs/getting-started.md#具名模块与其他构建入口)。
+只构建纯头文件版时，Bazel 用 `--config=faio_headers`，xmake 去掉 `--faio_modules=y` 后执行 `xmake build quickstart_header`。目标名、下游接入和已知限制见[模块移植说明](cxx-module/README.md)与[构建与验证命令](docs/getting-started.md#c20-模块集成和使用)。
 
 ## 能力
 
@@ -131,7 +148,7 @@ target_link_libraries(my_app PRIVATE faio::faio)
 ## 文档
 
 - [快速开始](docs/getting-started.md)：依赖、平台工具链、构建、模块入口与集成。
-- [认识 faio](docs/learn-faio.md)：以一个 TCP 回显服务贯穿十章的渐进教程，另有专题与术语表。
+- [认识 faio](docs/learn-faio.md)：以 quickstart 和 tcp_echo 两个示例介绍入门，另有专题与术语表。
 - [API 介绍](docs/api/index.md)：公共头文件、调用方法与生命周期。
 - [API 查询](docs/api-reference.md)：按类型、函数和重载检索。
 - [文档工具](.github/site/README.md)：本地构建及站点维护。

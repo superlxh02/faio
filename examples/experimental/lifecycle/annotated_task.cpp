@@ -6,7 +6,6 @@
  */
 #include <atomic>
 #include <coroutine>
-#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <utility>
@@ -75,31 +74,31 @@ struct QuoteTrace {
   auto unavailable = quote_demo::quote(false);
   if (QuoteTrace::started.load() != 0 || QuoteTrace::succeeded.load() != 0
       || QuoteTrace::failed.load() != 0) {
-    std::fputs("创建任务时不应调用生命周期钩子\n", stderr);
+    faio::log::logger()->error("创建任务时不应调用生命周期钩子");
     co_return EXIT_FAILURE;
   }
-  std::puts("已创建两项报价，尚未调用钩子");
+  faio::log::logger()->info("已创建两项报价，尚未调用钩子");
 
   const int price = co_await std::move(available);
   if (price != 42 || QuoteTrace::started.load() != 1 || QuoteTrace::succeeded.load() != 1
       || QuoteTrace::failed.load() != 0) {
-    std::fputs("成功任务的结果或钩子计数不符\n", stderr);
+    faio::log::logger()->error("成功任务的结果或钩子计数不符");
     co_return EXIT_FAILURE;
   }
-  std::printf("成功钩子已记录，取得报价 %d\n", price);
+  faio::log::logger()->info("成功钩子已记录，取得报价 {}", price);
 
   try {
     (void)co_await std::move(unavailable);
   } catch (const quote_demo::QuoteUnavailable& failure) {
     if (QuoteTrace::started.load() != 2 || QuoteTrace::succeeded.load() != 1
         || QuoteTrace::failed.load() != 1) {
-      std::fputs("失败任务的钩子计数不符\n", stderr);
+      faio::log::logger()->error("失败任务的钩子计数不符");
       co_return EXIT_FAILURE;
     }
-    std::printf("失败钩子已记录，等待方收到原异常：%s\n", failure.what());
+    faio::log::logger()->info("失败钩子已记录，等待方收到原异常：{}", failure.what());
     co_return EXIT_SUCCESS;
   }
 
-  std::fputs("第二项报价应向等待方交付异常\n", stderr);
+  faio::log::logger()->error("第二项报价应向等待方交付异常");
   co_return EXIT_FAILURE;
 }

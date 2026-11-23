@@ -9,7 +9,6 @@
 #include <atomic>
 #include <cstddef>
 #include <exception>
-#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -54,7 +53,7 @@ faio::task<void> show_single_results() {
       || stopped.status() != task_outcome_status::stopped
       || stopped.stop_reason() != faio::task_stop_reason::requested)
     throw std::logic_error("单项查询的终态与预期不符");
-  std::cout << "单项报价：成功、异常、协作停止\n";
+  faio::log::logger()->info("单项报价：成功、异常、协作停止");
 }
 
 /** @brief 一项失败后仍取得其余输入的结果，终态按输入位置排列。 */
@@ -64,7 +63,7 @@ faio::task<void> show_partial_failure() {
   if (first.take_value() != 21 || failure.status() != task_outcome_status::error
       || last.take_value() != 42)
     throw std::logic_error("结算结果未保留成功报价及失败位置");
-  std::cout << "固定批次：成功、失败、成功\n";
+  faio::log::logger()->info("固定批次：成功、失败、成功");
 }
 
 /** @brief 用门闩控制首批任务的完成时机，再用原子计数观察各任务尚未完成的时间段。 */
@@ -113,7 +112,7 @@ faio::task<void> show_bounded_batch() {
     if (results[index].take_value() != 20 + index)
       throw std::logic_error("批处理未按输入顺序交付报价");
   }
-  std::cout << "动态批次：" << count << " 条报价，在途上限 " << QuoteWindow::limit << '\n';
+  faio::log::logger()->info("动态批次：{} 条报价，在途上限 {}", count, QuoteWindow::limit);
 }
 
 /** @brief 顺序运行三种结果收集方式。 */
@@ -129,7 +128,7 @@ int main() {
   try {
     faio::block_on(show_batch_results());
   } catch (const std::exception& error) {
-    std::cerr << "批处理结果示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("批处理结果示例失败：{}", error.what());
     return 1;
   }
 }

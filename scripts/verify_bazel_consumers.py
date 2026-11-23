@@ -27,6 +27,8 @@ def prepare_provider(directory, form):
     for name in ("MODULE.bazel", "BUILD.bazel", "REPO.bazel"):
         shutil.copy2(ROOT / name, directory / name)
     shutil.copytree(ROOT / "include", directory / "include")
+    # MODULE.bazel registers the std module extension from this package.
+    shutil.copytree(ROOT / "bazel", directory / "bazel")
     (directory / "tools").mkdir()
     shutil.copy2(ROOT / "tools/experimental_compiler.cpp", directory / "tools")
     if form == "modules":

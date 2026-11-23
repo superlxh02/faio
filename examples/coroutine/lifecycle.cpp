@@ -8,7 +8,6 @@
 #include <faio/faio.hpp>
 
 #include <exception>
-#include <iostream>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -44,7 +43,7 @@ faio::task<void> observe_task() {
   const int value = co_await std::move(observed);
   if (value != 42 || current != stage::after)
     throw std::logic_error("任务体应先退出，再运行后置钩子并交付结果");
-  std::cout << "同步钩子依次观察到任务开始和成功退出，调用方取得 " << value << '\n';
+  faio::log::logger()->info("同步钩子依次观察到任务开始和成功退出，调用方取得 {}", value);
 }
 
 /** @brief 请求停止，然后通过任务句柄观察清理完成后的结果。 */
@@ -76,11 +75,11 @@ faio::task<void> show_lifecycle() {
 
   co_await work_started.wait();
   job.request_stop();
-  std::cout << "已请求停止\n";
+  faio::log::logger()->info("已请求停止");
 
   co_await cleanup_started.wait();
   const bool cleanup_pending = !job.done() && !record.empty();
-  std::cout << "清理尚未结束，记录仍被借用\n";
+  faio::log::logger()->info("清理尚未结束，记录仍被借用");
   allow_cleanup.count_down();
 
   try {
@@ -89,7 +88,7 @@ faio::task<void> show_lifecycle() {
     if (!cleanup_pending || !record.empty()) {
       throw std::logic_error("任务应在归还借用之后交付取消结果");
     }
-    std::cout << "清理已归还记录，调用方取得取消结果\n";
+    faio::log::logger()->info("清理已归还记录，调用方取得取消结果");
     co_return;
   }
   throw std::logic_error("预期领取到取消结果");
@@ -101,7 +100,7 @@ int main() {
   try {
     faio::block_on(show_lifecycle());
   } catch (const std::exception& error) {
-    std::cerr << "生命周期示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("生命周期示例失败：{}", error.what());
     return 1;
   }
 }

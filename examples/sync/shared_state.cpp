@@ -4,7 +4,6 @@
  */
 #include <faio/faio.hpp>
 #include <chrono>
-#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -68,7 +67,7 @@ faio::task<void> demonstrate() {
   (void)published;
   if (first != "catalog-1" || second != "catalog-2" || third != "catalog-3")
     throw std::runtime_error("请求读取的配置错误");
-  std::cout << first << ", " << second << ", " << third << '\n';
+  faio::log::logger()->info("{}, {}, {}", first, second, third);
 }
 
 }  // namespace
@@ -79,7 +78,7 @@ int main() {
     faio::block_on(demonstrate());
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << "共享状态示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("共享状态示例失败：{}", error.what());
     return 1;
   }
 }

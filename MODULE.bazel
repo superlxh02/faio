@@ -11,6 +11,12 @@ bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "rules_cc", version = "0.2.25")
 bazel_dep(name = "spdlog", version = "1.17.0")
 
+# Bazel has no built-in `std` module. The extension materializes GCC's
+# libstdc++ interface unit as `@gcc_std_module//:std` and records whether the
+# selected compiler supports it, which gates the standard-library example.
+gcc_std = use_extension("//bazel:std_module.bzl", "gcc_std_modules")
+use_repo(gcc_std, "gcc_std_module")
+
 # Let project builds select the rules_cc toolchain backed by the requested CC.
 # A downstream root module can select its own C++23 toolchain.
 local_cc = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension", dev_dependency = True)

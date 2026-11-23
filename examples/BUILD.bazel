@@ -1,3 +1,4 @@
+load("@gcc_std_module//:supported.bzl", "SUPPORTED")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
@@ -16,11 +17,18 @@ cc_binary(
 cc_binary(
     name = "quickstart_module",
     srcs = ["module/quickstart.cpp"],
-    deps = ["//:faio_module"],
+    # The example always writes `import std;`, so it needs GCC 16.1+ and the
+    # libstdc++ interface unit; other compilers skip it instead of failing.
+    deps = [
+        "//:faio_module",
+        "@gcc_std_module//:std",
+    ],
+    target_compatible_with = [] if SUPPORTED else ["@platforms//:incompatible"],
 )
 
 # Each program returns a nonzero status on a contract failure. cc_test also
-# permits `bazel run //examples:<name>` for individual examples.
+# permits `bazel run //examples:<name>` for individual examples. The two echo
+# servers stay running by design, so they are binaries rather than tests.
 HEADER_EXAMPLES = {
     "coroutine_task": "coroutine/task.cpp",
     "composition_basics": "coroutine/composition_basics.cpp",
@@ -37,8 +45,6 @@ HEADER_EXAMPLES = {
     "coordination": "sync/coordination.cpp",
     "io_stream": "io/stream.cpp",
     "file_and_directory": "fs/file_and_directory.cpp",
-    "tcp_echo": "net/tcp_echo.cpp",
-    "udp_echo": "net/udp_echo.cpp",
 }
 
 [
@@ -50,6 +56,21 @@ HEADER_EXAMPLES = {
         deps = ["//:faio"],
     )
     for name, source in HEADER_EXAMPLES.items()
+]
+
+SERVER_EXAMPLES = {
+    "tcp_echo": "net/tcp_echo.cpp",
+    "udp_echo": "net/udp_echo.cpp",
+}
+
+[
+    cc_binary(
+        name = name,
+        srcs = [source],
+        features = ["-cpp_modules"],
+        deps = ["//:faio"],
+    )
+    for name, source in SERVER_EXAMPLES.items()
 ]
 
 TLS_FIXTURES = ["//tests:fixtures/" + path for path in [

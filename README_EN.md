@@ -8,18 +8,21 @@ faio is a C++23 asynchronous I/O library, header-only by default. Networking, fi
 
 ## Quick start
 
-Install CMake 3.20+, Ninja, spdlog and your platform dependencies, then run from the repository root:
+See [Quick start](docs/getting-started.md) for toolchains and dependency installation. The shortest Linux path that only builds `quickstart` is:
 
 ```sh
-cmake --preset linux-main-release
-cmake --build --preset linux-main-release -j4
-ctest --preset linux-main-release
+sudo apt install -y libspdlog-dev
+cmake --preset linux-main-release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DFAIO_BUILD_MODULES=OFF -DFAIO_ENABLE_TLS=OFF -DFAIO_ENABLE_PROCESS=OFF \
+  -DFAIO_ENABLE_IO_URING=OFF -DFAIO_BUILD_TESTS=OFF -DFAIO_BUILD_BENCHMARKS=OFF
+cmake --build --preset linux-main-release --target quickstart
 ./target/cmake-build-linux-main-release/examples/quickstart
 ```
 
 Every build writes under `target/`: CMake to `target/cmake-build-<preset>/`, Bazel to `target/bazel/`, xmake to `target/xmake/`, and the Rust comparison benchmarks to `target/cargo/`.
 
-On macOS use `mac-main-release`. On Windows pick one of `windows-clang-main-release`, `windows-mingw-main-release` or `windows-msvc-main-release`. See the [quick start](docs/getting-started.md) for per-platform toolchains.
+See the [quick start](docs/getting-started.md) for the macOS and Windows flows, including vcpkg dependencies, toolchains and preset selection.
 
 ## Minimal example
 
@@ -55,7 +58,13 @@ Both build systems support the header-only library and the C++20 named modules, 
 export CC="$(command -v clang)"
 bazel test --config=faio_headers //...
 bazel test --config=faio_modules --config=faio_tls --config=faio_process //...
-bazel run --config=faio_modules //examples:quickstart_module
+```
+
+`quickstart_module` imports the C++23 std module, so run it with GCC 16.1 or newer:
+
+```sh
+export CC="$(command -v g++-16)"
+bazel run --config=faio_std_modules //examples:quickstart_module
 ```
 
 xmake needs 3.0.1 or newer. The commands below select Homebrew LLVM on macOS; in the Linux development image use `/usr/sbin/clang++` instead:
@@ -65,10 +74,18 @@ faio_cxx="$(brew --prefix llvm)/bin/clang++"
 xmake f -c -y -m release --toolchain=clang \
   --cxx="$faio_cxx" --ld="$faio_cxx" --faio_modules=y
 xmake test -j 4
+```
+
+The same example runs on GCC 16.1 or newer when all three drivers are given:
+
+```sh
+xmake f -c -y -m release --toolchain=gcc \
+  --cc="$(command -v gcc-16)" --cxx="$(command -v g++-16)" --ld="$(command -v g++-16)" \
+  --faio_modules=y
 xmake run quickstart_module
 ```
 
-For a header-only build, use `--config=faio_headers` in Bazel, or drop `--faio_modules=y` and run `xmake build quickstart_header` in xmake. Target names, downstream setup and known limits are in the [module integration guide](cxx-module/README.md) and the [build and test commands](docs/getting-started.md#具名模块与其他构建入口).
+For a header-only build, use `--config=faio_headers` in Bazel, or drop `--faio_modules=y` and run `xmake build quickstart_header` in xmake. Target names, downstream setup and known limits are in the [module integration guide](cxx-module/README.md) and the [build and test commands](docs/getting-started.md#c20-模块集成和使用).
 
 ## Capabilities
 
@@ -131,7 +148,7 @@ The development image ships Bazel 9.2.0 and xmake 3.0.9, so all three build syst
 ## Documentation
 
 - [Quick start](docs/getting-started.md): dependencies, platform toolchains, build, module entry points and integration.
-- [Learn faio](docs/learn-faio.md): a ten-chapter tutorial built around one TCP echo service, plus topic guides and a glossary.
+- [Learn faio](docs/learn-faio.md): an introduction built around the quickstart and tcp_echo examples, plus topic guides and a glossary.
 - [API guide](docs/api/index.md): public headers, calling conventions and lifetimes.
 - [API reference](docs/api-reference.md): types, functions and overloads.
 - [Documentation tools](.github/site/README.md): local build and site maintenance.

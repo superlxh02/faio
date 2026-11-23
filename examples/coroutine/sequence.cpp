@@ -6,7 +6,6 @@
 
 #include <atomic>
 #include <exception>
-#include <iostream>
 #include <optional>
 #include <stdexcept>
 
@@ -43,7 +42,7 @@ faio::task<void> read_first_item() {
       });
   if (first != 1 || !producer_stopped.load())
     throw std::logic_error("提前退出读取后应停止生产者并等待它退出");
-  std::cout << "只读取第一项 " << *first << "，生产者已停止并退出\n";
+  faio::log::logger()->info("只读取第一项 {}，生产者已停止并退出", *first);
 }
 
 /** @brief 完整读取序列，再演示提前退出和限制并发数的消费方式。 */
@@ -51,7 +50,7 @@ faio::task<void> show_sequence() {
   co_await faio::with_stream<int>(produce, [](faio::stream_reader<int>& input) -> faio::task<void> {
     /** @brief next 在生产端正常结束后返回空值，循环此时自然结束。 */
     while (const auto value = co_await input.next()) {
-      std::cout << "依次读取 " << *value << '\n';
+      faio::log::logger()->info("依次读取 {}", *value);
     }
   });
 
@@ -67,7 +66,7 @@ faio::task<void> show_sequence() {
   if (total != 15) {
     throw std::logic_error("异步序列未完整消费");
   }
-  std::cout << "并发消费的总和为 " << total << '\n';
+  faio::log::logger()->info("并发消费的总和为 {}", total);
 }
 }  // namespace
 
@@ -76,7 +75,7 @@ int main() {
   try {
     faio::block_on(show_sequence());
   } catch (const std::exception& error) {
-    std::cerr << "异步序列示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("异步序列示例失败：{}", error.what());
     return 1;
   }
 }

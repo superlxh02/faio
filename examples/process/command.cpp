@@ -67,7 +67,8 @@ faio::task<void> capture_output(const std::filesystem::path& executable) {
   if (!output->status.success() || standard_output != "child output"
       || standard_error != "child diagnostic")
     throw std::runtime_error("捕获结果与子进程协议不符");
-  std::cout << "stdout: " << standard_output << "\nstderr: " << standard_error << '\n';
+  faio::log::logger()->info("stdout: {}", standard_output);
+  faio::log::logger()->info("stderr: {}", standard_error);
 }
 
 /**
@@ -94,7 +95,7 @@ faio::task<void> stop_on_timeout(const std::filesystem::path& executable) {
   auto status = co_await child->wait({.deadline = deadline});
   if (!status)
     throw std::runtime_error("读取退出状态失败：" + std::string{status.error().message()});
-  std::cout << "等待超时后已终止并回收：" << status->to_string() << '\n';
+  faio::log::logger()->info("等待超时后已终止并回收：{}", status->to_string());
 }
 
 /** @brief 在一次异步入口内依次执行捕获和超时演示。 */
@@ -114,7 +115,7 @@ int main(int argc, char** argv) {
   if (argc == 3 && std::string_view{argv[1]} == "--child")
     return run_child(argv[2]);
   if (argc != 1) {
-    std::cerr << "请直接用可执行文件路径启动此示例。\n";
+    faio::log::logger()->error("请直接用可执行文件路径启动此示例。");
     return 2;
   }
 
@@ -123,7 +124,7 @@ int main(int argc, char** argv) {
     faio::block_on(demonstrate(executable));
     return 0;
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    faio::log::logger()->error("{}", error.what());
     return 1;
   }
 }

@@ -200,7 +200,7 @@ body {
   font-size: 0.85em;
 }
 .content table {
-  display: block;
+  display: table;
   width: 100%;
   margin-block: 26px;
   border: 1px solid var(--table-border-color);
@@ -209,7 +209,7 @@ body {
   background: var(--faio-surface, var(--bg));
   font-size: 13px;
   line-height: 1.8;
-  overflow-x: auto;
+  overflow: hidden;
 }
 .content td,
 .content th {

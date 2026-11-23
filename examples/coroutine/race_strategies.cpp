@@ -6,7 +6,6 @@
 #include <faio/faio.hpp>
 
 #include <exception>
-#include <iostream>
 #include <stdexcept>
 #include <utility>
 #include <variant>
@@ -45,7 +44,7 @@ faio::task<void> show_first_success() {
       || std::get<1>(*result.value) != 42) {
     throw std::logic_error("预期主查询失败后取得备用报价");
   }
-  std::cout << "select_success：主查询已失败，备用报价为 42\n";
+  faio::log::logger()->info("select_success：主查询已失败，备用报价为 42");
 }
 
 /** @brief 在竞速返回后处理报价，等待整个任务组退出后再复用借用资源。 */
@@ -73,7 +72,7 @@ faio::task<void> show_early_result() {
             });
         auto result = co_await faio::race_in(owner, quote_after(slow_started), std::move(slow));
         const int price = result.index == 0 ? std::get<0>(result.outcome).take_value() : 0;
-        std::cout << "race_in：先领取报价 " << price << "，慢查询仍在收尾\n";
+        faio::log::logger()->info("race_in：先领取报价 {}，慢查询仍在收尾", price);
         result_seen.count_down();
         co_return price;
       }));
@@ -86,7 +85,7 @@ faio::task<void> show_early_result() {
   if (!still_borrowed || borrowed || summary.body.take_value() != 42) {
     throw std::logic_error("预期先交付报价，在任务组退出前归还借用");
   }
-  std::cout << "task_group：落选分支已经退出，可以复用借出的资源\n";
+  faio::log::logger()->info("task_group：落选分支已经退出，可以复用借出的资源");
 }
 
 /** @brief 依次演示首个成功和组内提前领取。 */
@@ -101,7 +100,7 @@ int main() {
   try {
     faio::block_on(demonstrate());
   } catch (const std::exception& error) {
-    std::cerr << "竞速示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("竞速示例失败：{}", error.what());
     return 1;
   }
 }

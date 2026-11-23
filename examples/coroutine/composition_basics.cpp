@@ -6,7 +6,6 @@
 #include <faio/faio.hpp>
 
 #include <exception>
-#include <iostream>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -58,7 +57,7 @@ faio::task<void> show_select() {
   auto winner = co_await faio::select(ready_quote(backup_started), std::move(backup));
   if (winner.index != 0 || std::get<0>(winner.value) != 42 || !backup_cleaned)
     throw std::logic_error("获胜报价或备用查询的清理状态不正确");
-  std::cout << "采用首个报价 " << std::get<0>(winner.value) << "，备用查询已收尾\n";
+  faio::log::logger()->info("采用首个报价 {}，备用查询已收尾", std::get<0>(winner.value));
 }
 
 /** @brief 依次演示三种组合，每组都在退出前等待自己的工作结束。 */
@@ -67,7 +66,7 @@ faio::task<void> show_composition() {
   const auto [name, price] = co_await faio::join(product_name(), quote(42));
   if (name != "键盘" || price != 42)
     throw std::logic_error("固定汇合结果不正确");
-  std::cout << name << " 的价格为 " << price << '\n';
+  faio::log::logger()->info("{} 的价格为 {}", name, price);
 
   std::vector<faio::task<int>> quotes;
   quotes.push_back(quote(42));
@@ -76,7 +75,7 @@ faio::task<void> show_composition() {
   const auto prices = co_await faio::join_all(std::move(quotes));
   if (prices.size() != 2 || prices[0] != 42 || prices[1] != 38)
     throw std::logic_error("批量汇合结果不正确");
-  std::cout << "按输入顺序收集报价：" << prices[0] << "、" << prices[1] << '\n';
+  faio::log::logger()->info("按输入顺序收集报价：{}、{}", prices[0], prices[1]);
 
   co_await show_select();
 }
@@ -87,7 +86,7 @@ int main() {
   try {
     faio::block_on(show_composition());
   } catch (const std::exception& error) {
-    std::cerr << "并发组合失败：" << error.what() << '\n';
+    faio::log::logger()->error("并发组合失败：{}", error.what());
     return 1;
   }
 }

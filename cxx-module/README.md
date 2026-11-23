@@ -13,7 +13,7 @@
 | `import faio.process;` | `faio::module_process` | `//cxx-module:process` | `faio_module_process` |
 | `import faio.experimental;` | `faio::module_experimental` | `//cxx-module:experimental` | `faio_module_experimental` |
 
-核心模块链接 spdlog，TLS 需要 OpenSSL 3.5 或更新版本。基础接口和扩展分开导入：先写 `import faio;`，需要扩展时再写 `import faio.tls;` 或 `import faio.process;`。下面各节用的示例程序都是[计时器 quickstart](../examples/module/quickstart.cpp)，运行后输出 `The answer is 42`。
+核心模块链接 spdlog，TLS 需要 OpenSSL 3.5 或更新版本。基础接口和扩展分开导入：先写 `import faio;`，需要扩展时再写 `import faio.tls;` 或 `import faio.process;`。下面各节用的示例程序都是[问候语 quickstart](../examples/module/quickstart.cpp)，运行后输出 `Hello, world!`。
 
 ## CMake
 
@@ -60,10 +60,11 @@ macOS 先把 Homebrew LLVM 22 的 `bin` 加入 `PATH`，再 `export CC="$(comman
 
 ```sh
 bazel build --config=faio_modules //cxx-module:faio
-bazel run --config=faio_modules //examples:quickstart_module
 ```
 
-应用通过 Bzlmod 接入时，依赖仓库要保留根目录的 `MODULE.bazel`、`BUILD.bazel`、`REPO.bazel`、`tools/experimental_compiler.cpp`，以及 `include/` 和 `cxx-module/`。在应用的 `MODULE.bazel` 里声明本地源码依赖和工具链配置扩展：
+`quickstart_module` 默认 `import std;`，需要把 `CC` 指向 GCC 16.1 及以上并改用 `--config=faio_std_modules`。该配置通过仓库的 `bazel/std_module.bzl` 读取所选 GCC 的 `libstdc++.modules.json`，把 `std` 接口单元变成 `@gcc_std_module//:std`；Clang 继续用 `--config=faio_modules`，此时该目标被标记为不兼容而跳过，其余模块目标不受影响。
+
+应用通过 Bzlmod 接入时，依赖仓库要保留根目录的 `MODULE.bazel`、`BUILD.bazel`、`REPO.bazel`、`tools/experimental_compiler.cpp`、`bazel/std_module.bzl`，以及 `include/` 和 `cxx-module/`。在应用的 `MODULE.bazel` 里声明本地源码依赖和工具链配置扩展：
 
 ```python
 module(name = "my_app")
@@ -122,6 +123,8 @@ faio_cxx=/usr/sbin/clang++
 export LD_LIBRARY_PATH="/usr/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
+`quickstart_module` 默认 `import std;`，只有 GCC 16.1 及以上会打开 `build.c++.modules.std`；配置时显式给出 `--cc`、`--cxx`、`--ld` 三个 driver，其他工具链会关闭这个目标，不影响其余示例。
+
 在 faio 仓库根目录单独构建模块库：
 
 ```sh
@@ -168,4 +171,4 @@ xmake run -P . my_app
 
 GCC 16.1.1 构建 `faio.process` 模块时，可能在读取核心模块接口时报 `Bad file data`，进程模块的验证工具链是 Clang。CMake 构建需要 Ninja 1.11+；用 AppleClang 时 CMake 无法扫描具名模块，要换成 Homebrew LLVM 的 `clang++`。
 
-实验开关、平台工具链和验证命令见[构建指南](../docs/getting-started.md#具名模块与其他构建入口)。
+实验开关、平台工具链和验证命令见[构建指南](../docs/getting-started.md#c20-模块集成和使用)。

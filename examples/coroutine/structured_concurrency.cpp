@@ -6,7 +6,6 @@
 #include <faio/faio.hpp>
 
 #include <exception>
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 
@@ -50,7 +49,7 @@ faio::task<void> show_scope() {
   /** @brief current_quote 由 owner.spawn 接纳，scope 在返回前等它退出。 */
   if (current_quote != 20 || cached_quote->price != 22)
     throw std::logic_error("自动收束或显式通知未交付报价");
-  std::cout << "作用域已收束，分离任务的通知已收到\n";
+  faio::log::logger()->info("作用域已收束，分离任务的通知已收到");
 }
 
 /** @brief 加载由多个子任务读取的一份配置。 */
@@ -83,7 +82,7 @@ faio::task<void> show_shared_result() {
   const int group_total = summary.body.value_or_throw();
   if (group_total != 42)
     throw std::logic_error("含税合计不符合预期");
-  std::cout << "共享税额后合计 " << group_total << '\n';
+  faio::log::logger()->info("共享税额后合计 {}", group_total);
 }
 
 /**
@@ -122,7 +121,7 @@ faio::task<void> show_group_failure() {
   if (summary.children.size() != 2 || summary.children[0].status != task_outcome_status::stopped
       || summary.children[1].status != task_outcome_status::error)
     throw std::logic_error("任务组摘要缺少预期的子任务终态");
-  std::cout << "组内失败已记录，兄弟任务已退出\n";
+  faio::log::logger()->info("组内失败已记录，兄弟任务已退出");
 }
 }  // namespace
 
@@ -133,7 +132,7 @@ int main() {
     faio::block_on(show_shared_result());
     faio::block_on(show_group_failure());
   } catch (const std::exception& error) {
-    std::cerr << "结构化并发示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("结构化并发示例失败：{}", error.what());
     return 1;
   }
 }

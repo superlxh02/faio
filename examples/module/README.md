@@ -1,12 +1,14 @@
 # 使用 faio 具名模块
 
-[`quickstart.cpp`](quickstart.cpp) 用 `import faio;` 创建一个异步任务，等待 10 毫秒后返回 `42`，由 `faio::block_on` 在调用线程上驱动到完成。整个程序只依赖核心模块和标准库。
+[`quickstart.cpp`](quickstart.cpp) 用 `import std;` 和 `import faio;` 创建一个异步任务，等待 10 毫秒后输出 `Hello, world!`，由 `faio::block_on` 在调用线程上驱动到完成。整个程序只依赖核心模块和标准库模块。
 
 示例的 [`CMakeLists.txt`](CMakeLists.txt) 可以直接作为下游项目的起点。CMake、Bazel 和 xmake 的下游配置汇总在[模块移植说明](../../cxx-module/README.md)。
 
 ## 工具链
 
-需要 CMake 3.28+、Ninja 1.11+、支持 C++23 的编译器，以及同一份 LLVM 安装里的 `clang-scan-deps`。核心模块链接 spdlog。macOS 把 Homebrew LLVM 的 `bin` 加入 `PATH`；faio 的 Linux 开发容器里，下文的 `clang++` 要换成 `clang++-23`。
+需要 CMake 3.28+、Ninja 1.11+ 和 GCC 16.1 及以上。核心模块链接 spdlog。
+
+示例默认 `import std;`，由 GCC 的 `libstdc++.modules.json` 提供 `std` 接口单元：CMake 通过 `cmake/FaioImportStd.cmake` 打开实验开关并设置 `CXX_MODULE_STD`，Bazel 通过 `//bazel:std_module.bzl` 生成 `@gcc_std_module//:std`，xmake 通过 `build.c++.modules.std` 策略扫描同一份清单。没有这个模块的编译器无法构建本示例；仓库根目录的构建会跳过 `quickstart_module`，其他示例不受影响。
 
 ## 从源码接入
 
@@ -14,7 +16,7 @@
 
 ```sh
 cmake -S examples/module -B target/cmake-build-module-example -G Ninja \
-  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_CXX_COMPILER=g++-16 -DCMAKE_BUILD_TYPE=Release
 cmake --build target/cmake-build-module-example
 ./target/cmake-build-module-example/quickstart_module
 ```
@@ -27,37 +29,39 @@ cmake --build target/cmake-build-module-example
 
 ```sh
 cmake -S cxx-module -B target/cmake-build-module-provider -G Ninja \
-  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=g++-16 -DCMAKE_BUILD_TYPE=Release \
   -DFAIO_ENABLE_IO_URING=OFF
 cmake --build target/cmake-build-module-provider
 cmake --install target/cmake-build-module-provider --prefix "$PWD/target/faio-module-prefix"
 ```
 
-消费方必须使用相同的编译器、标准库和构建配置。加上 `FAIO_MODULE_EXAMPLE_USE_PACKAGE=ON` 后，示例改用 `find_package(faioModules CONFIG REQUIRED)` 获取同一个链接目标：
+消费方必须使用相同的编译器、标准库和构建配置。加上 `FAIO_MODULE_EXAMPLE_USE_PACKAGE=ON` 后，示例改用 `find_package(faioModules CONFIG REQUIRED)` 获取同一个链接目标，`import std;` 的开关则在 `CMAKE_PREFIX_PATH` 下安装的 `FaioImportStd.cmake` 里找到：
 
 ```sh
 cmake -S examples/module -B target/cmake-build-module-example-installed -G Ninja \
-  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=g++-16 -DCMAKE_BUILD_TYPE=Release \
   -DFAIO_MODULE_EXAMPLE_USE_PACKAGE=ON -DCMAKE_PREFIX_PATH="$PWD/target/faio-module-prefix"
 cmake --build target/cmake-build-module-example-installed
 ./target/cmake-build-module-example-installed/quickstart_module
 ```
 
-两种方式都输出 `The answer is 42`。
+两种方式都会输出 `Hello, world!`。
 
 ## 用 Bazel 或 xmake 运行
 
-在仓库根目录用 Bazel 构建并运行同一个程序：
+Bazel 把 `CC` 指向 GCC 16.1 及以上，用 `faio_std_modules` 配置构建并运行同一个程序：
 
 ```sh
-bazel run --config=faio_modules //examples:quickstart_module
+export CC="$(command -v g++-16)"
+bazel run --config=faio_std_modules //examples:quickstart_module
 ```
 
-xmake 需要先打开模块特性，再运行同名目标：
+xmake 用 GCC 工具链并显式给出三个 driver：
 
 ```sh
-xmake f -c -y -m release --toolchain=clang \
-  --cxx="$(command -v clang++)" --ld="$(command -v clang++)" --faio_modules=y
+xmake f -c -y -m release --toolchain=gcc \
+  --cc="$(command -v gcc-16)" --cxx="$(command -v g++-16)" --ld="$(command -v g++-16)" \
+  --faio_modules=y
 xmake run quickstart_module
 ```
 

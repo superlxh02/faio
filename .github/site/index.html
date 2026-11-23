@@ -171,7 +171,7 @@
                 aria-controls="panel-cpp"
                 data-code-tab="cpp"
               >
-                C++ <span>协程并发</span></button
+                C++ <span>Hello world</span></button
               ><button
                 role="tab"
                 id="tab-tcp"
@@ -231,21 +231,21 @@
               <p>
                 <code>faio::task&lt;T&gt;</code> 是最基本的并发与调度单元，惰性创建、移动独占。提供丰富的并发组合、协作取消与调度属性设置。
               </p>
-              <p class="learn-more"><a href="book/tutorial/task-in-depth.html">了解更多 →</a></p>
+              <p class="learn-more"><a href="book/topics/task.html">了解更多 →</a></p>
             </article>
             <article id="stack-runtime" class="stack-card sc-runtime" data-reveal>
               <h2><img class="stack-icon" src="assets/stack/runtime.svg" alt="" />运行时</h2>
               <p>
                 提供多线程工作窃取与单线程两种运行模式，支持配置 worker 数量、阻塞任务上限与文件服务线程，并可按策略有序停机。
               </p>
-              <p class="learn-more"><a href="book/tutorial/spawning.html">了解更多 →</a></p>
+              <p class="learn-more"><a href="book/api/runtime.html">了解更多 →</a></p>
             </article>
             <article id="stack-net" class="stack-card sc-net" data-reveal>
               <h2><img class="stack-icon" src="assets/stack/network.svg" alt="" />网络</h2>
               <p>
                 提供 TCP、UDP、Unix 域套接字与地址解析，网络失败以 <code>expected</code> 返回，I/O 操作支持设置超时。
               </p>
-              <p class="learn-more"><a href="book/tutorial/io.html">了解更多 →</a></p>
+              <p class="learn-more"><a href="book/tutorial/tcp-echo-server.html">了解更多 →</a></p>
             </article>
             <article id="stack-fs" class="stack-card sc-fs" data-reveal>
               <h2><img class="stack-icon" src="assets/stack/filesystem.svg" alt="" />文件</h2>
@@ -259,7 +259,7 @@
               <p>
                 提供互斥、条件变量、信号量、闩、屏障与有界通道，等待期间挂起任务而不阻塞线程，唤醒后回到原调度上下文。
               </p>
-              <p class="learn-more"><a href="book/tutorial/shared-state.html">了解更多 →</a></p>
+              <p class="learn-more"><a href="book/api/sync.html">了解更多 →</a></p>
             </article>
             <article id="stack-tls" class="stack-card sc-tls" data-reveal>
               <h2><img class="stack-icon" src="assets/stack/tls.svg" alt="" />TLS</h2>

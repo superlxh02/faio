@@ -5,7 +5,6 @@
 #include <faio/faio.hpp>
 
 #include <chrono>
-#include <iostream>
 #include <thread>
 
 namespace {
@@ -47,6 +46,6 @@ faio::task<int> inventory_value() {
 /** @brief 等待库存估值并用退出状态校验结果。 */
 int main() {
   const int value = faio::block_on(inventory_value());
-  std::cout << "库存总价值：" << value << '\n';
+  faio::log::logger()->info("库存总价值：{}", value);
   return value == 42 ? 0 : 1;
 }

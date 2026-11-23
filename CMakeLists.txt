@@ -4,6 +4,9 @@
 ]]
 cmake_minimum_required(VERSION 3.20)
 
+# `import std;` 的开关必须在 project() 之前生效；只由模块示例使用。
+include(cmake/FaioImportStd.cmake)
+
 if(NOT WIN32)
     set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "Release flags")
 endif()

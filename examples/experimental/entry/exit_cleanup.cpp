@@ -3,7 +3,6 @@
  * @brief 入口返回时请求停止后台任务，并在退出进程前等待异步清理。
  */
 #include <coroutine>
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 
@@ -36,7 +35,7 @@ faio::task<void> background(std::shared_ptr<faio::sync::latch> started) {
             throw std::logic_error("后台任务应因入口返回而收到停止请求");
 
           co_await faio::this_coro::yield();
-          std::cout << "后台清理完成\n";
+          faio::log::logger()->info("后台清理完成");
         });
   } catch (const faio::operation_cancelled&) {
     /** @brief 后台任务在此处理预期的协作停止，此时异步清理已经完成。 */
@@ -55,6 +54,6 @@ faio::task<void> background(std::shared_ptr<faio::sync::latch> started) {
   auto started = std::make_shared<faio::sync::latch>(1);
   faio::spawn_detached(background(started));
   co_await started->wait();
-  std::cout << "入口准备返回\n";
+  faio::log::logger()->info("入口准备返回");
   co_return 0;
 }

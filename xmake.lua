@@ -232,6 +232,35 @@ if has_modules then
 
     if has_config("faio_examples") or has_config("faio_tests") then
         named_binary("quickstart_module", "faio_module", "examples/module/quickstart.cpp")
+            -- The example always writes `import std;`, which needs GCC 16.1+ and its
+            -- libstdc++.modules.json; other compilers skip this single target.
+            on_config(function (target)
+                local cxx = target:compiler("cxx")
+                local version
+                if cxx and cxx:name() == "gxx" then
+                    try {
+                        function ()
+                            version = os.iorunv(cxx:program(), {"-dumpfullversion"}, {envs = cxx:runenvs()}):trim()
+                        end
+                    }
+                    catch {
+                        function (errors)
+                        end
+                    }
+                end
+                local major, minor
+                if version then
+                    major, minor = version:match("^(%d+)%.(%d+)")
+                end
+                major, minor = tonumber(major), tonumber(minor)
+                if major and (major > 16 or (major == 16 and minor >= 1)) then
+                    target:set("policy", "build.c++.modules.std", true)
+                    print("faio: quickstart_module imports the C++23 std module (GCC %s)", version)
+                else
+                    target:set("enabled", false)
+                    print("faio: skipping quickstart_module; `import std;` needs GCC 16.1+")
+                end
+            end)
             if has_config("faio_tests") then
                 add_tests("quickstart")
             end

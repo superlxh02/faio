@@ -5,7 +5,6 @@
  * 异步入口提交整个图，在等待期间让出执行权，完成后领取结果。
  */
 #include <coroutine>
-#include <cstdio>
 #include <cstdlib>
 #include <tuple>
 #include <utility>
@@ -54,14 +53,14 @@ int add_service_fee(int price) noexcept {
   /** @brief 句柄的结果只能领取一次：成功时返回值元组，协作停止时返回空值，异常在等待时向上传播。 */
   const auto result = co_await std::move(pending);
   if (!result) {
-    std::fputs("报价图已停止\n", stderr);
+    faio::log::logger()->error("报价图已停止");
     co_return EXIT_FAILURE;
   }
   const auto [total] = *result;
   if (total != 42) {
-    std::fputs("结算结果不符\n", stderr);
+    faio::log::logger()->error("结算结果不符");
     co_return EXIT_FAILURE;
   }
-  std::printf("Sender 图交付含服务费报价 %d\n", total);
+  faio::log::logger()->info("Sender 图交付含服务费报价 {}", total);
   co_return EXIT_SUCCESS;
 }

@@ -7,7 +7,6 @@
 
 #include <chrono>
 #include <exception>
-#include <iostream>
 #include <stdexcept>
 #include <stop_token>
 #include <string_view>
@@ -48,7 +47,7 @@ faio::task<void> show_external_stop() {
   } catch (const faio::operation_cancelled&) {
     if (!child_received_stop)
       throw std::logic_error("外部令牌应只停止绑定它的工作");
-    std::cout << "外部停止源已请求停止，等待任务句柄取得取消终态\n";
+    faio::log::logger()->info("外部停止源已请求停止，等待任务句柄取得取消终态");
     co_return;
   }
   throw std::logic_error("预期取得取消终态");
@@ -75,7 +74,7 @@ faio::task<void> show_work_wins() {
   auto result = co_await faio::complete_before(ready_value(), wait_for_deadline(untriggered));
   if (result.status() != faio::deadline_status::value || result.take_value() != 42)
     throw std::logic_error("预期工作先完成并交付 42");
-  std::cout << "工作先完成：取得 42，截止等待也已退出\n";
+  faio::log::logger()->info("工作先完成：取得 42，截止等待也已退出");
 }
 
 /** @brief 截止先触发，等落选任务结束资源借用后再交付截止状态。 */
@@ -112,7 +111,7 @@ faio::task<void> show_deadline_wins() {
       || !buffer_use.empty()) {
     throw std::logic_error("预期截止先触发，清理结束后才交付结果");
   }
-  std::cout << "截止先触发：已收束落选工作，可以复用缓冲\n";
+  faio::log::logger()->info("截止先触发：已收束落选工作，可以复用缓冲");
 }
 
 /** @brief 顺序运行外部停止、工作先完成和截止先触发三个场景。 */
@@ -128,7 +127,7 @@ int main() {
   try {
     faio::block_on(demonstrate());
   } catch (const std::exception& error) {
-    std::cerr << "停止与截止示例失败：" << error.what() << '\n';
+    faio::log::logger()->error("停止与截止示例失败：{}", error.what());
     return 1;
   }
 }

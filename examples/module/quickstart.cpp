@@ -1,21 +1,21 @@
-#include <chrono>
-#include <coroutine>
-#include <iostream>
-
+/**
+ * @file examples/module/quickstart.cpp
+ * @brief 具名模块入门示例：导入 C++23 标准库模块与 faio 模块。
+ * @details 示例默认使用 `import std;`，因此这个示例需要 GCC 16.1 及以上：
+ * 构建系统只为该目标开启标准库模块，其他示例与其他工具链不受影响。
+ */
+import std;
 import faio;
 
-namespace {
-
-faio::task<int> answer() {
-  using namespace std::chrono_literals;
-  co_await faio::time::sleep(10ms);
-  co_return 42;
+faio::task<void> hello() {
+  co_await faio::time::sleep(std::chrono::milliseconds{10});
+  std::print("Hello, world!\n");
 }
 
-}  // namespace
+faio::task<void> run() {
+  co_await faio::join(hello());
+}
 
 int main() {
-  const int value = faio::block_on(answer());
-  std::cout << "The answer is " << value << '\n';
-  return value == 42 ? 0 : 1;
+  faio::block_on(run());
 }

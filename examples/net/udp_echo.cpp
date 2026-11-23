@@ -1,79 +1,56 @@
 /**
  * @file udp_echo.cpp
- * @brief 绑定本机 UDP 套接字，按来源地址回显一个数据报。
- * @details 两个端点均使用系统分配的端口。发送和接收各处理一个完整数据报，
- * 接收端通过 `recv_from` 携带的来源地址决定回复目的地。
+ * @brief 一个持续监听的 UDP 回显服务端。
+ * @details 服务绑定 127.0.0.1:8081，每收到一个数据报就把它原样发回来源地址。
+ * 按 Ctrl+C 结束进程。
  */
 #include <faio/faio.hpp>
 
 #include <array>
-#include <chrono>
-#include <iostream>
+#include <exception>
 #include <span>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <utility>
 
 namespace {
-using namespace std::chrono_literals;
+const auto address = faio::net::SocketAddr{faio::net::Ipv4Addr{127, 0, 0, 1}, 8081};
 
-constexpr std::string_view message{"hello UDP"};
+/** @brief 绑定端口并持续回显数据报。 */
+faio::task<int> serve() {
+  auto socket = faio::net::UdpSocket::bind(address);
+  if (!socket) {
+    faio::log::logger()->error("绑定 {} 失败：{}", address.to_string(), socket.error().message());
+    co_return 1;
+  }
 
-/**
- * @brief 提取网络操作的成功值，失败时补充步骤名称。
- * @param result 要检查的网络操作结果。
- * @param operation 当前步骤的名称。
- * @return 操作的地址、套接字或字节数等成功值。
- */
-template <class T>
-T checked(faio::expected<T> result, std::string_view operation) {
-  if (!result)
-    throw std::runtime_error(std::string{operation} + "：" + std::string{result.error().message()});
-  return std::move(result).value();
-}
+  faio::log::logger()->info("UDP 回显服务监听 {}", address.to_string());
+  std::array<char, 65507> buffer{};
+  for (;;) {
+    auto datagram = co_await socket->recv_from(buffer);
+    if (!datagram) {
+      faio::log::logger()->error("接收数据报失败：{}", datagram.error().message());
+      co_return 1;
+    }
 
-/**
- * @brief 发送一个数据报，使用接收方观测到的来源地址回显，然后核对回包。
- * @details 消息长度始终小于接收缓冲区。UDP 不提供交付保证，等待回包时设置期限，
- * 以便没有响应时结束示例。收到长度为零的数据报仍代表成功收到一条消息。
- */
-faio::task<void> run_echo() {
-  const faio::net::SocketAddr loopback{faio::net::Ipv4Addr{127, 0, 0, 1}, 0};
-  auto server = checked(faio::net::UdpSocket::bind(loopback), "绑定 UDP 服务端");
-  auto client = checked(faio::net::UdpSocket::bind(loopback), "绑定 UDP 客户端");
-  const auto destination = checked(server.local_addr(), "查询 UDP 服务地址");
-
-  const auto sent = checked(co_await client.send_to(std::span<const char>{message}, destination),
-                            "发送 UDP 数据报");
-  if (sent != message.size())
-    throw std::runtime_error("UDP 数据报未完整发送");
-
-  /** @brief recv_from 同时交付字节数和实际来源，回显只发送本次收到的有效字节。 */
-  std::array<char, 64> request{};
-  const auto [size, peer] =
-      checked(co_await server.recv_from(request).set_timeout(5s), "接收 UDP 请求");
-  const auto echoed = checked(
-      co_await server.send_to(std::span<const char>{request}.first(size), peer), "写回 UDP 数据报");
-  if (echoed != size)
-    throw std::runtime_error("UDP 数据报未完整写回");
-
-  std::array<char, 64> response{};
-  const auto [reply_size, source] =
-      checked(co_await client.recv_from(response).set_timeout(5s), "接收 UDP 响应");
-  if (source != destination || std::string_view{response.data(), reply_size} != message)
-    throw std::runtime_error("UDP 回显来源或内容不匹配");
+    auto [size, peer] = *datagram;
+    const auto sent =
+        co_await socket->send_to(std::span<const char>{buffer}.first(size), peer);
+    if (!sent) {
+      faio::log::logger()->error("发回 {} 失败：{}", peer.to_string(), sent.error().message());
+      co_return 1;
+    }
+    if (*sent != size) {
+      faio::log::logger()->error("发回 {} 时只写入 {} / {} 字节", peer.to_string(), *sent, size);
+      co_return 1;
+    }
+  }
 }
 }  // namespace
 
-/** @brief 验证一个本机 UDP 数据报的回显，成功返回 0，失败返回 1。 */
+/** @brief 运行 UDP 回显服务，退出时返回非零表示启动或收发失败。 */
 int main() {
   try {
-    faio::block_on(run_echo());
-    std::cout << "UDP 回显：" << message << '\n';
-    return 0;
+    return faio::block_on(serve());
   } catch (const std::exception& error) {
-    std::cerr << error.what() << '\n';
+    faio::log::logger()->error("UDP 回显服务异常退出：{}", error.what());
     return 1;
   }
 }

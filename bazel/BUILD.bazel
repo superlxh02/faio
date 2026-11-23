@@ -1,0 +1,2 @@
+# Repository rules and module extensions that only the build configuration uses.
+package(default_visibility = ["//visibility:public"])

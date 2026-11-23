@@ -3,7 +3,6 @@
  * @brief 用注解声明异步入口，读取命令行参数并交付进程退出状态。
  */
 #include <coroutine>
-#include <iostream>
 #include <string_view>
 
 #if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
@@ -37,13 +36,13 @@ faio::task<int> calculate(int value) {
  */
 [[= faio::experimental::main(app)]] faio::task<int> app(int argc, char** argv) {
   if (argc > 2 || (argc == 2 && std::string_view{argv[1]}.empty())) {
-    std::cerr << "用法：" << argv[0] << " [称呼]\n";
+    faio::log::logger()->error("用法：{} [称呼]", argv[0]);
     co_return 2;
   }
 
   const std::string_view name = argc == 2 ? argv[1] : "faio";
   const auto [left, right] = co_await faio::join(calculate(20), calculate(22));
   const int result = left + right;
-  std::cout << name << "，计算结果为 " << result << '\n';
+  faio::log::logger()->info("{}，计算结果为 {}", name, result);
   co_return result == 42 ? 0 : 1;
 }

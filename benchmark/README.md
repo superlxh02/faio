@@ -34,7 +34,7 @@ xmake build faio_coro_benchmark
 xmake run faio_coro_benchmark 100000 batch
 ```
 
-`xmake run` 会把 target 名后面的参数原样交给程序。需要 `asio_tcp_benchmark` 时，先把 `FAIO_ASIO_INCLUDE_DIR` 设为 `asio.hpp` 所在目录再配置。xmake 选择工具链的方式与构建库时相同，默认编译器不支持 C++23 时按[构建配置](../docs/getting-started.md#xmake)传入 `--toolchain=clang` 和对应的 `--cxx`、`--ld` 路径。
+`xmake run` 会把 target 名后面的参数原样交给程序。需要 `asio_tcp_benchmark` 时，先把 `FAIO_ASIO_INCLUDE_DIR` 设为 `asio.hpp` 所在目录再配置。xmake 选择工具链的方式与构建库时相同，默认编译器不支持 C++23 时按[构建配置](../docs/getting-started.md#xmake-构建)传入 `--toolchain=clang` 和对应的 `--cxx`、`--ld` 路径。
 
 基准始终按头文件形态编译。Bazel 目标显式关闭模块特性，xmake 只在 `--faio_headers` 开启时注册它们，所以你不需要为跑基准启用具名模块。
 

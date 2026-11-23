@@ -48,6 +48,22 @@ build:faio_experimental_modules --cxxopt=-Mno-modules
 build:faio_experimental_modules --@spdlog//:header_only=false
 build:faio_experimental_modules --cxxopt=-DSPDLOG_COMPILED_LIB
 
+# GCC 16.1+ builds the C++23 std module for examples/module only.
+build:faio_std_modules --config=faio_cpp23
+build:faio_std_modules --experimental_cpp_modules
+build:faio_std_modules --features=cpp_modules
+# GCC rejects the reproducibility flags rules_cc always enables on macOS.
+# Each negated feature needs its own flag: combining them would drop cpp_modules.
+build:faio_std_modules --features=-macos_reproducible
+build:faio_std_modules --features=-macos_default_link_flags
+build:faio_std_modules --cxxopt=-fmodules
+# GCC writes the output CMI to its own .d file unless this flag is supplied.
+build:faio_std_modules --cxxopt=-Mno-modules
+# The compiled spdlog layout keeps the CMI from losing its formatters.
+build:faio_std_modules --cxxopt=-DSPDLOG_FMT_EXTERNAL
+build:faio_std_modules --@spdlog//:header_only=false
+build:faio_std_modules --cxxopt=-DSPDLOG_COMPILED_LIB
+
 # Pair compiler instrumentation with the allocator's Bazel feature check.
 build:faio_asan --features=asan
 build:faio_asan --copt=-fsanitize=address
