@@ -5,11 +5,8 @@ module;
 #include <faio/process/command.hpp>
 
 export module faio.process;
-import faio;
-
-export namespace faio::io {
-using ::faio::io::OperationOptions;
-}  // namespace faio::io
+export import faio.fs;
+export import faio.runtime;
 
 export namespace faio::process {
 using ::faio::process::CaptureOptions;

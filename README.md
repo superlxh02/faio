@@ -29,8 +29,8 @@ macOS 和 Windows 的完整步骤（vcpkg 依赖、工具链和预设选择）�
 下面这段程序启动两个定时任务，等两者都完成后把结果相加。`block_on` 在调用线程上驱动运行时，直到协程返回：
 
 ```cpp
-#include <faio/faio.hpp>
 #include <chrono>
+#include <faio/faio.hpp>
 
 faio::task<int> delayed_value(int value) {
     co_await faio::time::sleep(std::chrono::milliseconds{10});
@@ -48,7 +48,7 @@ int main() {
 }
 ```
 
-使用模块版时，把 `#include <faio/faio.hpp>` 换成 `import faio;`，其余代码不变。
+使用模块版时，把 `#include <faio/faio.hpp>` 换成 `import faio;`，其余代码不变。两种入口都会包含构建时启用的 TLS 与异步进程接口；模块使用协程时无需额外包含 `<coroutine>`。按功能导入的模块见[模块移植说明](cxx-module/README.md)。
 
 ## Bazel 与 xmake
 
@@ -60,11 +60,10 @@ bazel test --config=faio_headers //...
 bazel test --config=faio_modules --config=faio_tls --config=faio_process //...
 ```
 
-`quickstart_module` 默认 `import std;`，交给 GCC 16.1 及以上运行：
+`quickstart_module` 只需 `import faio;`，沿用同一套 Clang 工具链：
 
 ```sh
-export CC="$(command -v g++-16)"
-bazel run --config=faio_std_modules //examples:quickstart_module
+bazel run --config=faio_modules //examples:quickstart_module
 ```
 
 xmake 需要 3.0.1 或更新版本。下面的命令在 macOS 上选择 Homebrew LLVM，Linux 开发容器里换成 `/usr/sbin/clang++`：
@@ -76,12 +75,9 @@ xmake f -c -y -m release --toolchain=clang \
 xmake test -j 4
 ```
 
-同一个示例用 GCC 16.1 及以上运行（需要三个 driver）：
+配置完成后运行同一个模块示例：
 
 ```sh
-xmake f -c -y -m release --toolchain=gcc \
-  --cc="$(command -v gcc-16)" --cxx="$(command -v g++-16)" --ld="$(command -v g++-16)" \
-  --faio_modules=y
 xmake run quickstart_module
 ```
 
@@ -128,9 +124,9 @@ add_subdirectory(third_party/faio)
 target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-安装后的消费工程改用 `find_package(faio CONFIG REQUIRED)`。`faio::faio` 目标会传递 C++23、头文件路径、线程库和 spdlog 的链接要求；TLS 与异步进程分别使用 `faio::tls`、`faio::process`。
+安装后的消费工程改用 `find_package(faio CONFIG REQUIRED)`。`faio::faio` 目标会传递 C++23、头文件路径、线程库和 spdlog 的链接要求，并携带构建时启用的 TLS 与异步进程依赖。启用可选功能后仍然链接 `faio::faio`，包含 `<faio/faio.hpp>`。
 
-走模块方式时，构建模块包后使用 `find_package(faioModules CONFIG REQUIRED)` 并链接 `faio::module`，TLS 和进程对应 `faio::module_tls`、`faio::module_process`。Bazel 的下游依赖写作 `//cxx-module:faio`，xmake 写作 `add_deps("faio_module")`。模块对编译器、标准库和构建配置有匹配要求，细节见[模块移植说明](cxx-module/README.md)。
+走模块方式时，构建模块包后使用 `find_package(faioModules CONFIG REQUIRED)` 并链接 `faio::module`。`import faio;` 会导出构建时启用的 TLS 与进程接口，也可以单独导入 `faio.coroutine`、`faio.io`、`faio.net` 等功能模块。Bazel 的下游依赖写作 `//cxx-module:faio`，xmake 写作 `add_deps("faio_module")`。模块对编译器、标准库和构建配置有匹配要求，细节见[模块移植说明](cxx-module/README.md)。
 
 ## Docker
 

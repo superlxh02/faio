@@ -1,6 +1,6 @@
 # 移植和使用 faio 具名模块
 
-`import faio;` 提供稳定接口，`import faio.tls;`、`import faio.process;` 和 `import faio.experimental;` 是可选入口。模块使用 C++20 的具名模块机制，稳定库按 C++23 编译，接口与纯头文件共用 `include/faio/` 的实现：同一份头文件，两种引入方式。
+`import faio;` 提供稳定接口，并导出构建时启用的 TLS 与异步进程接口。`faio.coroutine`、`faio.io`、`faio.net` 等模块可以按功能独立导入，所有稳定模块都导出使用协程所需的标准库声明，无需额外包含 `<coroutine>`。模块使用 C++20 的具名模块机制，稳定库按 C++23 编译，与纯头文件共用 `include/faio/` 的实现。入口源码位于本目录。
 
 移植 faio 时建议保留完整仓库，作为子模块或 vendored 依赖。源码构建至少需要 `cxx-module/`、同级的 `include/` 和相应的构建文件；CMake 入口还会用到同级的 `cmake/`。
 
@@ -9,11 +9,13 @@
 | C++ 导入 | CMake 目标 | Bazel 源码目标 | xmake 目标 |
 | --- | --- | --- | --- |
 | `import faio;` | `faio::module` | `//cxx-module:faio` | `faio_module` |
+| `faio.common`、`faio.coroutine`、`faio.io`、`faio.net`、`faio.fs` | `faio::module` | `//cxx-module:faio` | `faio_module` |
+| `faio.runtime`、`faio.sync`、`faio.time`、`faio.log`、`faio.blocking`、`faio.util` | `faio::module` | `//cxx-module:faio` | `faio_module` |
 | `import faio.tls;` | `faio::module_tls` | `//cxx-module:tls` | `faio_module_tls` |
 | `import faio.process;` | `faio::module_process` | `//cxx-module:process` | `faio_module_process` |
 | `import faio.experimental;` | `faio::module_experimental` | `//cxx-module:experimental` | `faio_module_experimental` |
 
-核心模块链接 spdlog，TLS 需要 OpenSSL 3.5 或更新版本。基础接口和扩展分开导入：先写 `import faio;`，需要扩展时再写 `import faio.tls;` 或 `import faio.process;`。下面各节用的示例程序都是[问候语 quickstart](../examples/module/quickstart.cpp)，运行后输出 `Hello, world!`。
+统一目标链接 spdlog，启用 TLS 时还需要 OpenSSL 3.5 或更新版本。启用 TLS 或进程后，继续链接 `faio::module` 并导入 `faio` 即可；表中的扩展目标保留为兼容入口。下面各节使用[模块 quickstart](../examples/module/quickstart.cpp)，程序只写 `import faio;`，并发等待两个任务得到 42，以退出码 0 表示成功。
 
 ## CMake
 
@@ -50,7 +52,7 @@ cmake --build target/cmake-build-module-provider
 cmake --install target/cmake-build-module-provider --prefix "$PWD/target/faio-module-prefix"
 ```
 
-安装消费把 `add_subdirectory(...)` 换成 `find_package(faioModules CONFIG REQUIRED)`，配置应用时用 `-DCMAKE_PREFIX_PATH=/path/to/faio-module-prefix` 指向安装前缀，链接目标仍是 `faio::module`。构建提供方时用 `-DFAIO_ENABLE_TLS=ON` 或 `-DFAIO_ENABLE_PROCESS=ON` 打开扩展；消费方在 `find_package` 里加 `COMPONENTS tls`、`COMPONENTS process` 或两者，再链接表中对应的目标。
+安装消费把 `add_subdirectory(...)` 换成 `find_package(faioModules CONFIG REQUIRED)`，配置应用时用 `-DCMAKE_PREFIX_PATH=/path/to/faio-module-prefix` 指向安装前缀，链接目标仍是 `faio::module`。构建提供方时用 `-DFAIO_ENABLE_TLS=ON` 或 `-DFAIO_ENABLE_PROCESS=ON` 打开扩展，安装包会自动传递启用的依赖。消费方可以用 `COMPONENTS tls` 或 `COMPONENTS process` 要求安装包必须提供相应功能。
 
 ## Bazel
 
@@ -62,7 +64,7 @@ macOS 先把 Homebrew LLVM 22 的 `bin` 加入 `PATH`，再 `export CC="$(comman
 bazel build --config=faio_modules //cxx-module:faio
 ```
 
-`quickstart_module` 默认 `import std;`，需要把 `CC` 指向 GCC 16.1 及以上并改用 `--config=faio_std_modules`。该配置通过仓库的 `bazel/std_module.bzl` 读取所选 GCC 的 `libstdc++.modules.json`，把 `std` 接口单元变成 `@gcc_std_module//:std`；Clang 继续用 `--config=faio_modules`，此时该目标被标记为不兼容而跳过，其余模块目标不受影响。
+`quickstart_module` 只导入 `faio`，沿用同一工具链运行 `bazel run --config=faio_modules //examples:quickstart_module`。
 
 应用通过 Bzlmod 接入时，依赖仓库要保留根目录的 `MODULE.bazel`、`BUILD.bazel`、`REPO.bazel`、`tools/experimental_compiler.cpp`、`bazel/std_module.bzl`，以及 `include/` 和 `cxx-module/`。在应用的 `MODULE.bazel` 里声明本地源码依赖和工具链配置扩展：
 
@@ -105,7 +107,7 @@ build:faio_modules --cxxopt=-Xclang=-fmodule-file-home-is-cwd
 build:faio_modules --cxxopt=-Xclang=-fmodules-embed-all-files
 ```
 
-然后在应用根目录执行 `bazel run --config=faio_modules //:my_app`。Linux 上用 `--@faio//:io_uring=off` 选择 epoll；需要 TLS 或进程时，分别加 `--@faio//:tls=true`、`--@faio//:process=true`，并把 `@faio//cxx-module:tls` 或 `@faio//cxx-module:process` 加进 `deps`。
+然后在应用根目录执行 `bazel run --config=faio_modules //:my_app`。Linux 上用 `--@faio//:io_uring=off` 选择 epoll；需要 TLS 或进程时，分别加 `--@faio//:tls=true`、`--@faio//:process=true`，依赖仍是 `@faio//cxx-module:faio`。
 
 ## xmake
 
@@ -123,7 +125,7 @@ faio_cxx=/usr/sbin/clang++
 export LD_LIBRARY_PATH="/usr/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-`quickstart_module` 默认 `import std;`，只有 GCC 16.1 及以上会打开 `build.c++.modules.std`；配置时显式给出 `--cc`、`--cxx`、`--ld` 三个 driver，其他工具链会关闭这个目标，不影响其余示例。
+`quickstart_module` 只导入 `faio`，使用普通具名模块工具链即可构建。
 
 在 faio 仓库根目录单独构建模块库：
 
@@ -159,11 +161,11 @@ xmake build -P . my_app
 xmake run -P . my_app
 ```
 
-需要 TLS 或进程时，配置 `--faio_tls=y` 或 `--faio_process=y`，并把对应的库目标加进 `add_deps`。也可以用 `xmake install -P cxx-module -o "$PWD/target/faio-module-prefix" faio_module` 分发核心归档，安装前缀同时包含接口源码、模块元数据和共享头。通过 xmake 包消费时保留完整前缀，让下游打开 `build.c++.modules` 重建 BMI，并把 spdlog 等系统依赖加进下游目标。本地包接入的完整验证见 [verify_xmake_consumers.py](../scripts/verify_xmake_consumers.py)。
+需要 TLS 或进程时，配置 `--faio_tls=y` 或 `--faio_process=y`，`add_deps("faio_module")` 保持不变。也可以用 `xmake install -P cxx-module -o "$PWD/target/faio-module-prefix" faio_module` 分发核心归档，安装前缀同时包含接口源码、模块元数据和共享头。通过 xmake 包消费时保留完整前缀，让下游打开 `build.c++.modules` 重建 BMI，并把 spdlog 等系统依赖加进下游目标。本地包接入的完整验证见 [verify_xmake_consumers.py](../scripts/verify_xmake_consumers.py)。
 
 ## 实验接口
 
-`import faio.experimental;` 需要 Linux、GCC 16.1.x、匹配的 libstdc++ 16 和 C++26。用到 `std::meta` 或反射运算的源文件先包含 `<meta>`，再导入实验模块；使用异步入口宏时，在导入后包含 `<faio-module/entry.hpp>`。稳定的 quickstart 只依赖核心模块、计时器和标准库。
+`import faio.experimental;` 需要 Linux、GCC 16.1.x、匹配的 libstdc++ 16 和 C++26。用到 `std::meta` 或反射运算的源文件先包含 `<meta>`，再导入实验模块；使用异步入口宏时，在导入后包含 `<faio-module/entry.hpp>`。稳定的 quickstart 只导入 `faio`。
 
 实验模块的 execution 选项默认关闭：仓库锁定的 stdexec 在 GCC 16.1 的具名模块里会触发编译器内部错误。需要 Sender/Receiver 桥接时改用纯头文件版。
 

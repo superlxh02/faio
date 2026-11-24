@@ -23,21 +23,28 @@ local function named_library(name, source)
 end
 
 named_library("faio_module", "faio.cppm")
+    add_files("core/*.cppm", {public = true})
+    if has_config("faio_tls") then
+        add_files("extensions/tls.cppm", {public = true})
+    end
+    if has_config("faio_process") then
+        add_files("extensions/process.cppm", {public = true})
+    end
     add_files("duplex.cpp")
     faio_xmake.shared_headers()
     faio_xmake.configure_core()
 target_end()
 
 if has_config("faio_tls") then
-    named_library("faio_module_tls", "extensions/tls.cppm")
+    target("faio_module_tls")
+        set_kind("phony")
         add_deps("faio_module", {public = true})
-        add_packages("openssl", {public = true})
     target_end()
 end
 if has_config("faio_process") then
-    named_library("faio_module_process", "extensions/process.cppm")
+    target("faio_module_process")
+        set_kind("phony")
         add_deps("faio_module", {public = true})
-        faio_xmake.configure_process()
     target_end()
 end
 

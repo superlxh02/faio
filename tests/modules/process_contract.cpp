@@ -1,5 +1,4 @@
 #include <chrono>
-#include <coroutine>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -11,11 +10,9 @@
 #include <vector>
 
 #if defined(FAIO_USE_HEADERS) && FAIO_USE_HEADERS
-#include <faio/runtime/default.hpp>
-#include <faio/process/command.hpp>
+#include <faio/faio.hpp>
 #else
 import faio;
-import faio.process;
 #endif
 
 namespace {

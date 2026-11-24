@@ -77,12 +77,29 @@ function(faio_install_named_module target export_set)
         CXX_MODULES_DIRECTORY modules)
 endfunction()
 
-faio_add_named_module(faio_module module faio.cppm)
+faio_add_named_module(faio_module module
+    faio.cppm
+    core/common.cppm
+    core/coroutine.cppm
+    core/io.cppm
+    core/net.cppm
+    core/fs.cppm
+    core/runtime.cppm
+    core/sync.cppm
+    core/time.cppm
+    core/log.cppm
+    core/blocking.cppm
+    core/util.cppm)
 target_sources(faio_module PRIVATE duplex.cpp)
 set_property(TARGET faio_module PROPERTY INTERFACE_FAIO_VARIANT modules)
 set_property(TARGET faio_module APPEND PROPERTY COMPATIBLE_INTERFACE_STRING FAIO_VARIANT)
 target_link_libraries(faio_module PUBLIC Threads::Threads spdlog::spdlog)
 target_compile_definitions(faio_module PUBLIC FAIO_HAS_IO_URING=$<BOOL:${FAIO_ENABLE_IO_URING}>)
+if(MSVC)
+    target_compile_options(faio_module PUBLIC /W4 /utf-8 /permissive- /Zc:__cplusplus)
+else()
+    target_compile_options(faio_module PUBLIC -Wall -Wextra -Wpedantic)
+endif()
 if(FAIO_ENABLE_IO_URING)
     target_link_libraries(faio_module PUBLIC Liburing::Liburing)
 endif()
@@ -108,18 +125,29 @@ endif()
 
 if(FAIO_ENABLE_TLS)
     find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
-    faio_add_named_module(faio_module_tls module_tls extensions/tls.cppm)
-    target_link_libraries(faio_module_tls PUBLIC faio_module OpenSSL::SSL OpenSSL::Crypto)
+    target_sources(faio_module PUBLIC FILE_SET interfaces TYPE CXX_MODULES
+        FILES extensions/tls.cppm)
+    target_compile_definitions(faio_module PUBLIC FAIO_ENABLE_TLS=1)
+    target_link_libraries(faio_module PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+    add_library(faio_module_tls INTERFACE)
+    add_library(faio::module_tls ALIAS faio_module_tls)
+    set_target_properties(faio_module_tls PROPERTIES EXPORT_NAME module_tls)
+    target_link_libraries(faio_module_tls INTERFACE faio_module)
 endif()
 if(FAIO_ENABLE_PROCESS)
     include("${_faio_module_support}/FaioProcessPlatform.cmake")
     faio_check_process_platform()
-    faio_add_named_module(faio_module_process module_process extensions/process.cppm)
-    target_link_libraries(faio_module_process PUBLIC faio_module)
+    target_sources(faio_module PUBLIC FILE_SET interfaces TYPE CXX_MODULES
+        FILES extensions/process.cppm)
+    target_compile_definitions(faio_module PUBLIC FAIO_ENABLE_PROCESS=1)
+    add_library(faio_module_process INTERFACE)
+    add_library(faio::module_process ALIAS faio_module_process)
+    set_target_properties(faio_module_process PROPERTIES EXPORT_NAME module_process)
+    target_link_libraries(faio_module_process INTERFACE faio_module)
     if(WIN32)
-        target_link_libraries(faio_module_process PUBLIC bcrypt advapi32)
+        target_link_libraries(faio_module PUBLIC bcrypt advapi32)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_compile_definitions(faio_module_process PUBLIC _GNU_SOURCE)
+        target_compile_definitions(faio_module PUBLIC _GNU_SOURCE)
     endif()
 endif()
 
@@ -158,12 +186,6 @@ if(FAIO_INSTALL)
     faio_install_named_module(faio_module faioModulesTargets)
     if(NOT TARGET faio)
         install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../include/faio" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-    endif()
-    if(TARGET faio_module_tls)
-        faio_install_named_module(faio_module_tls faioModulesTlsTargets)
-    endif()
-    if(TARGET faio_module_process)
-        faio_install_named_module(faio_module_process faioModulesProcessTargets)
     endif()
     if(TARGET faio_module_experimental)
         faio_install_named_module(faio_module_experimental faioModulesExperimentalTargets)

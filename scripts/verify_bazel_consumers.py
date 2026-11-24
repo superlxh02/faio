@@ -42,15 +42,15 @@ def configure_consumer(directory, form):
         "quickstart": [dependency],
         "core": [dependency],
         "runtime": [dependency],
-        "tls": [dependency + "_tls"],
-        "process": [dependency + "_process"],
-        "both": [dependency + "_tls", dependency + "_process"],
+        "tls": [dependency],
+        "process": [dependency],
+        "both": [dependency],
     }
     if modules:
         # Exercise the module package directly as well as the public root aliases.
         dependencies["quickstart"] = ["@faio//cxx-module:faio"]
-        dependencies["tls"] = ["@faio//cxx-module:tls"]
-        dependencies["process"] = ["@faio//cxx-module:process"]
+        dependencies["tls"] = ["@faio//cxx-module:faio"]
+        dependencies["process"] = ["@faio//cxx-module:faio"]
     (directory / "MODULE.bazel").write_text(
         'module(name = "consumer")\n'
         'bazel_dep(name = "faio", version = "0.0.0")\n'

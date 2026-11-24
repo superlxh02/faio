@@ -4,12 +4,9 @@
 #include <type_traits>
 
 #if defined(FAIO_USE_HEADERS) && FAIO_USE_HEADERS
-#include <faio/tls/handshake.hpp>
-#include <faio/process/command.hpp>
+#include <faio/faio.hpp>
 #else
 import faio;
-import faio.tls;
-import faio.process;
 #endif
 
 static_assert(

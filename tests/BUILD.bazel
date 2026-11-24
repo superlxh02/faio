@@ -31,6 +31,42 @@ cc_test(
     deps = ["//:faio_module"],
 )
 
+IMPORT_COMPONENTS = [
+    "faio",
+    "common",
+    "coroutine",
+    "io",
+    "net",
+    "fs",
+    "runtime",
+    "sync",
+    "time",
+    "log",
+    "blocking",
+    "util",
+    "tls",
+    "process",
+]
+
+[
+    cc_test(
+        name = "import_only_" + component,
+        size = "small",
+        srcs = ["modules/import_only.cpp"],
+        cxxopts = [
+            "-DFAIO_IMPORT_MODULE=" + ("faio" if component == "faio" else "faio." + component),
+            "-DFAIO_IMPORT_" + component.upper() + "=1",
+        ] + (["-DFAIO_IMPORT_HAS_TASK=1"] if component not in ["common", "log", "util"] else []) +
+                  (["-DFAIO_IMPORT_HAS_RUNTIME=1"] if component in ["faio", "runtime", "tls", "process"] else []),
+        target_compatible_with = select({
+            "//:" + component + "_enabled": [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }) if component in ["tls", "process"] else [],
+        deps = ["//:faio_module"],
+    )
+    for component in IMPORT_COMPONENTS
+]
+
 cc_test(
     name = "unit",
     size = "medium",
@@ -185,6 +221,18 @@ cc_test(
     name = "experimental_module",
     size = "small",
     srcs = ["modules/experimental_contract.cpp"],
+    deps = ["//:faio_module_experimental"],
+)
+
+cc_test(
+    name = "import_only_experimental",
+    size = "small",
+    srcs = ["modules/import_only.cpp"],
+    cxxopts = [
+        "-DFAIO_IMPORT_MODULE=faio.experimental",
+        "-DFAIO_IMPORT_HAS_TASK=1",
+        "-DFAIO_IMPORT_HAS_RUNTIME=1",
+    ],
     deps = ["//:faio_module_experimental"],
 )
 

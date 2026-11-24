@@ -84,6 +84,14 @@ function faio_xmake.configure_core()
     if has_config("faio_coroutine_frame_use_global_new") then
         add_defines("FAIO_COROUTINE_FRAME_USE_GLOBAL_NEW=1", {public = true})
     end
+    if has_config("faio_tls") then
+        add_packages("openssl", {public = true})
+        add_defines("FAIO_ENABLE_TLS=1", {public = true})
+    end
+    if has_config("faio_process") then
+        add_defines("FAIO_ENABLE_PROCESS=1", {public = true})
+        faio_xmake.configure_process()
+    end
     if is_plat("windows", "mingw") then
         add_defines("NOMINMAX", "WIN32_LEAN_AND_MEAN", "_WIN32_WINNT=0x0A00", {public = true})
         add_syslinks("ws2_32", "mswsock", "iphlpapi", {public = true})

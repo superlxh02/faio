@@ -13,7 +13,7 @@ import uuid
 REPO = Path(__file__).resolve().parents[1]
 MODULE_TESTS = REPO / "tests/modules"
 CERTIFICATES = tuple(REPO / "tests/fixtures" / name for name in ("server.pem", "server.key", "ca.pem"))
-MODULE_TARGETS = ("faio_module", "faio_module_tls", "faio_module_process")
+MODULE_TARGETS = ("faio_module",)
 
 
 def run_xmake(directory, action, *arguments, env=None):
@@ -72,7 +72,7 @@ def build_source_consumer(directory, flags, form, components, cases):
     form_settings = ('set_policy("build.c++.modules", true)\n    set_policy("build.c++.modules.std", false)'
                      if module else 'add_defines("FAIO_USE_HEADERS=1")')
     target = "faio_module" if module else "faio"
-    dependencies = ", ".join(f'"{target}_{component}"' for component in components) or f'"{target}"'
+    dependencies = f'"{target}"'
     provider = "third_party/faio/cxx-module" if module else "third_party/faio"
     project = f'''set_project("faio-source-consumer")
 set_languages("c++23")
@@ -108,8 +108,16 @@ def build_package_consumer(directory, repository, flags, use_uring):
     set_kind("library")
     set_description("Locally installed faio modules")
     add_linkdirs("lib")
-    add_links("faio_module_tls", "faio_module_process", "faio_module")
-    add_defines("FAIO_HAS_IO_URING={int(use_uring)}")
+    add_links("faio_module")
+    add_defines("FAIO_HAS_IO_URING={int(use_uring)}", "FAIO_ENABLE_TLS=1", "FAIO_ENABLE_PROCESS=1")
+    if is_plat("windows", "mingw") then
+        add_defines("NOMINMAX", "WIN32_LEAN_AND_MEAN", "_WIN32_WINNT=0x0A00")
+        add_syslinks("ws2_32", "mswsock", "iphlpapi", "bcrypt", "advapi32")
+    elseif is_plat("linux") then
+        add_defines("_GNU_SOURCE")
+        add_cxxflags("-pthread")
+        add_ldflags("-pthread")
+    end
     on_install(function (package)
         os.cp(path.join(os.scriptdir(), "../../../prefix/*"), package:installdir())
     end)
@@ -131,8 +139,18 @@ target("consumer")
     add_packages("{component}", "spdlog", "openssl")
     {uring_package}
     add_files("both_contract.cpp")
+target_end()
+target("import_only")
+    set_kind("binary")
+    set_policy("build.c++.modules", true)
+    set_policy("build.c++.modules.std", false)
+    add_packages("{component}", "spdlog", "openssl")
+    {uring_package}
+    add_defines("FAIO_IMPORT_HAS_TASK=1", "FAIO_IMPORT_HAS_RUNTIME=1")
+    add_files("import_only.cpp")
 ''', encoding="utf-8")
     shutil.copy2(MODULE_TESTS / "both_contract.cpp", directory)
+    shutil.copy2(MODULE_TESTS / "import_only.cpp", directory)
     package_cache = directory / "target" / "xmake" / "package-cache"
     package_install = directory / "target" / "xmake" / "package-install"
     package_cache.mkdir(parents=True)
@@ -140,8 +158,9 @@ target("consumer")
     environment = {"XMAKE_PKG_CACHEDIR": str(package_cache),
                    "XMAKE_PKG_INSTALLDIR": str(package_install)}
     configure(directory, flags, env=environment)
-    run_xmake(directory, "build", "consumer", env=environment)
+    run_xmake(directory, "build", "-j", "4", env=environment)
     run_xmake(directory, "run", "consumer", env=environment)
+    run_xmake(directory, "run", "import_only", env=environment)
 
 
 def main():

@@ -27,48 +27,43 @@ MODULE_CXXOPTS = ["-DSPDLOG_FMT_EXTERNAL"] + select({
 }) + select({
     "//:global_new_enabled": ["-DFAIO_COROUTINE_FRAME_USE_GLOBAL_NEW=1"],
     "//conditions:default": [],
+}) + select({
+    "//:tls_enabled": ["-DFAIO_ENABLE_TLS=1"],
+    "//conditions:default": [],
+}) + select({
+    "//:process_enabled": ["-DFAIO_ENABLE_PROCESS=1"],
+    "//conditions:default": [],
+}) + select({
+    "//:linux_process_enabled": ["-D_GNU_SOURCE"],
+    "//conditions:default": [],
 })
 
 cc_library(
     name = "faio",
     srcs = ["duplex.cpp"],
     cxxopts = MODULE_CXXOPTS,
-    module_interfaces = ["faio.cppm"],
+    module_interfaces = ["faio.cppm"] + glob(["core/*.cppm"]) + select({
+        "//:tls_enabled": ["extensions/tls.cppm"],
+        "//conditions:default": [],
+    }) + select({
+        "//:process_enabled": ["extensions/process.cppm"],
+        "//conditions:default": [],
+    }),
     target_compatible_with = MODULE_COMPATIBLE,
     deps = ["//:faio"],
 )
 
 cc_library(
     name = "tls",
-    cxxopts = MODULE_CXXOPTS,
-    module_interfaces = ["extensions/tls.cppm"],
     target_compatible_with = MODULE_COMPATIBLE + select({
         "//:tls_enabled": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    deps = [":faio"] + select({
-        "//:tls_enabled": [
-            "@openssl//:crypto",
-            "@openssl//:ssl",
-        ],
-        "//conditions:default": [],
-    }),
+    deps = [":faio"],
 )
 
 cc_library(
     name = "process",
-    cxxopts = MODULE_CXXOPTS + select({
-        "@platforms//os:linux": ["-D_GNU_SOURCE"],
-        "//conditions:default": [],
-    }),
-    linkopts = select({
-        "@platforms//os:windows": [
-            "bcrypt.lib",
-            "advapi32.lib",
-        ],
-        "//conditions:default": [],
-    }),
-    module_interfaces = ["extensions/process.cppm"],
     target_compatible_with = MODULE_COMPATIBLE + select({
         "//:process_enabled": [],
         "//conditions:default": ["@platforms//:incompatible"],

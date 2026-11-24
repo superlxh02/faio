@@ -5,19 +5,18 @@
  * 并验证证书的 `localhost` 主机名。双方复用同一 TCP 连接完成 TLS 握手、
  * 应用数据读写和安全关闭。
  */
-#if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
-import faio;
-import faio.tls;
-#else
-#include <faio/faio.hpp>
-#endif
-
 #include <array>
 #include <chrono>
 #include <exception>
 #include <span>
 #include <string_view>
 #include <utility>
+
+#if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
+import faio;
+#else
+#include <faio/faio.hpp>
+#endif
 
 namespace {
 using namespace std::chrono_literals;

@@ -111,10 +111,12 @@ def main():
             consume(prefix, flags, lookup, [core_target],
                     [module_tests / "foundation_main.cpp", module_tests / "foundation_peer.cpp"])
             consume(prefix, flags, lookup, [core_target], [module_tests / "core_contract.cpp"])
-            consume(prefix, flags, f"{lookup} COMPONENTS tls", [component_prefix + "tls"],
+            consume(prefix, flags, lookup, [core_target],
                     [module_tests / "tls_contract.cpp"], *certificates)
-            consume(prefix, flags, f"{lookup} COMPONENTS process", [component_prefix + "process"],
+            consume(prefix, flags, lookup, [core_target],
                     [module_tests / "process_contract.cpp"])
+            consume(prefix, flags, lookup, [core_target],
+                    [module_tests / "both_contract.cpp"])
             consume(prefix, flags, f"{lookup} COMPONENTS process tls",
                     [component_prefix + "process", component_prefix + "tls"],
                     [module_tests / "both_contract.cpp"])

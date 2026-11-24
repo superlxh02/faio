@@ -3,7 +3,6 @@
  * @brief 异步任务入门示例。
  */
 #include <chrono>
-#include <coroutine>
 #include <iostream>
 
 #if defined(FAIO_EXPERIMENTAL_HAS_REFLECTION) && FAIO_EXPERIMENTAL_HAS_REFLECTION

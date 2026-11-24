@@ -29,8 +29,8 @@ See the [quick start](docs/getting-started.md) for the macOS and Windows flows, 
 The program below starts two timed tasks, waits for both, and adds the results. `block_on` drives the runtime on the calling thread until the coroutine returns:
 
 ```cpp
-#include <faio/faio.hpp>
 #include <chrono>
+#include <faio/faio.hpp>
 
 faio::task<int> delayed_value(int value) {
     co_await faio::time::sleep(std::chrono::milliseconds{10});
@@ -48,7 +48,7 @@ int main() {
 }
 ```
 
-With the module build, replace `#include <faio/faio.hpp>` with `import faio;` and leave the rest unchanged.
+With the module build, replace `#include <faio/faio.hpp>` with `import faio;` and leave the rest unchanged. Both entry points include TLS and process interfaces when enabled at build time. Coroutine syntax needs no additional `<coroutine>` include. See the [module integration guide](cxx-module/README.md) for individual modules.
 
 ## Bazel and xmake
 
@@ -60,11 +60,10 @@ bazel test --config=faio_headers //...
 bazel test --config=faio_modules --config=faio_tls --config=faio_process //...
 ```
 
-`quickstart_module` imports the C++23 std module, so run it with GCC 16.1 or newer:
+`quickstart_module` only imports `faio`, so it uses the same Clang toolchain:
 
 ```sh
-export CC="$(command -v g++-16)"
-bazel run --config=faio_std_modules //examples:quickstart_module
+bazel run --config=faio_modules //examples:quickstart_module
 ```
 
 xmake needs 3.0.1 or newer. The commands below select Homebrew LLVM on macOS; in the Linux development image use `/usr/sbin/clang++` instead:
@@ -76,12 +75,9 @@ xmake f -c -y -m release --toolchain=clang \
 xmake test -j 4
 ```
 
-The same example runs on GCC 16.1 or newer when all three drivers are given:
+Run the same module example after configuring:
 
 ```sh
-xmake f -c -y -m release --toolchain=gcc \
-  --cc="$(command -v gcc-16)" --cxx="$(command -v g++-16)" --ld="$(command -v g++-16)" \
-  --faio_modules=y
 xmake run quickstart_module
 ```
 
@@ -128,9 +124,9 @@ add_subdirectory(third_party/faio)
 target_link_libraries(my_app PRIVATE faio::faio)
 ```
 
-An installed consumer uses `find_package(faio CONFIG REQUIRED)` instead. The `faio::faio` target carries C++23, include paths, the thread library and spdlog; TLS and asynchronous processes are `faio::tls` and `faio::process`.
+An installed consumer uses `find_package(faio CONFIG REQUIRED)` instead. The `faio::faio` target carries C++23, include paths, the thread library and spdlog, plus dependencies for TLS and processes enabled at build time. Keep linking `faio::faio` and including `<faio/faio.hpp>` when enabling either component.
 
-For the module form, build and install the module package, then use `find_package(faioModules CONFIG REQUIRED)` and link `faio::module`. TLS and processes map to `faio::module_tls` and `faio::module_process`. Bazel consumers depend on `//cxx-module:faio`, and xmake consumers use `add_deps("faio_module")`. The module requires a matching compiler, standard library and build configuration; details are in the [module integration guide](cxx-module/README.md).
+For the module form, build and install the module package, then use `find_package(faioModules CONFIG REQUIRED)` and link `faio::module`. `import faio;` exports enabled TLS and process interfaces. Individual imports include `faio.coroutine`, `faio.io` and `faio.net`. Bazel consumers depend on `//cxx-module:faio`, and xmake consumers use `add_deps("faio_module")`. The module requires a matching compiler, standard library and build configuration; details are in the [module integration guide](cxx-module/README.md).
 
 ## Docker
 

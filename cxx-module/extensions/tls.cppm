@@ -5,11 +5,8 @@ module;
 #include <faio/tls/stream.hpp>
 
 export module faio.tls;
-import faio;
-
-export namespace faio::io {
-using ::faio::io::OperationOptions;
-}  // namespace faio::io
+export import faio.net;
+export import faio.runtime;
 
 export namespace faio::tls {
 using ::faio::tls::ClientAuth;

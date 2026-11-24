@@ -65,6 +65,18 @@ config_setting(
 )
 
 config_setting(
+    name = "linux_process_enabled",
+    constraint_values = ["@platforms//os:linux"],
+    flag_values = {":process": "true"},
+)
+
+config_setting(
+    name = "windows_process_enabled",
+    constraint_values = ["@platforms//os:windows"],
+    flag_values = {":process": "true"},
+)
+
+config_setting(
     name = "global_new_enabled",
     flag_values = {":frame_global_new": "true"},
 )
@@ -204,6 +216,15 @@ cc_library(
     defines = URING_DEFINES + WINDOWS_DEFINES + EXP_DEFINES + select({
         ":global_new_enabled": ["FAIO_COROUTINE_FRAME_USE_GLOBAL_NEW=1"],
         "//conditions:default": [],
+    }) + select({
+        ":tls_enabled": ["FAIO_ENABLE_TLS=1"],
+        "//conditions:default": [],
+    }) + select({
+        ":process_enabled": ["FAIO_ENABLE_PROCESS=1"],
+        "//conditions:default": [],
+    }) + select({
+        ":linux_process_enabled": ["_GNU_SOURCE"],
+        "//conditions:default": [],
     }),
     linkopts = select({
         "@platforms//os:linux": ["-pthread"],
@@ -212,6 +233,9 @@ cc_library(
             "mswsock.lib",
             "iphlpapi.lib",
         ],
+        "//conditions:default": [],
+    }) + select({
+        ":windows_process_enabled": ["bcrypt.lib", "advapi32.lib"],
         "//conditions:default": [],
     }),
     tags = ["manual"],
@@ -241,6 +265,9 @@ cc_library(
     }) + select({
         ":linux_allocator_auto": [":linux_allocator_auto_deps"],
         ":tcmalloc_requested": ["@gperftools//:tcmalloc"],
+        "//conditions:default": [],
+    }) + select({
+        ":tls_enabled": ["@openssl//:crypto", "@openssl//:ssl"],
         "//conditions:default": [],
     }),
 )
@@ -274,30 +301,12 @@ PROCESS_COMPATIBLE = select({
 
 cc_library(
     name = "faio_tls",
-    defines = ["FAIO_ENABLE_TLS=1"],
     target_compatible_with = TLS_COMPATIBLE,
-    deps = [":faio"] + select({
-        ":tls_enabled": [
-            "@openssl//:crypto",
-            "@openssl//:ssl",
-        ],
-        "//conditions:default": [],
-    }),
+    deps = [":faio"],
 )
 
 cc_library(
     name = "faio_process",
-    defines = ["FAIO_ENABLE_PROCESS=1"] + select({
-        "@platforms//os:linux": ["_GNU_SOURCE"],
-        "//conditions:default": [],
-    }),
-    linkopts = select({
-        "@platforms//os:windows": [
-            "bcrypt.lib",
-            "advapi32.lib",
-        ],
-        "//conditions:default": [],
-    }),
     target_compatible_with = PROCESS_COMPATIBLE,
     deps = [":faio"],
 )

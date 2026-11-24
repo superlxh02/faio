@@ -1,5 +1,4 @@
 #include <chrono>
-#include <coroutine>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -10,13 +9,9 @@
 #include <vector>
 
 #if defined(FAIO_USE_HEADERS) && FAIO_USE_HEADERS
-#include <faio/coroutine/composition.hpp>
-#include <faio/net/tcp.hpp>
-#include <faio/runtime/default.hpp>
-#include <faio/tls/handshake.hpp>
+#include <faio/faio.hpp>
 #else
 import faio;
-import faio.tls;
 #endif
 
 namespace {

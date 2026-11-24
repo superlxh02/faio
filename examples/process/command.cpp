@@ -3,7 +3,6 @@
  * @brief 捕获子进程的标准流，并在等待超时后显式终止和回收子进程。
  */
 #include <cerrno>
-#include <coroutine>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -15,7 +14,6 @@
 
 #if defined(FAIO_USE_MODULES) && FAIO_USE_MODULES
 import faio;
-import faio.process;
 #else
 #include <faio/faio.hpp>
 #endif

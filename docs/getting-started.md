@@ -189,7 +189,7 @@ bazel build --config=faio_headers --config=faio_tls --config=faio_process \
   -- //... //benchmark:all -//tests/...
 ```
 
-`--config=faio_headers` 选择纯头文件库和 C++23，`--config=faio_tls`、`--config=faio_process` 打开 TLS 和进程。这里不传 `--config=faio_epoll`：Linux 默认使用 io_uring，macOS 自动退回 kqueue。`//...` 编译全部常规目标和示例，`-//tests/...` 跳过测试，`//benchmark:all` 把标记为 `manual` 的基准也纳入。具名模块目标在没有模块配置时不兼容，会被自动跳过；需要模块时用后面的 `--config=faio_std_modules`。Windows 上用 Bazel 需要自行准备 clang-cl 工具链，本章的 Windows 快速开始走 CMake。
+`--config=faio_headers` 选择纯头文件库和 C++23，`--config=faio_tls`、`--config=faio_process` 打开 TLS 和进程。这里不传 `--config=faio_epoll`：Linux 默认使用 io_uring，macOS 自动退回 kqueue。`//...` 编译全部常规目标和示例，`-//tests/...` 跳过测试，`//benchmark:all` 把标记为 `manual` 的基准也纳入。具名模块目标在没有模块配置时不兼容，会被自动跳过；需要模块时用后面的 `--config=faio_modules`。Windows 上用 Bazel 需要自行准备 clang-cl 工具链，本章的 Windows 快速开始走 CMake。
 
 ### 运行
 
@@ -277,9 +277,9 @@ xmake run quickstart_header
 
 ## C++20 模块集成和使用
 
-具名模块把稳定接口打包成 `import faio;`；TLS 和进程是可选入口：`import faio.tls;`、`import faio.process;`。`include/faio/` 是头文件版和模块版共用的实现，每个最终程序选择一种消费方式。
+具名模块把稳定接口打包成 `import faio;`，并导出构建时启用的 TLS 与异步进程接口。也可以按功能独立导入 `faio.coroutine`、`faio.io`、`faio.net` 等模块，每个模块都包含协程所需的标准库声明，无需额外包含 `<coroutine>`。`include/faio/` 是头文件版和模块版共用的实现，每个最终程序选择一种消费方式。
 
-模块构建要求 CMake 3.28+、Ninja 1.11+ 和支持具名模块的 Clang 或 GCC；Clang 还需要同发行版的 `clang-scan-deps`，macOS 使用 Homebrew LLVM，Apple Clang 不能扫描具名模块。`examples/module` 默认 `import std;`，需要 GCC 16.1+ 和 libstdc++ 提供的 `libstdc++.modules.json`。
+模块构建要求 CMake 3.28+、Ninja 1.11+ 和支持具名模块的 Clang 或 GCC；Clang 还需要同发行版的 `clang-scan-deps`，macOS 使用 Homebrew LLVM，Apple Clang 不能扫描具名模块。`examples/module` 只导入 `faio`，使用普通具名模块工具链即可构建。
 
 ### 源码集成
 
@@ -287,7 +287,7 @@ xmake run quickstart_header
 
 ```sh
 cmake -S examples/module -B target/cmake-build-module-example -G Ninja \
-  -DCMAKE_CXX_COMPILER=g++-16 -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
 cmake --build target/cmake-build-module-example
 ./target/cmake-build-module-example/quickstart_module
 ```
@@ -306,7 +306,7 @@ set_target_properties(my_app PROPERTIES
     CXX_EXTENSIONS OFF)
 ```
 
-`main.cpp` 里直接写 `import faio;`。如果还要 `import std;`，在 `project()` 之前包含 `third_party/faio/cmake/FaioImportStd.cmake`，并对目标调用 `faio_enable_import_std(my_app)`；独立示例已经包含这一步。
+`main.cpp` 里直接写 `import faio;`。构建时启用 TLS 或进程后，链接目标和导入语句保持不变。
 
 ### 安装包接入
 
@@ -316,7 +316,7 @@ set_target_properties(my_app PROPERTIES
 
 ```sh
 cmake -S cxx-module -B target/cmake-build-module-provider -G Ninja \
-  -DCMAKE_CXX_COMPILER=g++-16 -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
   -DFAIO_ENABLE_IO_URING=OFF
 cmake --build target/cmake-build-module-provider
 cmake --install target/cmake-build-module-provider --prefix "$PWD/target/faio-module-prefix"
@@ -325,7 +325,7 @@ cmake --install target/cmake-build-module-provider --prefix "$PWD/target/faio-mo
 消费方用 `find_package(faioModules CONFIG REQUIRED)`，把 `CMAKE_PREFIX_PATH` 指向上面的安装前缀，链接目标仍是 `faio::module`：
 
 ```sh
-cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++-16 \
+cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_PREFIX_PATH="$PWD/target/faio-module-prefix"
 ```
 
@@ -336,22 +336,22 @@ target_link_libraries(my_app PRIVATE faio::module)
 set_target_properties(my_app PROPERTIES CXX_SCAN_FOR_MODULES ON CXX_EXTENSIONS OFF)
 ```
 
-启用了 TLS 和进程组件的安装包，用 `find_package(faioModules CONFIG REQUIRED COMPONENTS tls process)` 获取对应目标，分别链接 `faio::module_tls`、`faio::module_process`。消费方必须使用与构建模块时相同的编译器、标准库和构建配置；安装包会带上接口源码，由下游工具链重建 BMI。
+启用了 TLS 和进程组件的安装包会自动传递相应依赖，消费方继续链接 `faio::module`。需要要求安装包必须包含这两个功能时，使用 `find_package(faioModules CONFIG REQUIRED COMPONENTS tls process)`。消费方必须使用兼容的编译器、标准库和构建配置；安装包会带上接口源码，由下游工具链重建 BMI。
 
 ### Bazel 和 xmake
 
-Bazel 用 `faio_std_modules` 配置构建同一示例（Linux，GCC 16.1+）：
+Bazel 用普通具名模块配置构建同一示例：
 
 ```sh
-export CC="$(command -v g++-16)"
-bazel run --config=faio_std_modules //examples:quickstart_module
+export CC="$(command -v clang)"
+bazel run --config=faio_modules //examples:quickstart_module
 ```
 
-xmake 选择 GCC 并显式给出三个 driver：
+xmake 选择支持具名模块的 Clang：
 
 ```sh
-xmake f -c -y -m release --toolchain=gcc \
-  --cc="$(command -v gcc-16)" --cxx="$(command -v g++-16)" --ld="$(command -v g++-16)" \
+xmake f -c -y -m release --toolchain=clang \
+  --cxx=/path/to/llvm/bin/clang++ --ld=/path/to/llvm/bin/clang++ \
   --faio_modules=y
 xmake run quickstart_module
 ```

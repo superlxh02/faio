@@ -66,8 +66,6 @@ if has_headers then
         target("faio_tls")
             set_kind("headeronly")
             add_deps("faio", {public = true})
-            add_packages("openssl", {public = true})
-            add_defines("FAIO_ENABLE_TLS=1", {public = true})
         target_end()
     end
 
@@ -75,8 +73,6 @@ if has_headers then
         target("faio_process")
             set_kind("headeronly")
             add_deps("faio", {public = true})
-            add_defines("FAIO_ENABLE_PROCESS=1", {public = true})
-            faio_xmake.configure_process()
         target_end()
     end
 
@@ -162,18 +158,17 @@ if has_headers then
             add_tests("core")
         target_end()
         if use_tls then
-            header_contract("header_tls_contract", "faio_tls", "tests/modules/tls_contract.cpp")
+            header_contract("header_tls_contract", "faio", "tests/modules/tls_contract.cpp")
                 add_tls_test("tls")
             target_end()
         end
         if use_process then
-            header_contract("header_process_contract", "faio_process", "tests/modules/process_contract.cpp")
+            header_contract("header_process_contract", "faio", "tests/modules/process_contract.cpp")
                 add_tests("process")
             target_end()
         end
         if use_tls and use_process then
-            header_contract("header_both_contract", "faio_tls", "tests/modules/both_contract.cpp")
-                add_deps("faio_process")
+            header_contract("header_both_contract", "faio", "tests/modules/both_contract.cpp")
                 add_tests("both")
             target_end()
         end
@@ -232,35 +227,6 @@ if has_modules then
 
     if has_config("faio_examples") or has_config("faio_tests") then
         named_binary("quickstart_module", "faio_module", "examples/module/quickstart.cpp")
-            -- The example always writes `import std;`, which needs GCC 16.1+ and its
-            -- libstdc++.modules.json; other compilers skip this single target.
-            on_config(function (target)
-                local cxx = target:compiler("cxx")
-                local version
-                if cxx and cxx:name() == "gxx" then
-                    try {
-                        function ()
-                            version = os.iorunv(cxx:program(), {"-dumpfullversion"}, {envs = cxx:runenvs()}):trim()
-                        end
-                    }
-                    catch {
-                        function (errors)
-                        end
-                    }
-                end
-                local major, minor
-                if version then
-                    major, minor = version:match("^(%d+)%.(%d+)")
-                end
-                major, minor = tonumber(major), tonumber(minor)
-                if major and (major > 16 or (major == 16 and minor >= 1)) then
-                    target:set("policy", "build.c++.modules.std", true)
-                    print("faio: quickstart_module imports the C++23 std module (GCC %s)", version)
-                else
-                    target:set("enabled", false)
-                    print("faio: skipping quickstart_module; `import std;` needs GCC 16.1+")
-                end
-            end)
             if has_config("faio_tests") then
                 add_tests("quickstart")
             end
@@ -283,6 +249,27 @@ if has_modules then
         end
     end
     if has_config("faio_tests") then
+        local import_components = {"faio", "common", "coroutine", "io", "net", "fs",
+                                   "runtime", "sync", "time", "log", "blocking", "util"}
+        if use_tls then
+            table.insert(import_components, "tls")
+        end
+        if use_process then
+            table.insert(import_components, "process")
+        end
+        for _, component in ipairs(import_components) do
+            named_binary("module_" .. component .. "_import_only", "faio_module", "tests/modules/import_only.cpp")
+                add_defines("FAIO_IMPORT_MODULE=" .. (component == "faio" and "faio" or "faio." .. component),
+                            "FAIO_IMPORT_" .. component:upper() .. "=1")
+                if component ~= "common" and component ~= "log" and component ~= "util" then
+                    add_defines("FAIO_IMPORT_HAS_TASK=1")
+                end
+                if component == "faio" or component == "runtime" or component == "tls" or component == "process" then
+                    add_defines("FAIO_IMPORT_HAS_RUNTIME=1")
+                end
+                add_tests("import_only")
+            target_end()
+        end
         named_binary("module_contract", "faio_module",
                      "tests/modules/foundation_main.cpp", "tests/modules/foundation_peer.cpp")
             add_tests("foundation")
@@ -291,24 +278,27 @@ if has_modules then
             add_tests("core")
         target_end()
         if use_tls then
-            named_binary("module_tls_contract", "faio_module_tls", "tests/modules/tls_contract.cpp")
+            named_binary("module_tls_contract", "faio_module", "tests/modules/tls_contract.cpp")
                 add_tls_test("tls")
             target_end()
         end
         if use_process then
-            named_binary("module_process_contract", "faio_module_process", "tests/modules/process_contract.cpp")
+            named_binary("module_process_contract", "faio_module", "tests/modules/process_contract.cpp")
                 add_tests("process")
             target_end()
         end
         if use_tls and use_process then
-            named_binary("module_both_contract", "faio_module_tls", "tests/modules/both_contract.cpp")
-                add_deps("faio_module_process")
+            named_binary("module_both_contract", "faio_module", "tests/modules/both_contract.cpp")
                 add_tests("both")
             target_end()
         end
     end
 
     if use_experimental and has_config("faio_tests") then
+        named_binary("module_experimental_import_only", "faio_module_experimental", "tests/modules/import_only.cpp")
+            add_defines("FAIO_IMPORT_MODULE=faio.experimental", "FAIO_IMPORT_HAS_TASK=1", "FAIO_IMPORT_HAS_RUNTIME=1")
+            add_tests("import_only")
+        target_end()
         named_binary("module_experimental_contract", "faio_module_experimental",
                      "tests/modules/experimental_contract.cpp")
             add_tests("runtime")

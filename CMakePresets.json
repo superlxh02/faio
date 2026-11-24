@@ -58,7 +58,7 @@
     {
       "name": "modules",
       "hidden": true,
-      "description": "打开 C++20 具名模块入口；module 示例的 `import std;` 由 cmake/FaioImportStd.cmake 在 GCC 16.1+ 上自动开启。",
+      "description": "打开 C++20 具名模块入口；module 示例只需 `import faio;`。",
       "cacheVariables": {
         "FAIO_BUILD_MODULES": "ON"
       }
@@ -122,7 +122,7 @@
     {
       "name": "linux-main-release",
       "displayName": "linux-main-release",
-      "description": "linux release：Clang 23，稳定特性 + C++20 具名模块入口（module 示例的 `import std;` 需要 GCC 16.1+，跳过该目标）。",
+      "description": "linux release：Clang 23，稳定特性 + C++20 具名模块入口（含只导入 faio 的模块示例）。",
       "inherits": [
         "linux",
         "modules",
@@ -137,7 +137,7 @@
     {
       "name": "linux-main-debug",
       "displayName": "linux-main-debug",
-      "description": "linux debug：Clang 23，稳定特性 + C++20 具名模块入口（module 示例的 `import std;` 需要 GCC 16.1+，跳过该目标）。",
+      "description": "linux debug：Clang 23，稳定特性 + C++20 具名模块入口（含只导入 faio 的模块示例）。",
       "inherits": [
         "linux",
         "modules",
@@ -180,7 +180,7 @@
     {
       "name": "mac-main-release",
       "displayName": "mac-main-release",
-      "description": "mac release：Clang 23，稳定特性 + C++20 具名模块入口（module 示例的 `import std;` 需要 GCC 16.1+，跳过该目标）。",
+      "description": "mac release：Clang 23，稳定特性 + C++20 具名模块入口（含只导入 faio 的模块示例）。",
       "inherits": [
         "mac",
         "modules",
@@ -195,7 +195,7 @@
     {
       "name": "mac-main-debug",
       "displayName": "mac-main-debug",
-      "description": "mac debug：Clang 23，稳定特性 + C++20 具名模块入口（module 示例的 `import std;` 需要 GCC 16.1+，跳过该目标）。",
+      "description": "mac debug：Clang 23，稳定特性 + C++20 具名模块入口（含只导入 faio 的模块示例）。",
       "inherits": [
         "mac",
         "modules",
