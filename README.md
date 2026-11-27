@@ -48,11 +48,11 @@ int main() {
 }
 ```
 
-使用模块版时，把 `#include <faio/faio.hpp>` 换成 `import faio;`，其余代码不变。两种入口都会包含构建时启用的 TLS 与异步进程接口；模块使用协程时无需额外包含 `<coroutine>`。按功能导入的模块见[模块移植说明](cxx-module/README.md)。
+使用模块版时，把 `#include <faio/faio.hpp>` 换成 `import faio;`，其余代码不变。两种入口都会包含构建时启用的 TLS 与异步进程接口；模块使用协程时无需额外包含 `<coroutine>`。按功能导入的模块见[faio 模块支持](cxx-module/README.md)。
 
 ## Bazel 与 xmake
 
-两套构建系统都同时支持头文件版和 C++20 具名模块版，二者共用 `include/faio/` 的实现。Bazel 锁定 9.2.0，`CC` 需指向支持具名模块的 Clang 发行版：
+两套构建系统都提供头文件接入和 faio 模块支持，二者共用 `include/faio/` 的实现。Bazel 锁定 9.2.0，`CC` 需指向支持 C++ 模块的 Clang 发行版：
 
 ```sh
 export CC="$(command -v clang)"
@@ -81,7 +81,7 @@ xmake test -j 4
 xmake run quickstart_module
 ```
 
-只构建纯头文件版时，Bazel 用 `--config=faio_headers`，xmake 去掉 `--faio_modules=y` 后执行 `xmake build quickstart_header`。目标名、下游接入和已知限制见[模块移植说明](cxx-module/README.md)与[构建与验证命令](docs/getting-started.md#c20-模块集成和使用)。
+只构建纯头文件版时，Bazel 用 `--config=faio_headers`，xmake 去掉 `--faio_modules=y` 后执行 `xmake build quickstart_header`。目标名、下游接入和已知限制见[faio 模块支持](cxx-module/README.md)与[构建与验证命令](docs/getting-started.md#faio-模块支持)。
 
 ## 能力
 
@@ -126,7 +126,7 @@ target_link_libraries(my_app PRIVATE faio::faio)
 
 安装后的消费工程改用 `find_package(faio CONFIG REQUIRED)`。`faio::faio` 目标会传递 C++23、头文件路径、线程库和 spdlog 的链接要求，并携带构建时启用的 TLS 与异步进程依赖。启用可选功能后仍然链接 `faio::faio`，包含 `<faio/faio.hpp>`。
 
-走模块方式时，构建模块包后使用 `find_package(faioModules CONFIG REQUIRED)` 并链接 `faio::module`。`import faio;` 会导出构建时启用的 TLS 与进程接口，也可以单独导入 `faio.coroutine`、`faio.io`、`faio.net` 等功能模块。Bazel 的下游依赖写作 `//cxx-module:faio`，xmake 写作 `add_deps("faio_module")`。模块对编译器、标准库和构建配置有匹配要求，细节见[模块移植说明](cxx-module/README.md)。
+走模块方式时，构建模块包后使用 `find_package(faioModules CONFIG REQUIRED)` 并链接 `faio::module`。`import faio;` 会导出构建时启用的 TLS 与进程接口，也可以单独导入 `faio.coroutine`、`faio.io`、`faio.net` 等功能模块。Bazel 的下游依赖写作 `//cxx-module:faio`，xmake 写作 `add_deps("faio_module")`。模块对编译器、标准库和构建配置有匹配要求，细节见[faio 模块支持](cxx-module/README.md)。
 
 ## Docker
 

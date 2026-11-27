@@ -15,7 +15,7 @@ faio_xmake.feature("faio_process", false, "Enable the asynchronous process compo
 faio_xmake.feature("faio_coroutine_frame_use_global_new", false, "Use global new/delete for task frames")
 faio_xmake.feature("faio_module_experimental", false, "Enable the Linux GCC 16.1 experimental module")
 faio_xmake.feature("faio_experimental_reflection", true, "Enable reflection, lifecycle and async entry")
-faio_xmake.feature("faio_module_experimental_execution", false, "Enable locked stdexec support in the named module")
+faio_xmake.feature("faio_module_experimental_execution", false, "Enable locked stdexec support in the faio module")
 
 option("faio_io_uring")
     set_default("auto")

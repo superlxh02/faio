@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/time/timer.hpp>
 
 export module faio.time;

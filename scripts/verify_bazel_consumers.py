@@ -115,10 +115,6 @@ def verify_incremental(command, consumer, provider):
     consumers = {main.name, peer.name}
     check_actions("cold consumer", 8, consumers | {interface.name})
     check_actions("unchanged consumer", 8, set(), exact=True)
-    implementation = provider / "cxx-module/duplex.cpp"
-    with implementation.open("a") as stream:
-        stream.write("\nint faio_bazel_incremental_probe() { return 1; }\n")
-    check_actions("changed duplex implementation TU", 8, {implementation.name}, exact=True)
     # Only the staged provider is mutated. Both importing TUs must observe the
     # new value from the canonical header without touching the façade itself.
     header = provider / "include/faio/detail/common/error.hpp"

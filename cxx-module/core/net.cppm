@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/net/address.hpp>
 #include <faio/net/local.hpp>
 #include <faio/net/tcp.hpp>

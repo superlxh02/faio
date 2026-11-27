@@ -250,7 +250,7 @@ if has_modules then
     end
     if has_config("faio_tests") then
         local import_components = {"faio", "common", "coroutine", "io", "net", "fs",
-                                   "runtime", "sync", "time", "log", "blocking", "util"}
+                                   "runtime", "sync", "time", "log"}
         if use_tls then
             table.insert(import_components, "tls")
         end
@@ -261,7 +261,7 @@ if has_modules then
             named_binary("module_" .. component .. "_import_only", "faio_module", "tests/modules/import_only.cpp")
                 add_defines("FAIO_IMPORT_MODULE=" .. (component == "faio" and "faio" or "faio." .. component),
                             "FAIO_IMPORT_" .. component:upper() .. "=1")
-                if component ~= "common" and component ~= "log" and component ~= "util" then
+                if component ~= "common" and component ~= "log" then
                     add_defines("FAIO_IMPORT_HAS_TASK=1")
                 end
                 if component == "faio" or component == "runtime" or component == "tls" or component == "process" then

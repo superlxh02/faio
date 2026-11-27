@@ -4,14 +4,19 @@
 
 import FAIO_IMPORT_MODULE;
 
+#if defined(FAIO_IMPORT_HAS_TASK)
 namespace {
 
 struct completed_coroutine {
   struct promise_type {
     completed_coroutine get_return_object() noexcept { return {}; }
+
     std::suspend_never initial_suspend() noexcept { return {}; }
+
     std::suspend_never final_suspend() noexcept { return {}; }
+
     void return_void() noexcept {}
+
     void unhandled_exception() noexcept {}
   };
 };
@@ -24,7 +29,6 @@ completed_coroutine check_coroutine(int& result) {
 
 static_assert(sizeof(std::coroutine_handle<>) > 0);
 
-#if defined(FAIO_IMPORT_HAS_TASK)
 faio::task<int> value() {
   co_return 42;
 }
@@ -33,15 +37,17 @@ faio::task<int> nested() {
   const auto [left, right] = co_await faio::join(value(), value());
   co_return (left + right) / 2;
 }
-#endif
 
 }  // namespace
+#endif
 
 int main() {
+#if defined(FAIO_IMPORT_HAS_TASK)
   int result{};
   check_coroutine(result);
   if (result != 42)
     return 1;
+#endif
 
 #if defined(FAIO_IMPORT_HAS_RUNTIME)
   if (faio::block_on(nested()) != 42)
@@ -76,10 +82,6 @@ int main() {
 #elif defined(FAIO_IMPORT_LOG)
   if (!faio::log::logger())
     return 1;
-#elif defined(FAIO_IMPORT_BLOCKING)
-  faio::blocking::service service{1, 1, 1, faio::blocking::startup_policy::on_demand};
-#elif defined(FAIO_IMPORT_UTIL)
-  static_assert(faio::util::static_pow(2, 3) == 8);
 #elif defined(FAIO_IMPORT_TLS)
   if (!faio::tls::ServerName::parse("localhost"))
     return 1;

@@ -65,7 +65,7 @@ if(FAIO_BUILD_TESTS)
         string(TOUPPER "${component}" _faio_component_define)
         target_compile_definitions("${_faio_target}" PRIVATE
             "FAIO_IMPORT_MODULE=faio.${component}" "FAIO_IMPORT_${_faio_component_define}=1")
-        if(NOT component MATCHES "^(common|log|util)$")
+        if(NOT component MATCHES "^(common|log)$")
             target_compile_definitions("${_faio_target}" PRIVATE FAIO_IMPORT_HAS_TASK=1)
         endif()
         if(component MATCHES "^(runtime|tls|process)$")
@@ -78,7 +78,7 @@ if(FAIO_BUILD_TESTS)
     target_compile_definitions(faio_module_import_only PRIVATE
         FAIO_IMPORT_HAS_TASK=1 FAIO_IMPORT_HAS_RUNTIME=1)
     faio_register_module_test(faio_module_import_only)
-    foreach(_faio_component common coroutine io net fs runtime sync time log blocking util)
+    foreach(_faio_component common coroutine io net fs runtime sync time log)
         faio_add_import_only_test("${_faio_component}")
     endforeach()
 

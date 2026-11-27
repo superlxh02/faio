@@ -30,7 +30,6 @@ named_library("faio_module", "faio.cppm")
     if has_config("faio_process") then
         add_files("extensions/process.cppm", {public = true})
     end
-    add_files("duplex.cpp")
     faio_xmake.shared_headers()
     faio_xmake.configure_core()
 target_end()

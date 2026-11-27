@@ -451,7 +451,7 @@ h3 {
 
 /* ---------- 设计支柱：与全页背景一体的胶囊词条 ---------- */
 .users {
-  padding: 66px 0;
+  padding: 14px 0 56px;
 }
 .users-inner {
   text-align: center;
@@ -492,7 +492,7 @@ h3 {
 
 /* ---------- 代码展示窗口 ---------- */
 .code-section {
-  padding: 80px 0 24px;
+  padding: 64px 0 20px;
 }
 .code-window {
   background: var(--navy);
@@ -577,9 +577,12 @@ h3 {
 .code-source pre {
   margin: 0;
   color: #d7dcea;
-  font: 12.3px/1.8 var(--mono);
+  font: 14px/1.8 var(--mono);
   font-variant-ligatures: none;
   tab-size: 2;
+}
+.code-source pre code {
+  font-size: inherit;
 }
 .keyword { color: #aab6ff; }
 .number { color: #edbd91; }
@@ -587,7 +590,7 @@ h3 {
 .comment { color: #7f8ba7; font-style: italic; }
 /* ---------- The Stack：左侧锚点菜单 + 右侧卡片 ---------- */
 .stack {
-  padding: 72px 0 84px;
+  padding: 82px 0 84px;
 }
 .stack-layout {
   display: grid;
@@ -625,6 +628,7 @@ h3 {
   color: var(--ink);
   border-left-color: var(--ink);
 }
+.sm-modules a:hover { border-left-color: var(--accent); }
 .sm-task a:hover { border-left-color: var(--c-task); }
 .sm-runtime a:hover { border-left-color: var(--c-runtime); }
 .sm-net a:hover { border-left-color: var(--c-net); }
@@ -686,6 +690,7 @@ h3 {
 .stack-card .learn-more a:hover {
   text-decoration: underline;
 }
+.sc-modules { --card-color: var(--accent); }
 .sc-task { --card-color: var(--c-task); }
 .sc-runtime { --card-color: var(--c-runtime); }
 .sc-net { --card-color: var(--c-net); }
@@ -697,7 +702,7 @@ h3 {
 
 /* ---------- 收尾区 ---------- */
 .closing {
-  padding: 78px 0 86px;
+  padding: 26px 0 86px;
   text-align: center;
 }
 .section-kicker {

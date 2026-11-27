@@ -1,7 +1,7 @@
 [book]
 title = "faio 使用文档"
 authors = ["faio contributors"]
-description = "faio C++23 异步 I/O 库：快速开始、认识 faio、API 介绍与 API 查询。"
+description = "faio C++23 异步 I/O 库：快速开始、头文件接入、faio 模块支持与 API 查询。"
 language = "zh-CN"
 src = "../../docs"
 

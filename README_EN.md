@@ -52,7 +52,7 @@ With the module build, replace `#include <faio/faio.hpp>` with `import faio;` an
 
 ## Bazel and xmake
 
-Both build systems support the header-only library and the C++20 named modules, which share the same implementation in `include/faio/`. Bazel is pinned to 9.2.0; point `CC` at a Clang distribution that supports named modules:
+Both build systems provide header-only integration and faio module support, sharing the implementation in `include/faio/`. Bazel is pinned to 9.2.0; point `CC` at a Clang distribution with C++ module support:
 
 ```sh
 export CC="$(command -v clang)"
@@ -81,7 +81,7 @@ Run the same module example after configuring:
 xmake run quickstart_module
 ```
 
-For a header-only build, use `--config=faio_headers` in Bazel, or drop `--faio_modules=y` and run `xmake build quickstart_header` in xmake. Target names, downstream setup and known limits are in the [module integration guide](cxx-module/README.md) and the [build and test commands](docs/getting-started.md#c20-模块集成和使用).
+For a header-only build, use `--config=faio_headers` in Bazel, or drop `--faio_modules=y` and run `xmake build quickstart_header` in xmake. Target names, downstream setup and known limits are in the [module integration guide](cxx-module/README.md) and the [build and test commands](docs/getting-started.md#faio-模块支持).
 
 ## Capabilities
 

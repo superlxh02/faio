@@ -26,8 +26,10 @@ auto count = co_await stream.read(bytes);
 if (!count) co_return;
 ```
 
-## 头文件与平台
+## 接入方式与平台
 
 `<faio/faio.hpp>` 汇集已启用的稳定功能。应用也可以按需包含功能头，例如 `<faio/net/tcp.hpp>`、`<faio/fs/file.hpp>` 或 `<faio/io/stream.hpp>`。本参考按公共名称组织，包含公开别名继承的方法。Unix 描述符页仅适用于 Unix。Linux 专有选项会在不支持的平台返回错误或不提供，详见[快速开始](../book/getting-started.html)。
+
+[faio 模块支持](../book/getting-started.html#faio-模块支持)通过 `import faio;` 提供相同的稳定 API，也可按功能导入 `faio.coroutine`、`faio.io`、`faio.net` 等模块。一个最终程序选择头文件或模块接入中的一种，工具链要求和已知限制见接入说明。
 
 [快速开始](../book/getting-started.html) · [API 介绍](../book/api/index.html) · [API 查询](../book/api-reference.html)

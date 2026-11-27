@@ -42,8 +42,6 @@ IMPORT_COMPONENTS = [
     "sync",
     "time",
     "log",
-    "blocking",
-    "util",
     "tls",
     "process",
 ]
@@ -56,7 +54,7 @@ IMPORT_COMPONENTS = [
         cxxopts = [
             "-DFAIO_IMPORT_MODULE=" + ("faio" if component == "faio" else "faio." + component),
             "-DFAIO_IMPORT_" + component.upper() + "=1",
-        ] + (["-DFAIO_IMPORT_HAS_TASK=1"] if component not in ["common", "log", "util"] else []) +
+        ] + (["-DFAIO_IMPORT_HAS_TASK=1"] if component not in ["common", "log"] else []) +
                   (["-DFAIO_IMPORT_HAS_RUNTIME=1"] if component in ["faio", "runtime", "tls", "process"] else []),
         target_compatible_with = select({
             "//:" + component + "_enabled": [],

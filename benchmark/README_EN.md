@@ -36,7 +36,7 @@ xmake run faio_coro_benchmark 100000 batch
 
 `xmake run` passes everything after the target name to the program. For `asio_tcp_benchmark`, point `FAIO_ASIO_INCLUDE_DIR` at the directory containing `asio.hpp` before configuring. Toolchain selection works the same as for the library; if the default compiler lacks C++23, follow the [build configuration](../docs/getting-started.md#xmake-构建) and pass `--toolchain=clang` with the matching `--cxx` and `--ld` paths.
 
-Benchmark targets always build against the headers. The Bazel rules disable the module feature, and xmake registers the targets only when `--faio_headers` is on, so you do not need named modules to run them.
+Benchmark targets always build against the headers. The Bazel rules disable the module feature, and xmake registers the targets only when `--faio_headers` is on, so you do not need faio module support to run them.
 
 Each program covers a different area. All three build systems trim targets by platform: Windows has no `faio_current_thread_benchmark` or `tcp_connect_load`. In the CMake build, `asio_tcp_benchmark` is also built only when Asio is found.
 

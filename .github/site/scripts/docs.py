@@ -92,6 +92,20 @@ def strip_cpp_comments(source):
     return "\n".join(lines)
 
 
+def inject_homepage_code(homepage, marker, source):
+    """Replace a preview snippet with code generated from the current example."""
+    start = f"<!-- {marker} -->"
+    end = f"<!-- /{marker} -->"
+    if (homepage.count(start) != 1 or homepage.count(end) != 1
+            or homepage.index(start) > homepage.index(end)):
+        raise RuntimeError(f"首页代码区标记无效：{marker}")
+    return re.sub(
+        re.escape(start) + r".*?" + re.escape(end),
+        lambda _: highlight_cpp(strip_cpp_comments(source)),
+        homepage, count=1, flags=re.S,
+    )
+
+
 def build_book(destination):
     lock = WORK / "package-lock.json"
     if (not MERMAID.is_file() or not HIGHLIGHTER.is_dir() or not lock.is_file()
@@ -157,8 +171,8 @@ def build():
     quickstart = (ROOT / "examples/quickstart.cpp").read_text(encoding="utf-8")
     tcp_echo = (ROOT / "examples/net/tcp_echo.cpp").read_text(encoding="utf-8")
     homepage = (SOURCE / "index.html").read_text(encoding="utf-8")
-    homepage = homepage.replace("<!-- QUICKSTART_CODE -->", highlight_cpp(strip_cpp_comments(quickstart)))
-    homepage = homepage.replace("<!-- TCPSERVER_CODE -->", highlight_cpp(strip_cpp_comments(tcp_echo)))
+    homepage = inject_homepage_code(homepage, "QUICKSTART_CODE", quickstart)
+    homepage = inject_homepage_code(homepage, "TCPSERVER_CODE", tcp_echo)
     (output / "index.html").write_text(homepage, encoding="utf-8")
     (output / ".nojekyll").touch()
     (output / "404.html").write_text('''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>页面未找到 · faio</title><style>body{background:#090b11;color:#b7c8eb;font:18px/1.8 system-ui;max-width:640px;margin:18vh auto;padding:24px}a{color:#8daeff}</style><h1>404 / 这条路径暂未连接。</h1><p>请检查地址，或使用浏览器返回上一页。</p><p><a href="https://superlxh02.github.io/faio/">返回 faio 首页 →</a></p></html>''', encoding="utf-8")

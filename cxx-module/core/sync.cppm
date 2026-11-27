@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/sync/channel.hpp>
 #include <faio/sync/coordination.hpp>
 #include <faio/sync/mutex.hpp>

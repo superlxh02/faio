@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/experimental/runtime.h>
 #include <faio/experimental/runtime_options.h>
 

@@ -67,7 +67,7 @@ TLS 组件要求 OpenSSL 3.5 及以上。下面的构建默认启用 TLS，所�
 
 ### 构建和编译
 
-使用仓库已有的 CMake 预设配置并编译全部常规目标：库、示例和基准。测试关闭；实验层由 `main` 预设关闭。具名模块需要 CMake 3.28+ 和模块工具链，单独放在后面的章节；需要连模块一起编时，去掉 `-DFAIO_BUILD_MODULES=OFF`。
+使用仓库已有的 CMake 预设配置并编译全部常规目标：库、示例和基准。测试关闭；实验层由 `main` 预设关闭。faio 模块支持需要 CMake 3.28+ 和模块工具链，单独放在后面的章节；需要连模块一起编时，去掉 `-DFAIO_BUILD_MODULES=OFF`。
 
 **Linux**
 
@@ -122,7 +122,7 @@ clang-cl 和 MinGW 分别换成 `windows-clang-main-release`、`windows-mingw-ma
 
 表中写成 `release/debug` 的条目代表两个独立预设，例如 `linux-main-release` 和 `linux-main-debug`。`main` 只开稳定特性；`all` 额外打开实验层，当前要求 **Linux + GCC 16.1.x + libstdc++ 16 + C++26**，macOS 和 Windows 请使用 `main`。
 
-Linux 和 macOS 的 `*-main-*` 预设继承隐藏预设 `modules`，即 `FAIO_BUILD_MODULES=ON`；Windows 的 main 预设不打开模块。上面的全量构建用 `-DFAIO_BUILD_MODULES=OFF` 保持头文件形态；需要 C++20 具名模块时保持开启，并按后面的模块章节准备工具链。
+Linux 和 macOS 的 `*-main-*` 预设继承隐藏预设 `modules`，即 `FAIO_BUILD_MODULES=ON`；Windows 的 main 预设不打开模块。上面的全量构建用 `-DFAIO_BUILD_MODULES=OFF` 保持头文件形态；需要 faio 模块支持时保持开启，并按后面的模块章节准备工具链。
 
 configure、build、test 分别这样用：
 
@@ -189,7 +189,7 @@ bazel build --config=faio_headers --config=faio_tls --config=faio_process \
   -- //... //benchmark:all -//tests/...
 ```
 
-`--config=faio_headers` 选择纯头文件库和 C++23，`--config=faio_tls`、`--config=faio_process` 打开 TLS 和进程。这里不传 `--config=faio_epoll`：Linux 默认使用 io_uring，macOS 自动退回 kqueue。`//...` 编译全部常规目标和示例，`-//tests/...` 跳过测试，`//benchmark:all` 把标记为 `manual` 的基准也纳入。具名模块目标在没有模块配置时不兼容，会被自动跳过；需要模块时用后面的 `--config=faio_modules`。Windows 上用 Bazel 需要自行准备 clang-cl 工具链，本章的 Windows 快速开始走 CMake。
+`--config=faio_headers` 选择纯头文件库和 C++23，`--config=faio_tls`、`--config=faio_process` 打开 TLS 和进程。这里不传 `--config=faio_epoll`：Linux 默认使用 io_uring，macOS 自动退回 kqueue。`//...` 编译全部常规目标和示例，`-//tests/...` 跳过测试，`//benchmark:all` 把标记为 `manual` 的基准也纳入。faio 模块目标在没有模块配置时不兼容，会被自动跳过；需要模块时用后面的 `--config=faio_modules`。Windows 上用 Bazel 需要自行准备 clang-cl 工具链，本章的 Windows 快速开始走 CMake。
 
 ### 运行
 
@@ -253,7 +253,7 @@ xmake f -c -y -m release --toolchain=msvc `
 xmake build
 ```
 
-`xmake build` 不指定目标时，会编译全部已启用的目标：头文件库、示例和基准。测试和具名模块关闭，实验层保持默认关闭；Linux 的 io_uring 按 auto 打开，macOS 自动关闭。
+`xmake build` 不指定目标时，会编译全部已启用的目标：头文件库、示例和基准。测试和 faio 模块支持关闭，实验层保持默认关闭；Linux 的 io_uring 按 auto 打开，macOS 自动关闭。
 
 xmake 的 `vcpkg::` provider 会读取 `VCPKG_ROOT`，先确认本机已设置该变量并完成上面的 vcpkg 安装。
 
@@ -275,11 +275,11 @@ xmake run quickstart_header
 
 `task<void>` 定义一个惰性协程；`run()` 用 `co_await faio::join(hello())` 组合并等待这个任务，`main` 再用 `block_on()` 驱动整个任务直到完成。
 
-## C++20 模块集成和使用
+## faio 模块支持
 
-具名模块把稳定接口打包成 `import faio;`，并导出构建时启用的 TLS 与异步进程接口。也可以按功能独立导入 `faio.coroutine`、`faio.io`、`faio.net` 等模块，每个模块都包含协程所需的标准库声明，无需额外包含 `<coroutine>`。`include/faio/` 是头文件版和模块版共用的实现，每个最终程序选择一种消费方式。
+faio 模块支持通过 `import faio;` 提供稳定接口，并导出构建时启用的 TLS 与异步进程接口。也可以按功能独立导入 `faio.coroutine`、`faio.io`、`faio.net` 等模块，导入 `faio.coroutine` 或依赖它的模块时，无需额外包含 `<coroutine>`。`include/faio/` 是头文件版和模块版共用的实现，每个最终程序选择一种消费方式。
 
-模块构建要求 CMake 3.28+、Ninja 1.11+ 和支持具名模块的 Clang 或 GCC；Clang 还需要同发行版的 `clang-scan-deps`，macOS 使用 Homebrew LLVM，Apple Clang 不能扫描具名模块。`examples/module` 只导入 `faio`，使用普通具名模块工具链即可构建。
+模块构建要求 CMake 3.28+、Ninja 1.11+ 和支持 C++23 模块的 Clang；还需要同发行版的 `clang-scan-deps`。macOS 使用 Homebrew LLVM，Apple Clang 不能扫描模块。GCC 的限制见[已知限制](../cxx-module/README.md#已知限制)。
 
 ### 源码集成
 
@@ -340,14 +340,14 @@ set_target_properties(my_app PROPERTIES CXX_SCAN_FOR_MODULES ON CXX_EXTENSIONS O
 
 ### Bazel 和 xmake
 
-Bazel 用普通具名模块配置构建同一示例：
+Bazel 用模块配置构建同一示例：
 
 ```sh
 export CC="$(command -v clang)"
 bazel run --config=faio_modules //examples:quickstart_module
 ```
 
-xmake 选择支持具名模块的 Clang：
+xmake 选择支持 C++ 模块的 Clang：
 
 ```sh
 xmake f -c -y -m release --toolchain=clang \
@@ -356,8 +356,105 @@ xmake f -c -y -m release --toolchain=clang \
 xmake run quickstart_module
 ```
 
-目标名、下游接入和已知限制见[模块移植说明](../cxx-module/README.md)。GCC 16.1.1 的 `faio.process` 在读取核心模块接口时可能报 `Bad file data`，进程模块的验证工具链是 Clang。
+#### Bazel 下游项目
 
-实验入口 `import faio.experimental;` 要求 Linux + GCC 16.1 + C++26，默认关闭；开关和示例见[模块移植说明](../cxx-module/README.md#实验接口)与[实验性接口](api/experimental.md)。
+应用通过 Bzlmod 接入时，依赖仓库要保留根目录的 `MODULE.bazel`、`BUILD.bazel`、`REPO.bazel`、`tools/experimental_compiler.cpp`、`bazel/std_module.bzl`，以及 `include/` 和 `cxx-module/`。在应用的 `MODULE.bazel` 里声明本地源码依赖和工具链配置扩展：
+
+```python
+module(name = "my_app")
+bazel_dep(name = "faio", version = "0.0.0")
+local_path_override(module_name = "faio", path = "third_party/faio")
+bazel_dep(name = "rules_cc", version = "0.2.25")
+
+cc = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure_extension")
+use_repo(cc, "local_config_cc_toolchains")
+```
+
+应用的 `BUILD.bazel` 声明模块依赖：
+
+```python
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+cc_binary(
+    name = "my_app",
+    srcs = ["main.cpp"],
+    deps = ["@faio//cxx-module:faio"],
+)
+```
+
+应用根目录的 `.bazelrc` 配置扫描与编译，`CC` 仍指向选定的 Clang：
+
+```text
+startup --output_user_root=target/bazel/state
+common --repo_contents_cache=
+build --symlink_prefix=target/bazel/
+build:faio_modules --repo_env=CC
+build:faio_modules --repo_env=BAZEL_USE_LEGACY_MACOS_TOOLCHAIN=1
+build:faio_modules --extra_toolchains=@local_config_cc_toolchains//:all
+build:faio_modules --features=-supports_start_end_lib
+build:faio_modules --features=cpp_modules
+build:faio_modules --experimental_cpp_modules
+build:faio_modules --cxxopt=-std=c++23
+build:faio_modules --cxxopt=-Xclang=-fmodule-file-home-is-cwd
+build:faio_modules --cxxopt=-Xclang=-fmodules-embed-all-files
+```
+
+然后在应用根目录执行 `bazel run --config=faio_modules //:my_app`。Linux 上用 `--@faio//:io_uring=off` 选择 epoll；需要 TLS 或进程时，分别加 `--@faio//:tls=true`、`--@faio//:process=true`，依赖仍是 `@faio//cxx-module:faio`。
+
+#### xmake 下游项目
+
+需要 xmake 3.0.1 或更新版本，以及能通过 pkg-config 找到的 spdlog。macOS 先选择 Homebrew LLVM：
+
+```sh
+faio_cxx="$(brew --prefix llvm)/bin/clang++"
+export PATH="$(dirname "$faio_cxx"):$PATH"
+```
+
+在 faio 的 Fedora 开发容器里改用系统 Clang 和标准库：
+
+```sh
+faio_cxx=/usr/sbin/clang++
+export LD_LIBRARY_PATH="/usr/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+```
+
+在 faio 仓库根目录单独构建模块库：
+
+```sh
+export XMAKE_CONFIGDIR="$PWD/target/xmake/config-module"
+xmake f -P cxx-module -c -y -m release -o target/xmake/cxx-module --toolchain=clang \
+  --cxx="$faio_cxx" --ld="$faio_cxx" --faio_io_uring=n
+xmake build -P cxx-module faio_module
+```
+
+应用从源码消费时，把 faio 放在 `third_party/faio/`，模块入口会加载仓库的 `tools/xmake/common.lua`。应用的 `xmake.lua` 这样写：
+
+```lua
+set_project("my_app")
+set_languages("c++23")
+includes("third_party/faio/cxx-module")
+
+target("my_app")
+    set_kind("binary")
+    set_policy("build.c++.modules", true)
+    set_policy("build.c++.modules.std", false)
+    add_files("main.cpp")
+    add_deps("faio_module")
+```
+
+在应用根目录配置并运行，编译器沿用上面选定的路径：
+
+```sh
+export XMAKE_CONFIGDIR="$PWD/target/xmake/config-app"
+xmake f -P . -c -y -m release -o target/xmake --toolchain=clang \
+  --cxx="$faio_cxx" --ld="$faio_cxx" --faio_io_uring=n
+xmake build -P . my_app
+xmake run -P . my_app
+```
+
+需要 TLS 或进程时，配置 `--faio_tls=y` 或 `--faio_process=y`，`add_deps("faio_module")` 保持不变。在 faio 仓库根目录执行 `xmake install -P cxx-module -o "$PWD/target/faio-module-prefix" faio_module` 可分发核心归档。安装前缀同时包含接口源码、模块元数据和共享头。通过 xmake 包消费时保留完整前缀，让下游打开 `build.c++.modules` 重建 BMI，并把 spdlog 等系统依赖加进下游目标。本地包接入示例见 [verify_xmake_consumers.py](../scripts/verify_xmake_consumers.py)。
+
+目标名、下游接入和已知限制见[faio 模块支持](../cxx-module/README.md)。GCC 16.1.1 的 `faio.process` 在读取核心模块接口时可能报 `Bad file data`，进程模块的验证工具链是 Clang。
+
+实验入口 `import faio.experimental;` 要求 Linux + GCC 16.1 + C++26，默认关闭；开关和示例见[faio 模块支持](../cxx-module/README.md#实验接口)与[实验性接口](api/experimental.md)。
 
 [认识 faio](learn-faio.md) · [API 介绍](api/index.md) · [API 查询](api-reference.md)

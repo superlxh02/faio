@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/fs/directory.hpp>
 #include <faio/fs/file.hpp>
 #include <faio/fs/path.hpp>

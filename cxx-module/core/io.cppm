@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/io/native.hpp>
 #include <faio/io/stream.hpp>
 #include <faio/detail/io.hpp>

@@ -29,7 +29,7 @@ xmake f -c -y -m release --faio_benchmarks=y
 xmake run faio_coro_benchmark 100000 sampled
 ```
 
-三套构建里的协程基准都按头文件目标编译，不需要启用具名模块。帧分配程序是独立的 target，调用方式见下文。
+三套构建里的协程基准都按头文件目标编译，不需要启用 faio 模块支持。帧分配程序是独立的 target，调用方式见下文。
 
 ## 两种计量模式
 

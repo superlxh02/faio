@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/tls/handshake.hpp>
 #include <faio/tls/stream.hpp>
 

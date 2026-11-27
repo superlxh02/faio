@@ -29,7 +29,7 @@ xmake f -c -y -m release --faio_benchmarks=y
 xmake run faio_coro_benchmark 100000 sampled
 ```
 
-All three build systems build the coroutine benchmark against the header-only library, so named modules are not involved. The frame-allocation programs are separate targets; see below.
+All three build systems build the coroutine benchmark against the header-only library, so faio module support is not required. The frame-allocation programs are separate targets; see below.
 
 ## Two ways to measure
 

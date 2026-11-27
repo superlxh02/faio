@@ -40,7 +40,6 @@ MODULE_CXXOPTS = ["-DSPDLOG_FMT_EXTERNAL"] + select({
 
 cc_library(
     name = "faio",
-    srcs = ["duplex.cpp"],
     cxxopts = MODULE_CXXOPTS,
     module_interfaces = ["faio.cppm"] + glob(["core/*.cppm"]) + select({
         "//:tls_enabled": ["extensions/tls.cppm"],

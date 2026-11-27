@@ -10,6 +10,20 @@
 #include "faio/detail/sync/mutex.hpp"
 #include <concepts>
 #include <mutex>
+#include <utility>
+
+namespace faio::sync {
+template <class S>
+class basic_condition_variable;
+}  // namespace faio::sync
+
+namespace faio::detail {
+template <class S, class Predicate>
+  requires std::predicate<Predicate&>
+task<void, S> condition_variable_wait(sync::basic_condition_variable<S>& cv,
+                                      sync::basic_mutex<S>& m,
+                                      Predicate predicate);
+}  // namespace faio::detail
 
 namespace faio::sync {
 /**
@@ -55,16 +69,23 @@ class basic_condition_variable {
     bool await_resume() const noexcept { return node.cancelled(); }
   };
 
+  // 原成员协程实现：GCC 16 导入模块时会误判其生成的辅助函数，暂保留供恢复。
+  // template <class Predicate>
+  //   requires std::predicate<Predicate&>
+  // task<void, S> wait(basic_mutex<S>& m, Predicate predicate) {
+  //   while (!predicate()) {
+  //     const bool cancelled = co_await wait_awaiter{*this, m, {}};
+  //     co_await m.lock_uncancellable();
+  //     if (cancelled)
+  //       throw operation_cancelled{};
+  //   }
+  // }
+
   /** @brief 等待谓词成立，并遵循条件变量的取消约定。 */
   template <class Predicate>
     requires std::predicate<Predicate&>
   task<void, S> wait(basic_mutex<S>& m, Predicate predicate) {
-    while (!predicate()) {
-      const bool cancelled = co_await wait_awaiter{*this, m, {}};
-      co_await m.lock_uncancellable();
-      if (cancelled)
-        throw operation_cancelled{};
-    }
+    return ::faio::detail::condition_variable_wait(*this, m, std::move(predicate));
   }
 
   /** @brief 摘除一个等待者并在锁外发布通知，恢复责任只交接一次。 */
@@ -96,4 +117,21 @@ class basic_condition_variable {
 
 using condition_variable = basic_condition_variable<>;
 }  // namespace faio::sync
+
+namespace faio::detail {
+/** @brief 在命名空间协程中执行等待，避开 GCC 16 的成员协程模块导入问题。 */
+template <class S, class Predicate>
+  requires std::predicate<Predicate&>
+inline task<void, S> condition_variable_wait(sync::basic_condition_variable<S>& cv,
+                                             sync::basic_mutex<S>& m,
+                                             Predicate predicate) {
+  while (!predicate()) {
+    const bool cancelled =
+        co_await typename sync::basic_condition_variable<S>::wait_awaiter{cv, m, {}};
+    co_await m.lock_uncancellable();
+    if (cancelled)
+      throw operation_cancelled{};
+  }
+}
+}  // namespace faio::detail
 #endif

@@ -1,12 +1,12 @@
-# 使用 faio 具名模块
+# faio 模块支持示例
 
 [`quickstart.cpp`](quickstart.cpp) 只写 `import faio;`，创建两个异步任务，并发等待它们得到 42。程序通过 `faio::block_on` 在调用线程上驱动任务完成，成功时返回退出码 0。使用协程无需额外包含 `<coroutine>` 或导入 `std`。
 
-示例的 [`CMakeLists.txt`](CMakeLists.txt) 可以直接作为下游项目的起点。按功能导入的模块和 CMake、Bazel、xmake 下游配置见[模块移植说明](../../cxx-module/README.md)。
+示例的 [`CMakeLists.txt`](CMakeLists.txt) 可以直接作为下游项目的起点。按功能导入的模块和 CMake、Bazel、xmake 下游配置见[faio 模块支持](../../cxx-module/README.md)。
 
 ## 从源码接入
 
-需要 CMake 3.28+、Ninja 1.11+、spdlog 和支持 C++23 具名模块的编译器。Clang 的 `clang++` 与 `clang-scan-deps` 必须来自同一份 LLVM 安装，macOS 使用 Homebrew LLVM。
+需要 CMake 3.28+、Ninja 1.11+、spdlog 和支持 C++23 模块的编译器。Clang 的 `clang++` 与 `clang-scan-deps` 必须来自同一份 LLVM 安装，macOS 使用 Homebrew LLVM。
 
 在 faio 仓库根目录执行。示例复用 `cxx-module/` 的导入入口和 `include/faio/` 的共享实现，默认关闭 io_uring：
 
@@ -45,7 +45,7 @@ cmake --build target/cmake-build-module-example-installed
 
 ## 用 Bazel 或 xmake 运行
 
-Bazel 沿用支持具名模块的 Clang 工具链：
+Bazel 使用支持 C++ 模块的 Clang 工具链：
 
 ```sh
 export CC="$(command -v clang)"
@@ -61,4 +61,4 @@ xmake f -c -y -m release --toolchain=clang \
 xmake run quickstart_module
 ```
 
-两个构建入口的目标名和下游接入方式见[模块移植说明](../../cxx-module/README.md)。
+两个构建入口的目标名和下游接入方式见[faio 模块支持](../../cxx-module/README.md)。

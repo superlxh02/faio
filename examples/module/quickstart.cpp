@@ -1,6 +1,6 @@
 /**
  * @file examples/module/quickstart.cpp
- * @brief 只导入 faio 的具名模块入门示例。
+ * @brief faio 模块支持入门示例，只需导入 faio。
  */
 import faio;
 

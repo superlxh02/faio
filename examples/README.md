@@ -101,7 +101,7 @@ bazel test --config=faio_modules --config=faio_tls --config=faio_process \
   //examples:tls_echo_module //examples:process_command_module
 ```
 
-`quickstart_module` 使用同一套具名模块工具链：
+`quickstart_module` 使用同一套模块工具链：
 
 ```sh
 bazel run --config=faio_modules //examples:quickstart_module
@@ -138,7 +138,7 @@ xmake run quickstart_module
 
 xmake 默认把构建产物放在 `target/xmake/`。切换工具链或开关时记得加 `-c` 清掉旧配置。
 
-## 具名模块示例
+## faio 模块支持示例
 
 [`module/`](module/README.md) 是一个可以单独配置的下游 CMake 工程，演示怎样从源码或安装包接入 `faio::module`。程序只写 `import faio;`，并发等待两个任务得到 42，成功时返回退出码 0。它使用 `cxx-module/` 的模块接口和 `include/faio/` 的共享实现。
 
@@ -151,7 +151,7 @@ cmake --build target/cmake-build-modules --target quickstart_module
 ./target/cmake-build-modules/tests/modules/quickstart_module
 ```
 
-模块构建要求 CMake 3.28+、Ninja 1.11+ 和支持 C++23 具名模块的编译器。安装消费需要兼容的编译器、标准库和构建配置，由下游重建 BMI。功能模块、工具链约束和其他构建入口见[模块移植说明](../cxx-module/README.md)。
+模块构建要求 CMake 3.28+、Ninja 1.11+ 和支持 C++23 模块的编译器。安装消费需要兼容的编译器、标准库和构建配置，由下游重建 BMI。功能模块、工具链约束和其他构建入口见[faio 模块支持](../cxx-module/README.md)。
 
 ## 实验示例
 

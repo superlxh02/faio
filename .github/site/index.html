@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="faio 是基于 C++20 协程的跨平台异步 I/O 头文件库。以 task 和 co_await 编写并发，Proactor 完成模型，支持 Linux、macOS、Windows。"
+      content="faio 是跨平台的 C++23 异步 I/O 库，提供协程任务、运行时、网络与文件操作，可通过头文件集成或使用 faio 模块支持。"
     />
     <meta name="theme-color" content="#0d0d12" />
     <meta property="og:title" content="faio — 现代 C++ 的异步运行时" />
     <meta
       property="og:description"
-      content="C++20 协程、跨平台 I/O 与结构化并发。协程挂起时，线程继续调度其他任务。"
+      content="C++23 协程、跨平台 I/O 与结构化并发。可通过头文件集成或使用 faio 模块支持。"
     />
     <title>faio — 现代 C++ 的异步运行时</title>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
@@ -94,8 +94,8 @@
             <span class="hero-title-sub">以协程构建统一可靠的异步应用</span>
           </h1>
           <p class="hero-subtitle">
-            faio 是基于现代 C++ 编写的高性能异步运行时。基于 C++20
-            协程构建异步程序，提供完整的异步并发，网络/文件 IO 等基础设施。
+            faio 是基于 C++23 协程的跨平台异步 I/O 库，提供任务、运行时、网络与文件操作。
+            可通过头文件集成或使用 faio 模块支持。
           </p>
           <div class="hero-actions">
             <a class="btn btn-primary" href="book/getting-started.html"
@@ -112,9 +112,9 @@
           <article class="feature-card fc-easy" data-reveal>
             <h2>易用</h2>
             <p>
-              异步程序统一以 <code>faio::task&lt;T&gt;</code>
-              协程任务类型组织，并统一使用 C++20
-              协程标准关键字，从而降低异步程序编写的复杂性。
+              用 <code>faio::task&lt;T&gt;</code> 与 <code>co_await</code> 组织异步任务。
+              使用<a href="book/getting-started.html#faio-模块支持">faio 模块支持</a>时，
+              通过 <code>import faio;</code> 导入稳定 API。
             </p>
           </article>
           <article class="feature-card fc-perf" data-reveal>
@@ -193,6 +193,26 @@
               tabindex="0"
             >
               <!-- QUICKSTART_CODE -->
+<pre><code><span class="keyword">#include</span> &lt;faio/faio.hpp&gt;
+
+<span class="keyword">#include</span> &lt;chrono&gt;
+<span class="keyword">#include</span> &lt;print&gt;
+
+<span class="keyword">using</span> <span class="keyword">namespace</span> std::chrono_literals;
+
+faio::task&lt;<span class="keyword">void</span>&gt; hello() {
+  <span class="keyword">co_await</span> faio::time::sleep(<span class="number">10ms</span>);
+  std::print(<span class="string">&quot;Hello, world!\n&quot;</span>);
+}
+
+faio::task&lt;<span class="keyword">void</span>&gt; run() {
+  <span class="keyword">co_await</span> faio::join(hello());
+}
+
+<span class="keyword">int</span> main() {
+  faio::block_on(run());
+}</code></pre>
+              <!-- /QUICKSTART_CODE -->
             </div>
             <div
               role="tabpanel"
@@ -202,6 +222,70 @@
               hidden
             >
               <!-- TCPSERVER_CODE -->
+<pre><code><span class="keyword">#include</span> &lt;faio/faio.hpp&gt;
+
+<span class="keyword">#include</span> &lt;array&gt;
+<span class="keyword">#include</span> &lt;exception&gt;
+<span class="keyword">#include</span> &lt;span&gt;
+<span class="keyword">#include</span> &lt;utility&gt;
+
+<span class="keyword">namespace</span> {
+<span class="keyword">const</span> <span class="keyword">auto</span> address = faio::net::SocketAddr{faio::net::Ipv4Addr{<span class="number">127</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>}, <span class="number">8080</span>};
+
+faio::task&lt;<span class="keyword">void</span>&gt; handle_connection(faio::net::TcpStream stream,
+                                   faio::net::SocketAddr peer) {
+  std::array&lt;char, <span class="number">4096</span>&gt; buffer{};
+  for (;;) {
+    <span class="keyword">const</span> <span class="keyword">auto</span> count = <span class="keyword">co_await</span> stream.read(buffer);
+    <span class="keyword">if</span> (!count) {
+      faio::log::logger()-&gt;error(<span class="string">&quot;读取 {} 失败：{}&quot;</span>, peer.to_string(), count.error().message());
+      <span class="keyword">co_return</span>;
+    }
+    <span class="keyword">if</span> (*count == <span class="number">0</span>) {
+      faio::log::logger()-&gt;info(<span class="string">&quot;{} 已关闭连接&quot;</span>, peer.to_string());
+      <span class="keyword">co_return</span>;
+    }
+
+    <span class="keyword">const</span> <span class="keyword">auto</span> written =
+        <span class="keyword">co_await</span> stream.write_all(std::span&lt;<span class="keyword">const</span> char&gt;{buffer}.first(*count));
+    <span class="keyword">if</span> (!written) {
+      faio::log::logger()-&gt;error(<span class="string">&quot;写回 {} 失败：{}&quot;</span>, peer.to_string(), written.error().message());
+      <span class="keyword">co_return</span>;
+    }
+  }
+}
+
+faio::task&lt;<span class="keyword">int</span>&gt; serve() {
+  <span class="keyword">auto</span> listener = faio::net::TcpListener::bind(address);
+  <span class="keyword">if</span> (!listener) {
+    faio::log::logger()-&gt;error(<span class="string">&quot;绑定 {} 失败：{}&quot;</span>, address.to_string(), listener.error().message());
+    <span class="keyword">co_return</span> <span class="number">1</span>;
+  }
+
+  faio::log::logger()-&gt;info(<span class="string">&quot;TCP 回显服务监听 {}&quot;</span>, address.to_string());
+  for (;;) {
+    <span class="keyword">auto</span> accepted = <span class="keyword">co_await</span> listener-&gt;accept();
+    <span class="keyword">if</span> (!accepted) {
+      faio::log::logger()-&gt;error(<span class="string">&quot;接受连接失败：{}&quot;</span>, accepted.error().message());
+      <span class="keyword">co_return</span> <span class="number">1</span>;
+    }
+
+    <span class="keyword">auto</span> [stream, peer] = std::move(*accepted);
+    faio::log::logger()-&gt;info(<span class="string">&quot;接受来自 {} 的连接&quot;</span>, peer.to_string());
+    faio::spawn_detached(handle_connection(std::move(stream), peer));
+  }
+}
+}
+
+<span class="keyword">int</span> main() {
+  try {
+    <span class="keyword">return</span> faio::block_on(serve());
+  } catch (<span class="keyword">const</span> std::exception&amp; error) {
+    faio::log::logger()-&gt;error(<span class="string">&quot;TCP 回显服务异常退出：{}&quot;</span>, error.what());
+    <span class="keyword">return</span> <span class="number">1</span>;
+  }
+}</code></pre>
+              <!-- /TCPSERVER_CODE -->
             </div>
           </div>
         </div>
@@ -214,6 +298,7 @@
             <div class="stack-menu-inner">
               <p class="menu-label">faio</p>
               <ul class="menu-list">
+                <li class="sm-modules"><a href="#stack-modules">C++20 模块</a></li>
                 <li class="sm-task"><a href="#stack-task">task 与调度</a></li>
                 <li class="sm-runtime"><a href="#stack-runtime">运行时</a></li>
                 <li class="sm-net"><a href="#stack-net">网络</a></li>
@@ -226,6 +311,13 @@
             </div>
           </aside>
           <div class="stack-cards">
+            <article id="stack-modules" class="stack-card sc-modules" data-reveal>
+              <h2><img class="stack-icon" src="assets/stack/modules.svg" alt="" />C++20 模块</h2>
+              <p>
+                支持 C++20 模块，通过 <code>import faio;</code> 导入。
+              </p>
+              <p class="learn-more"><a href="book/getting-started.html#faio-模块支持">faio 模块支持 →</a></p>
+            </article>
             <article id="stack-task" class="stack-card sc-task" data-reveal>
               <h2><img class="stack-icon" src="assets/stack/task.svg" alt="" />task 与调度</h2>
               <p>

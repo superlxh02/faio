@@ -13,7 +13,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
     message(FATAL_ERROR "The faio module build requires clang-scan-deps from the selected Clang distribution")
 endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT CMAKE_CXX_SCANDEP_SOURCE)
-    message(FATAL_ERROR "The selected Apple Clang cannot scan named modules with this CMake version. Set CMAKE_CXX_COMPILER to Homebrew LLVM's clang++.")
+    message(FATAL_ERROR "The selected Apple Clang cannot scan modules with this CMake version. Set CMAKE_CXX_COMPILER to Homebrew LLVM's clang++.")
 endif()
 
 include(GNUInstallDirs)
@@ -87,10 +87,7 @@ faio_add_named_module(faio_module module
     core/runtime.cppm
     core/sync.cppm
     core/time.cppm
-    core/log.cppm
-    core/blocking.cppm
-    core/util.cppm)
-target_sources(faio_module PRIVATE duplex.cpp)
+    core/log.cppm)
 set_property(TARGET faio_module PROPERTY INTERFACE_FAIO_VARIANT modules)
 set_property(TARGET faio_module APPEND PROPERTY COMPATIBLE_INTERFACE_STRING FAIO_VARIANT)
 target_link_libraries(faio_module PUBLIC Threads::Threads spdlog::spdlog)

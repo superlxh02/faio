@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "skills": {
+    "deslop": {
+      "source": "cursor/plugins",
+      "commit": "7a583913eb1b8d1a0ee76753d1a2cf072e7b54f9",
+      "sourceType": "github",
+      "skillPath": "cursor-team-kit/skills/deslop/SKILL.md",
+      "computedHash": "104e1041830c5ad58da3805289a77dbba4eee7dd96d4547b3eaeecbd761618d8"
+    },
+    "remove-ai-style": {
+      "source": "zc277584121/marketing-skills",
+      "commit": "959680e17acfa4474639c7a9abf77340399ebfb6",
+      "sourceType": "github",
+      "skillPath": "skills/remove-ai-style/SKILL.md",
+      "computedHash": "cda3666359e89850169d9dc497b76dcdb1dbdb38ffebb33e5c13295bb84dea46"
+    },
+    "reviewing-technical-prose": {
+      "source": "riekelt/technical-writer",
+      "commit": "85e53729dd959a2795d593d6769068e342cf3486",
+      "sourceType": "github",
+      "skillPath": "plugins/technical-writer/skills/reviewing-technical-prose/SKILL.md",
+      "computedHash": "ee7806d4a8d83e96670d885b477cd36935625ab108af0a5e16dfbacb4bcb1ba2"
+    },
+    "technical-writing": {
+      "source": "riekelt/technical-writer",
+      "commit": "85e53729dd959a2795d593d6769068e342cf3486",
+      "sourceType": "github",
+      "skillPath": "plugins/technical-writer/skills/technical-writing/SKILL.md",
+      "computedHash": "1887649c89f345364dc4d0cb58f0f6fa1b4b6fd52286eecdc2823585d3109015"
+    }
+  }
+}

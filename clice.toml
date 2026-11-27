@@ -10,4 +10,4 @@ cache_dir = "/tmp/faio-clice-cache"
 # 该软链由 devcontainer 的 postCreateCommand 建立，切换预设后需要重新指向。
 # 显式声明还能避免 clice 误选 CLion 生成的 cmake-build-* 目录。
 [[rules]]
-compile_commands = ["target"]
+compile_commands = ["target/cmake-build-linux-all-debug"]

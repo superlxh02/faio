@@ -1,6 +1,5 @@
 module;
 
-#define FAIO_DETAIL_SEPARATE_DUPLEX 1
 #include <faio/process/child.hpp>
 #include <faio/process/command.hpp>
 
