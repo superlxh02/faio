@@ -112,8 +112,8 @@ class runtime_completion_service {
 
  private:
   /** @brief 发布任务完成通知，并通过选定的唤醒端通知各工作线程。 */
-  template <class SelectWaker>
-  void notify_completion_with(SelectWaker select_waker) noexcept {
+  template <class select_waker_type>
+  void notify_completion_with(select_waker_type select_waker) noexcept {
     decltype(select_waker()) waker;
     {
       std::lock_guard lock(mutex_);

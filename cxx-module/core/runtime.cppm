@@ -8,7 +8,6 @@ export module faio.runtime;
 export import faio.io;
 
 export namespace faio {
-using ::faio::ConfigBuilder;
 using ::faio::anchored_runtime;
 using ::faio::basic_runtime_anchor;
 using ::faio::block_on;
@@ -20,7 +19,6 @@ using ::faio::spawn_detached;
 }  // namespace faio
 
 export namespace faio::runtime {
-using ::faio::runtime::Config;
 using ::faio::runtime::basic_runtime;
 using ::faio::runtime::blocking_pool_policy;
 using ::faio::runtime::config;

@@ -179,7 +179,7 @@ class anchored_runtime {
   }
 
   /** @brief 关闭跨域准入，然后按现有运行时协议请求停止或排空。 */
-  void stop(io::shutdown_policy policy = io::shutdown_policy::drain) {
+  void stop(io::shutdown_policy policy = io::shutdown_policy::DRAIN) {
     if (::faio::detail::on_runtime_worker())
       throw std::logic_error("anchored runtime cannot be stopped synchronously from a worker");
     {
@@ -192,7 +192,7 @@ class anchored_runtime {
  private:
   /** @brief 固定使用多工作线程模式，保留调用方的其他配置。 */
   static ::faio::runtime::config fixed_mode(::faio::runtime::config cfg) {
-    cfg._mode = ::faio::runtime::mode::multi_thread;
+    cfg._mode = ::faio::runtime::mode::MULTI_THREAD;
     return cfg;
   }
 

@@ -48,10 +48,10 @@ faio::task<void> show_single_results() {
   const auto stopped = co_await query;
 
   /** @brief take_value 消费成功值。异常和停止都有各自的终态，可留待业务统一处理。 */
-  if (value.status() != task_outcome_status::value || value.take_value() != 42
-      || failure.status() != task_outcome_status::error || !failure.exception()
-      || stopped.status() != task_outcome_status::stopped
-      || stopped.stop_reason() != faio::task_stop_reason::requested)
+  if (value.status() != task_outcome_status::VALUE || value.take_value() != 42
+      || failure.status() != task_outcome_status::ERROR_VALUE || !failure.exception()
+      || stopped.status() != task_outcome_status::STOPPED
+      || stopped.stop_reason() != faio::task_stop_reason::REQUESTED)
     throw std::logic_error("单项查询的终态与预期不符");
   faio::log::logger()->info("单项报价：成功、异常、协作停止");
 }
@@ -60,14 +60,14 @@ faio::task<void> show_single_results() {
 faio::task<void> show_partial_failure() {
   auto [first, failure, last] =
       co_await faio::join_settled(quote(21), quote(std::nullopt), quote(42));
-  if (first.take_value() != 21 || failure.status() != task_outcome_status::error
+  if (first.take_value() != 21 || failure.status() != task_outcome_status::ERROR_VALUE
       || last.take_value() != 42)
     throw std::logic_error("结算结果未保留成功报价及失败位置");
   faio::log::logger()->info("固定批次：成功、失败、成功");
 }
 
 /** @brief 用门闩控制首批任务的完成时机，再用原子计数观察各任务尚未完成的时间段。 */
-struct QuoteWindow {
+struct quote_window {
   static constexpr std::size_t limit = 2;
   faio::sync::latch filled{static_cast<std::ptrdiff_t>(limit)};
   faio::sync::latch release{1};
@@ -81,10 +81,10 @@ struct QuoteWindow {
  * @param index 输入位置，也用于校验批处理交付的顺序。
  * @return 由输入位置生成的报价。
  */
-faio::task<std::size_t> bounded_quote(QuoteWindow& window, std::size_t index) {
-  if (window.in_flight.fetch_add(1) >= QuoteWindow::limit)
+faio::task<std::size_t> bounded_quote(quote_window& window, std::size_t index) {
+  if (window.in_flight.fetch_add(1) >= quote_window::limit)
     window.exceeded = true;
-  if (index < QuoteWindow::limit) {
+  if (index < quote_window::limit) {
     window.filled.count_down();
     co_await window.release.wait();
   }
@@ -95,14 +95,14 @@ faio::task<std::size_t> bounded_quote(QuoteWindow& window, std::size_t index) {
 /** @brief 用固定大小的窗口执行动态批次，验证并发上限及结果的输入顺序。 */
 faio::task<void> show_bounded_batch() {
   constexpr std::size_t count = 5;
-  QuoteWindow window;
+  quote_window window;
   std::vector<faio::task<std::size_t>> queries;
   for (std::size_t index = 0; index < count; ++index)
     queries.push_back(bounded_quote(window, index));
 
-  auto batch = faio::spawn(faio::join_all_limited(QuoteWindow::limit, std::move(queries)));
+  auto batch = faio::spawn(faio::join_all_limited(quote_window::limit, std::move(queries)));
   co_await window.filled.wait();
-  const bool filled = window.in_flight == QuoteWindow::limit && !batch.done();
+  const bool filled = window.in_flight == quote_window::limit && !batch.done();
   window.release.count_down();
   auto results = co_await batch;
 
@@ -112,7 +112,7 @@ faio::task<void> show_bounded_batch() {
     if (results[index].take_value() != 20 + index)
       throw std::logic_error("批处理未按输入顺序交付报价");
   }
-  faio::log::logger()->info("动态批次：{} 条报价，在途上限 {}", count, QuoteWindow::limit);
+  faio::log::logger()->info("动态批次：{} 条报价，在途上限 {}", count, quote_window::limit);
 }
 
 /** @brief 顺序运行三种结果收集方式。 */

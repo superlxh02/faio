@@ -113,7 +113,7 @@ inline auto initialize_winsock() noexcept -> expected<void> {
 
   static lease network;
   if (network.error)
-    return std::unexpected{Error{network.error, 0, error_domain::winsock}};
+    return std::unexpected{::faio::error{network.error, 0, error_domain::WINSOCK}};
   return {};
 }
 
@@ -130,10 +130,11 @@ inline auto as_socket(detail::native_descriptor descriptor) noexcept -> SOCKET {
 inline auto prepare_socket(detail::native_descriptor descriptor) noexcept -> expected<void> {
   u_long enabled = 1;
   if (::ioctlsocket(as_socket(descriptor), FIONBIO, &enabled) == SOCKET_ERROR)
-    return std::unexpected{Error{::WSAGetLastError(), 0, error_domain::winsock}};
+    return std::unexpected{::faio::error{::WSAGetLastError(), 0, error_domain::WINSOCK}};
   if (!::SetHandleInformation(
           reinterpret_cast<HANDLE>(as_socket(descriptor)), HANDLE_FLAG_INHERIT, 0))
-    return std::unexpected{Error{static_cast<int>(::GetLastError()), 0, error_domain::win32}};
+    return std::unexpected{
+        ::faio::error{static_cast<int>(::GetLastError()), 0, error_domain::WIN32_API}};
   return {};
 }
 

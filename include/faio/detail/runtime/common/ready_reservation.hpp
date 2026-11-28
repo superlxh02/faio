@@ -16,7 +16,7 @@
 
 namespace faio::runtime::detail {
 /** @brief 有界多生产者就绪任务队列。 */
-template <std::size_t DefaultCapacity>
+template <std::size_t default_capacity>
 class mpsc_ready_queue;
 
 /**
@@ -82,12 +82,12 @@ struct ready_reservation_storage {
     inline static std::atomic<std::size_t> next_seed_{};
   };
 
-  enum class reservation_phase : unsigned char { reserved, queued, consumed };
+  enum class reservation_phase : unsigned char { RESERVED, QUEUED, CONSUMED };
 
   /** @brief 恢复容量预留记录。 */
   struct reservation_record {
     std::atomic<std::size_t> users{};
-    std::atomic<reservation_phase> phase{reservation_phase::reserved};
+    std::atomic<reservation_phase> phase{reservation_phase::RESERVED};
     std::shared_ptr<ready_reservation_storage> keepalive;
   };
 
@@ -104,7 +104,7 @@ struct ready_reservation_storage {
     auto& record = reservations[index];
     if (record.users.fetch_sub(1, std::memory_order_acq_rel) != 1)
       return;
-    assert(record.phase.load(std::memory_order_relaxed) != reservation_phase::queued);
+    assert(record.phase.load(std::memory_order_relaxed) != reservation_phase::QUEUED);
     auto owner = std::move(record.keepalive);
     handles[index] = {};
     reserved[index] = false;
@@ -119,7 +119,7 @@ struct ready_reservation_storage {
 };
 
 /** @brief 预留固定负载槽；复制只增加该槽引用，不分配或扩大队列。 */
-template <std::size_t DefaultCapacity>
+template <std::size_t default_capacity>
 class ready_reservation {
  public:
   /** @brief 构造协程恢复容量预留。 */
@@ -160,14 +160,14 @@ class ready_reservation {
   explicit operator bool() const noexcept { return state_ != nullptr; }
 
   /** @brief 判断资源是否属于指定域。 */
-  bool belongs_to(const mpsc_ready_queue<DefaultCapacity>& queue) const noexcept;
+  bool belongs_to(const mpsc_ready_queue<default_capacity>& queue) const noexcept;
   /** @brief 通过预留槽发布就绪任务。 */
   bool publish(std::coroutine_handle<> handle) const noexcept;
   /** @brief 向所属工作线程发布就绪任务。 */
   bool publish_local(std::coroutine_handle<> handle) const noexcept;
 
  private:
-  friend class mpsc_ready_queue<DefaultCapacity>;
+  friend class mpsc_ready_queue<default_capacity>;
 
   /** @brief 构造协程恢复容量预留。 */
   ready_reservation(ready_reservation_storage* state, std::size_t index) noexcept

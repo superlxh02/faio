@@ -25,7 +25,7 @@ namespace faio::runtime::detail {
  *          并发生产者最多 N 个，加上唯一消费者，满足 SCQ 的并发数限制。
  *          try_push 不可接纳时返回 false，句柄仍归调用者。
  */
-template <std::size_t DefaultCapacity = 256>
+template <std::size_t default_capacity = 256>
 class mpsc_ready_queue {
   using reservation_phase = ready_reservation_storage::reservation_phase;
   static_assert(std::atomic<bool>::is_always_lock_free);
@@ -56,10 +56,10 @@ class mpsc_ready_queue {
                           bool local = false) noexcept {
       if (!handle || !accepting.load(std::memory_order_acquire))
         return false;
-      auto expected = reservation_phase::reserved;
+      auto expected = reservation_phase::RESERVED;
       auto& record = reservations[index];
       if (!record.phase.compare_exchange_strong(expected,
-                                                reservation_phase::queued,
+                                                reservation_phase::QUEUED,
                                                 std::memory_order_acq_rel,
                                                 std::memory_order_relaxed))
         return false;
@@ -79,7 +79,7 @@ class mpsc_ready_queue {
       const auto index = *std::exchange(lookahead, std::nullopt);
       const auto handle = std::exchange(handles[index], std::coroutine_handle<>{});
       if (reserved[index]) {
-        reservations[index].phase.store(reservation_phase::consumed, std::memory_order_release);
+        reservations[index].phase.store(reservation_phase::CONSUMED, std::memory_order_release);
         release_reservation(index);
       } else {
         free_indices.push(index);
@@ -107,10 +107,10 @@ class mpsc_ready_queue {
   };
 
  public:
-  using reservation = ready_reservation<DefaultCapacity>;
+  using reservation = ready_reservation<default_capacity>;
 
   /** @brief 构造有界多生产者就绪任务队列。 */
-  explicit mpsc_ready_queue(std::size_t capacity = DefaultCapacity)
+  explicit mpsc_ready_queue(std::size_t capacity = default_capacity)
       : state_(std::make_shared<storage>(checked_capacity(capacity))) {}
 
   /** @brief 禁止复制构造有界多生产者就绪任务队列。 */
@@ -139,7 +139,7 @@ class mpsc_ready_queue {
       return {};
     auto& record = state->reservations[*index];
     record.keepalive = state_;
-    record.phase.store(reservation_phase::reserved, std::memory_order_relaxed);
+    record.phase.store(reservation_phase::RESERVED, std::memory_order_relaxed);
     record.users.store(1, std::memory_order_relaxed);
     state->reserved[*index] = true;
     return reservation{state, *index};
@@ -203,29 +203,29 @@ class mpsc_ready_queue {
 
  private:
   friend struct mpsc_ready_queue_test_access;
-  friend class ready_reservation<DefaultCapacity>;
+  friend class ready_reservation<default_capacity>;
   std::shared_ptr<storage> state_;
 };
 
 /** @brief 发布任务与检查所属队列需要 storage 的完整定义；生命周期管理本身仅依赖轻量的基础头文件。 */
-template <std::size_t DefaultCapacity>
-bool ready_reservation<DefaultCapacity>::belongs_to(
-    const mpsc_ready_queue<DefaultCapacity>& queue) const noexcept {
+template <std::size_t default_capacity>
+bool ready_reservation<default_capacity>::belongs_to(
+    const mpsc_ready_queue<default_capacity>& queue) const noexcept {
   return state_ == queue.state_.get();
 }
 
 /** @brief 发布就绪任务。 */
-template <std::size_t DefaultCapacity>
-bool ready_reservation<DefaultCapacity>::publish(std::coroutine_handle<> handle) const noexcept {
-  using storage = typename mpsc_ready_queue<DefaultCapacity>::storage;
+template <std::size_t default_capacity>
+bool ready_reservation<default_capacity>::publish(std::coroutine_handle<> handle) const noexcept {
+  using storage = typename mpsc_ready_queue<default_capacity>::storage;
   return state_ && static_cast<storage*>(state_)->publish_reserved(index_, handle);
 }
 
 /** @brief 向所属工作线程发布就绪任务。 */
-template <std::size_t DefaultCapacity>
-bool ready_reservation<DefaultCapacity>::publish_local(
+template <std::size_t default_capacity>
+bool ready_reservation<default_capacity>::publish_local(
     std::coroutine_handle<> handle) const noexcept {
-  using storage = typename mpsc_ready_queue<DefaultCapacity>::storage;
+  using storage = typename mpsc_ready_queue<default_capacity>::storage;
   return state_ && static_cast<storage*>(state_)->publish_reserved(index_, handle, true);
 }
 }  // namespace faio::runtime::detail

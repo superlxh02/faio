@@ -11,15 +11,16 @@
 
 namespace faio::io::detail {
 /**  @brief RecvMsg 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class RecvMsg : public IORegistrantAwaiter<RecvMsg> {
-  using Base = IORegistrantAwaiter<RecvMsg>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class recv_msg_awaiter : public io_registrant_awaiter<recv_msg_awaiter> {
+  using base_type =
+      io_registrant_awaiter<recv_msg_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造消息接收等待器。 */
-  RecvMsg(native_descriptor fd, msghdr* message, unsigned flags)
-      : Base{[&] {
+  recv_msg_awaiter(native_descriptor fd, msghdr* message, unsigned flags)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::recvmsg;
+          r.kind = operation_kind::RECVMSG;
           r.fd = fd;
           r.output_message = message;
           r.flags = static_cast<int>(flags);
@@ -27,8 +28,8 @@ class RecvMsg : public IORegistrantAwaiter<RecvMsg> {
         }()} {}
 
   /** @brief 构造消息接收等待器。 */
-  RecvMsg(resource_ptr resource, msghdr* message, unsigned flags)
-      : RecvMsg{resource ? resource->fd() : -1, message, flags} {
+  recv_msg_awaiter(resource_ptr resource, msghdr* message, unsigned flags)
+      : recv_msg_awaiter{resource ? resource->fd() : -1, message, flags} {
     this->request_.resource = std::move(resource);
   }
 
@@ -46,6 +47,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto recvmsg(F fd, msghdr* message, unsigned flags = 0) {
-  return detail::RecvMsg{std::move(fd), message, flags};
+  return detail::recv_msg_awaiter{std::move(fd), message, flags};
 }
 }  // namespace faio::io

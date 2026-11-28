@@ -62,7 +62,7 @@ class default_runtime_service {
   }
 
   /** @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。 */
-  void shutdown(io::shutdown_policy policy = io::shutdown_policy::drain) {
+  void shutdown(io::shutdown_policy policy = io::shutdown_policy::DRAIN) {
     if (::faio::detail::on_runtime_worker())
       throw std::logic_error("不能在 worker 上关闭运行时");
     std::unique_lock lock(mutex_);
@@ -113,7 +113,7 @@ inline void configure(config options) {
 }
 
 /** @brief 程序需要确定性退出时调用；关闭后不再允许提交或重新启动默认运行时。 */
-inline void shutdown(io::shutdown_policy policy = io::shutdown_policy::drain) {
+inline void shutdown(io::shutdown_policy policy = io::shutdown_policy::DRAIN) {
   detail::default_service().shutdown(policy);
 }
 }  // namespace faio::runtime

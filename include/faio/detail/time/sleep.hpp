@@ -22,30 +22,30 @@
 namespace faio::time::detail {
 /** @brief 支持取消的定时等待器。 */
 template <class S = default_scheduler>
-class BasicSleep {
+class basic_sleep {
  public:
   using scheduler_type = S;
 
   /** @brief 构造支持取消的定时等待器。 */
-  explicit BasicSleep(std::chrono::steady_clock::time_point deadline,
-                      scheduler_ref_for<S> scheduler = {})
+  explicit basic_sleep(std::chrono::steady_clock::time_point deadline,
+                       scheduler_ref_for<S> scheduler = {})
       : _deadline(deadline), _scheduler(scheduler) {}
 
   /** @brief 移动构造支持取消的定时等待器。 */
-  BasicSleep(BasicSleep&& other) noexcept
+  basic_sleep(basic_sleep&& other) noexcept
       : _deadline(other._deadline),
         _scheduler(other._scheduler),
         _cancelled_immediate(other._cancelled_immediate) {}
 
   /** @brief 禁止复制支持取消的定时等待器。 */
-  BasicSleep(const BasicSleep&) = delete;
+  basic_sleep(const basic_sleep&) = delete;
 
   /** @brief 在登记定时任务前，根据 promise 的调度器类型设置取消后的恢复目标。 */
   template <class Target>
   auto rebind_scheduler(scheduler_ref_for<Target> scheduler) const {
     if (_started)
       throw std::logic_error("不能重新绑定已经登记的 sleep 等待器");
-    return BasicSleep<Target>{_deadline, scheduler};
+    return basic_sleep<Target>{_deadline, scheduler};
   }
 
   /** @brief 绑定等待器的静态恢复调度器。 */
@@ -108,7 +108,7 @@ class BasicSleep {
   struct cancel_callback {
     std::shared_ptr<std::atomic<unsigned char>>
         claim;                            /**< 到期与取消共享的原子领取状态，确保协程只恢复一次。 */
-    runtime::detail::timer::Timer* timer; /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
+    runtime::detail::timer::timer* timer; /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
     std::coroutine_handle<> handle;       /**< 等待恢复的协程句柄，所有权由等待协议规定。 */
     ::faio::detail::basic_resume_target<S> scheduler; /**< 到期和取消共用捕获的恢复目标。 */
 
@@ -136,6 +136,6 @@ class BasicSleep {
       _callback; /**< 按需就地保存停止回调，析构时注销并等待仍在执行的回调结束。 */
 };
 
-using Sleep = BasicSleep<>;
+using sleep_awaiter = basic_sleep<>;
 }  // namespace faio::time::detail
 #endif

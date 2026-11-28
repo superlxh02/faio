@@ -19,17 +19,17 @@ namespace faio::net::unix::detail {
  *  @brief 拥有型 Unix 地址，区分 pathname、unnamed 与 Linux abstract
  * namespace。
  */
-class UnixAddr {
+class unix_addr {
  public:
   /** @brief 构造未命名的 Unix 地址。 */
-  UnixAddr() noexcept { address_.sun_family = AF_UNIX; }
+  unix_addr() noexcept { address_.sun_family = AF_UNIX; }
 
   /**  @brief 创建 pathname 地址；拒绝内嵌 NUL 和超长路径，不截断用户输入。 */
-  [[nodiscard]] static auto pathname(std::string_view path) -> expected<UnixAddr> {
+  [[nodiscard]] static auto pathname(std::string_view path) -> expected<unix_addr> {
     if (path.empty() || path.size() >= sizeof(sockaddr_un::sun_path)
         || path.find('\0') != std::string_view::npos)
       return std::unexpected{make_error(EINVAL)};
-    UnixAddr address;
+    unix_addr address;
     std::memcpy(address.address_.sun_path, path.data(), path.size());
     address.length_ = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.size() + 1);
     address.update_length();
@@ -37,7 +37,7 @@ class UnixAddr {
   }
 
   /** @brief 解析地址文本，非法格式返回错误。 */
-  [[nodiscard]] static auto parse(std::string_view path) -> expected<UnixAddr> {
+  [[nodiscard]] static auto parse(std::string_view path) -> expected<unix_addr> {
     return pathname(path);
   }
 
@@ -45,8 +45,8 @@ class UnixAddr {
    *  @brief Linux abstract 地址允许名字内嵌 NUL；其他 Unix 平台明确返回
    * ENOTSUP。
    */
-  [[nodiscard]] static auto abstract(std::string_view name) -> expected<UnixAddr> {
-    UnixAddr address;
+  [[nodiscard]] static auto abstract(std::string_view name) -> expected<unix_addr> {
+    unix_addr address;
     auto length = ::faio::net::detail::make_abstract_address(address.address_, name);
     if (!length)
       return std::unexpected{length.error()};
@@ -116,7 +116,7 @@ class UnixAddr {
   }
 
   /** @brief 比较两个地址值是否相等。 */
-  friend auto operator==(const UnixAddr& left, const UnixAddr& right) noexcept -> bool {
+  friend auto operator==(const unix_addr& left, const unix_addr& right) noexcept -> bool {
     return left.length_ == right.length_
            && std::memcmp(&left.address_, &right.address_, left.length_) == 0;
   }

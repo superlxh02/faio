@@ -40,7 +40,7 @@ struct unwrap_expected<expected<T>> {
 };
 
 /**  @brief 地址固定的任务状态，线程池、等待者和 stop_callback 共享同一个完成状态。 */
-template <class F, class Service = service_ref>
+template <class F, class service_type = service_ref>
 struct call_state {
   using raw_result = std::invoke_result_t<F&>; /**< 调用函数未经展开的原始返回类型。 */
   using result_type = typename unwrap_expected<
@@ -59,7 +59,7 @@ struct call_state {
   };
 
   io::io_context context; /**< 保持所属 IO 控制块和服务租约存活。 */
-  Service service;        /**< 按请求选择文件、DNS 或清理服务。 */
+  service_type service;   /**< 按请求选择文件、DNS 或清理服务。 */
   bool cancellable{true}; /**< close 等清理操作必须执行，不能因父级停止令牌而跳过。 */
   F function;             /**< 提交前拥有完整系统调用参数，不借用临时 lambda。 */
   std::optional<expected<result_type>> result; /**< 完成仲裁后写一次。 */
@@ -79,7 +79,7 @@ struct call_state {
 
   /** @brief 创建阻塞调用的共享状态。 */
   template <class Function>
-  call_state(io::io_context ctx, Function&& operation, Service service, bool can_cancel)
+  call_state(io::io_context ctx, Function&& operation, service_type service, bool can_cancel)
       : context(std::move(ctx)),
         service(std::move(service)),
         cancellable(can_cancel),
@@ -108,7 +108,7 @@ struct call_state {
           progress = value.error().progress();
         else if constexpr (std::integral<result_type>)
           progress = static_cast<std::size_t>(*value);
-        value = std::unexpected{Error{*cancellation_reason, progress}};
+        value = std::unexpected{error{*cancellation_reason, progress}};
       }
       result.emplace(std::move(value));
       terminal = true;
@@ -153,10 +153,10 @@ struct call_state {
 }  // namespace detail
 
 /**  @brief 类型化阻塞请求的协程桥接，构造时不提交、不执行系统调用。 */
-template <class F, class Service = service_ref>
+template <class F, class service_type = service_ref>
 class call_awaiter {
  public:
-  using state_type = detail::call_state<F, Service>; /**< 本桥接对象使用的稳定共享状态类型。 */
+  using state_type = detail::call_state<F, service_type>; /**< 本桥接对象使用的稳定共享状态类型。 */
   using result_type =
       typename state_type::result_type; /**< 对外领取的结果类型，已去除内部 expected 包装。 */
 
@@ -165,7 +165,7 @@ class call_awaiter {
     requires std::constructible_from<F, Function&&>
   call_awaiter(io::io_context context,
                Function&& function,
-               Service service,
+               service_type service,
                bool cancellable = true)
       : state_(std::make_shared<state_type>(std::move(context),
                                             std::forward<Function>(function),
@@ -261,9 +261,9 @@ class call_awaiter {
 };
 
 /** @brief 构造阻塞调用等待器。 */
-template <class F, class Service>
-call_awaiter(io::io_context, F&&, basic_service_ref<Service>, bool = true)
-    -> call_awaiter<std::decay_t<F>, basic_service_ref<Service>>;
+template <class F, class service_type>
+call_awaiter(io::io_context, F&&, basic_service_ref<service_type>, bool = true)
+    -> call_awaiter<std::decay_t<F>, basic_service_ref<service_type>>;
 
 /**  @brief 向 context 的文件服务提交受控系统调用，自动展开 expected 返回值。 */
 template <class F>
@@ -275,10 +275,10 @@ auto call(io::io_context context, F&& function) {
 }
 
 /**  @brief 显式选择阻塞服务，例如解析器服务；操作持有参数和完成状态的所有权。 */
-template <class F, class Service>
+template <class F, class service_type>
   requires std::invocable<std::decay_t<F>&>
-auto call_on(io::io_context context, F&& function, basic_service_ref<Service> service) {
-  return call_awaiter<std::decay_t<F>, basic_service_ref<Service>>{
+auto call_on(io::io_context context, F&& function, basic_service_ref<service_type> service) {
+  return call_awaiter<std::decay_t<F>, basic_service_ref<service_type>>{
       std::move(context), std::forward<F>(function), std::move(service)};
 }
 

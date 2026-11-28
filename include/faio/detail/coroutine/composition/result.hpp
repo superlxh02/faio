@@ -26,10 +26,10 @@ using joined_value = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
 namespace faio {
 /** @brief 工作发布的互斥终态，void 正常完成也使用 value。 */
-enum class task_outcome_status { value, error, stopped };
+enum class task_outcome_status { VALUE, ERROR_VALUE, STOPPED };
 
 /** @brief 区分已运行任务的停止和因停止而从未接纳的任务。 */
-enum class task_stop_reason { requested, not_started };
+enum class task_stop_reason { REQUESTED, NOT_STARTED };
 
 /**
  * @brief 拥有任务的终态及单次值消费权。
@@ -73,7 +73,7 @@ class [[nodiscard]] task_outcome {
         payload.emplace(std::move(*source.payload));
     }
 
-    std::optional<stored_value> payload;
+    std::optional<stored_value> payload{};
     bool consumed{};
   };
 
@@ -111,19 +111,19 @@ class [[nodiscard]] task_outcome {
     if (!exception)
       throw std::invalid_argument("task_outcome 的 error 终态需要异常");
     return task_outcome(
-        task_outcome_status::error, task_stop_reason::requested, std::move(exception));
+        task_outcome_status::ERROR_VALUE, task_stop_reason::REQUESTED, std::move(exception));
   }
 
   /** @brief 保存停止终态及可选的原异常。 */
   static task_outcome from_stopped(std::exception_ptr exception = {}) noexcept {
-    return from_stopped(task_stop_reason::requested, std::move(exception));
+    return from_stopped(task_stop_reason::REQUESTED, std::move(exception));
   }
 
   /** @brief 保存显式停止原因及可选的原异常。 */
   template <class Reason>
     requires std::same_as<Reason, task_stop_reason>
   static task_outcome from_stopped(Reason reason, std::exception_ptr exception = {}) noexcept {
-    return task_outcome(task_outcome_status::stopped, reason, std::move(exception));
+    return task_outcome(task_outcome_status::STOPPED, reason, std::move(exception));
   }
 
   /** @brief 转交结果及其唯一消费权，保留源结果的终态。 */
@@ -137,13 +137,13 @@ class [[nodiscard]] task_outcome {
   task_outcome_status status() const noexcept {
     if (const auto* failure = std::get_if<failure_slot>(&storage_))
       return failure->status;
-    return task_outcome_status::value;
+    return task_outcome_status::VALUE;
   }
 
   /** @brief 查询停止原因，成功和失败终态返回空。 */
   std::optional<task_stop_reason> stop_reason() const noexcept {
     const auto* failure = std::get_if<failure_slot>(&storage_);
-    if (failure && failure->status == task_outcome_status::stopped)
+    if (failure && failure->status == task_outcome_status::STOPPED)
       return failure->reason;
     return std::nullopt;
   }
@@ -170,7 +170,7 @@ class [[nodiscard]] task_outcome {
 
   /** @brief 领取成功值或重抛原异常；停止没有原异常时抛出 operation_cancelled。 */
   T value_or_throw() {
-    if (status() == task_outcome_status::value)
+    if (status() == task_outcome_status::VALUE)
       return take_value();
     if (auto cause = exception())
       std::rethrow_exception(std::move(cause));

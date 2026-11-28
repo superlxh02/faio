@@ -32,7 +32,7 @@ faio::task<int> demonstrate(const std::filesystem::path& work_directory) {
   constexpr std::string_view message{"hello faio\n"};
   const auto path = work_directory / "message.txt";
 
-  auto file = co_await faio::fs::File::create(path);
+  auto file = co_await faio::fs::file::create(path);
   if (!file) {
     faio::log::logger()->error("创建文件失败：{}", file.error().message());
     co_return 1;

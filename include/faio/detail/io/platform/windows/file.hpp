@@ -116,7 +116,7 @@ inline std::int64_t update_file_position(HANDLE handle, std::uint64_t position) 
  */
 inline std::int64_t scalar_file(detail::io_request& request) noexcept {
   HANDLE handle = reinterpret_cast<HANDLE>(request.fd);
-  const bool writing = request.kind == detail::operation_kind::write;
+  const bool writing = request.kind == detail::operation_kind::WRITE;
   owned_file_handle event{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
   if (!event)
     return -encode_windows_error(::GetLastError());
@@ -362,7 +362,7 @@ inline std::int64_t vectored_file(detail::io_request& request) noexcept {
   if (request.flags)
     return -EOPNOTSUPP;
   HANDLE handle = reinterpret_cast<HANDLE>(request.fd);
-  const bool writing = request.kind == detail::operation_kind::writev;
+  const bool writing = request.kind == detail::operation_kind::WRITEV;
   owned_file_handle event{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
   if (!event)
     return -encode_windows_error(::GetLastError());

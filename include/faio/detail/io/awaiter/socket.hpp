@@ -10,15 +10,16 @@
 
 namespace faio::io::detail {
 /**  @brief Socket 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class Socket : public IORegistrantAwaiter<Socket> {
-  using Base = IORegistrantAwaiter<Socket>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class socket : public io_registrant_awaiter<socket> {
+  using base_type =
+      io_registrant_awaiter<socket>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造套接字创建等待器。 */
-  Socket(int domain, int type, int protocol, unsigned flags)
-      : Base{[&] {
+  socket(int domain, int type, int protocol, unsigned flags)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::socket;
+          r.kind = operation_kind::SOCKET;
           r.argument = domain;
           r.argument2 = type;
           r.argument3 = protocol;
@@ -39,6 +40,6 @@ class Socket : public IORegistrantAwaiter<Socket> {
 namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 inline auto socket(int family, int type, int protocol, unsigned flags = 0) {
-  return detail::Socket{family, type, protocol, flags};
+  return detail::socket{family, type, protocol, flags};
 }
 }  // namespace faio::io

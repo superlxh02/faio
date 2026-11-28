@@ -36,7 +36,7 @@ namespace faio::net::detail {
 
 /**  @brief 网络控制选项 CRTP；不为短 syscall 创建线程池任务。 */
 template <class T>
-struct ImplSocketOptions {
+struct impl_socket_options {
  private:
   /** @brief 取得当前对象的原生 socket 句柄，不转移所有权。 */
   [[nodiscard]] auto descriptor() const noexcept -> native_socket_type {
@@ -47,7 +47,7 @@ struct ImplSocketOptions {
   auto set_option(int level, int option, const void* value, socklen_t length) const noexcept
       -> expected<void> {
     return io::detail::with_resource(
-        static_cast<const T*>(this)->resource(), io::Interest::none, [&] {
+        static_cast<const T*>(this)->resource(), io::interest::NONE, [&] {
           return set_sock_opt(descriptor(), level, option, value, length);
         });
   }
@@ -56,7 +56,7 @@ struct ImplSocketOptions {
   auto get_option(int level, int option, void* value, socklen_t length) const noexcept
       -> expected<void> {
     return io::detail::with_resource(
-        static_cast<const T*>(this)->resource(), io::Interest::none, [&] {
+        static_cast<const T*>(this)->resource(), io::interest::NONE, [&] {
           return get_sock_opt(descriptor(), level, option, value, length);
         });
   }
@@ -64,7 +64,7 @@ struct ImplSocketOptions {
   /** @brief 返回地址或 socket 所属的原生地址族。 */
   auto family() const noexcept -> expected<int> {
     return io::detail::with_resource(
-        static_cast<const T*>(this)->resource(), io::Interest::none, [&]() -> expected<int> {
+        static_cast<const T*>(this)->resource(), io::interest::NONE, [&]() -> expected<int> {
           return socket_address_family(descriptor());
         });
   }
@@ -246,17 +246,17 @@ struct ImplSocketOptions {
   }
 
   /**  @brief 读取并清除挂起的 SO_ERROR；没有错误时返回 nullopt。 */
-  [[nodiscard]] auto take_error() const noexcept -> expected<std::optional<Error>> {
+  [[nodiscard]] auto take_error() const noexcept -> expected<std::optional<::faio::error>> {
     auto value = integer(SOL_SOCKET, SO_ERROR);
     if (!value)
       return std::unexpected{value.error()};
     if (*value == 0)
-      return std::optional<Error>{};
+      return std::optional<::faio::error>{};
     return std::optional{make_error(*value)};
   }
 
   /** @brief 在指定 IPv4 接口加入组播组。 */
-  auto join_multicast_v4(Ipv4Addr group, Ipv4Addr network_interface = Ipv4Addr{}) noexcept
+  auto join_multicast_v4(ipv4_addr group, ipv4_addr network_interface = ipv4_addr{}) noexcept
       -> expected<void> {
     ip_mreq value{};
     value.imr_multiaddr.s_addr = group.addr();
@@ -265,7 +265,7 @@ struct ImplSocketOptions {
   }
 
   /** @brief 在指定 IPv4 接口退出组播组。 */
-  auto leave_multicast_v4(Ipv4Addr group, Ipv4Addr network_interface = Ipv4Addr{}) noexcept
+  auto leave_multicast_v4(ipv4_addr group, ipv4_addr network_interface = ipv4_addr{}) noexcept
       -> expected<void> {
     ip_mreq value{};
     value.imr_multiaddr.s_addr = group.addr();
@@ -274,7 +274,7 @@ struct ImplSocketOptions {
   }
 
   /** @brief 在指定接口索引加入 IPv6 组播组。 */
-  auto join_multicast_v6(const Ipv6Addr& group, std::uint32_t network_interface = 0) noexcept
+  auto join_multicast_v6(const ipv6_addr& group, std::uint32_t network_interface = 0) noexcept
       -> expected<void> {
     ipv6_mreq value{};
     value.ipv6mr_multiaddr = group.addr();
@@ -283,7 +283,7 @@ struct ImplSocketOptions {
   }
 
   /** @brief 在指定接口索引退出 IPv6 组播组。 */
-  auto leave_multicast_v6(const Ipv6Addr& group, std::uint32_t network_interface = 0) noexcept
+  auto leave_multicast_v6(const ipv6_addr& group, std::uint32_t network_interface = 0) noexcept
       -> expected<void> {
     ipv6_mreq value{};
     value.ipv6mr_multiaddr = group.addr();
@@ -347,7 +347,7 @@ struct ImplSocketOptions {
   }
 
   /** @brief 指定发送 IPv4 组播使用的本地接口地址。 */
-  auto set_multicast_interface_v4(Ipv4Addr network_interface) noexcept -> expected<void> {
+  auto set_multicast_interface_v4(ipv4_addr network_interface) noexcept -> expected<void> {
     in_addr value{};
     value.s_addr = network_interface.addr();
     return set_option(IPPROTO_IP, IP_MULTICAST_IF, &value, sizeof(value));
@@ -392,26 +392,26 @@ struct ImplSocketOptions {
 
 /** @brief 保留旧 CRTP 名称以兼容源码；新对象统一继承同一个选项 mixin。 */
 template <class T>
-using ImplNodelay = ImplSocketOptions<T>;
+using impl_nodelay = impl_socket_options<T>;
 template <class T>
-using ImplPasscred = ImplSocketOptions<T>;
+using impl_passcred = impl_socket_options<T>;
 template <class T>
-using ImplRecvBufSize = ImplSocketOptions<T>;
+using impl_recv_buf_size = impl_socket_options<T>;
 template <class T>
-using ImplSendBufSize = ImplSocketOptions<T>;
+using impl_send_buf_size = impl_socket_options<T>;
 template <class T>
-using ImplKeepalive = ImplSocketOptions<T>;
+using impl_keepalive = impl_socket_options<T>;
 template <class T>
-using ImplLinger = ImplSocketOptions<T>;
+using impl_linger = impl_socket_options<T>;
 template <class T>
-using ImplBoradcast = ImplSocketOptions<T>;
+using impl_boradcast = impl_socket_options<T>;
 template <class T>
-using ImplTTL = ImplSocketOptions<T>;
+using impl_ttl = impl_socket_options<T>;
 template <class T>
-using ImplReuseAddr = ImplSocketOptions<T>;
+using impl_reuse_addr = impl_socket_options<T>;
 template <class T>
-using ImplReusePort = ImplSocketOptions<T>;
+using impl_reuse_port = impl_socket_options<T>;
 template <class T>
-using ImplMark = ImplSocketOptions<T>;
+using impl_mark = impl_socket_options<T>;
 }  // namespace faio::net::detail
 #endif

@@ -9,14 +9,16 @@
 - @ref time "时间与超时"：sleep、周期触发和 I/O deadline。
 - @ref sync "协程同步"：互斥锁、信号量、条件变量、屏障和有界 MPSC。
 - @ref io "缓冲与流算法"：缓冲区、读写适配、内存流、复制与 Unix 描述符。
-- @ref errors "错误与日志"：expected、Error 与日志入口。
+- @ref errors "错误与日志"：expected、error 与日志入口。
+- @ref match "模式匹配"：expected、optional、variant 与值的有序分支。
+- @ref stdio "标准输入输出"：协程标准流与格式化输出。
 
 ## 如何阅读异步签名
 
 返回 `task<T>` 的接口通过 `co_await` 取得 `T`。返回 `auto` 的 I/O 接口也通过 `co_await` 使用，其完成结果写在方法的“返回”说明中。先检查 `expected` 的成功状态，再访问结果；失败时使用 `error().message()` 和 `error().transferred()` 查询原因与部分进度。
 
 ```cpp
-auto listener = faio::net::TcpListener::bind(*address);
+auto listener = faio::net::tcp_listener::bind(*address);
 if (!listener) co_return;
 auto client = co_await listener->accept();
 if (!client) co_return;

@@ -44,9 +44,9 @@ struct select_state {
 };
 
 /** @brief 第 I 个选择分支的根协程包装器：先执行子任务，再以完成结果竞争唯一胜出权。 */
-template <std::size_t I, class T, class S, class State>
-root_task select_root_task_wrapper(task<T, S> child, State* state) {
-  using variant_type = typename State::variant_type;
+template <std::size_t I, class T, class S, class select_state_type>
+root_task select_root_task_wrapper(task<T, S> child, select_state_type* state) {
+  using variant_type = typename select_state_type::variant_type;
   std::optional<variant_type> value;
   std::exception_ptr error;
   try {
@@ -78,8 +78,8 @@ root_task select_root_task_wrapper(task<T, S> child, State* state) {
 }
 
 /** @brief 构造并立即提交第 I 个候选分支，只借用父帧状态；父任务排空后才能退出。 */
-template <std::size_t I, class T, class S, class State>
-void schedule_select_task(task<T, S> child, State* state) {
+template <std::size_t I, class T, class S, class select_state_type>
+void schedule_select_task(task<T, S> child, select_state_type* state) {
   auto context = capture_task_context();
   auto* scope = context.scope;
   context.stop_token = state->stop.get_token();

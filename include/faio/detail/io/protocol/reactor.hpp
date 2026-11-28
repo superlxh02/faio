@@ -8,12 +8,12 @@
 namespace faio::io::detail {
 /** @brief 后端中立的方向就绪与关闭信息；ERR/EOF 仍须由真实 IO 判断终态。 */
 enum readiness_bits : std::uint32_t {
-  readable_bit = 1,
-  writable_bit = 2,
-  error_bit = 4,
-  read_closed_bit = 8,
-  write_closed_bit = 16,
-  closed_bit = read_closed_bit | write_closed_bit
+  READABLE_BIT = 1,
+  WRITABLE_BIT = 2,
+  ERROR_BIT = 4,
+  READ_CLOSED_BIT = 8,
+  WRITE_CLOSED_BIT = 16,
+  CLOSED_BIT = READ_CLOSED_BIT | WRITE_CLOSED_BIT
 };
 
 /**

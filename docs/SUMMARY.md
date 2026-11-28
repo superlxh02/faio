@@ -14,6 +14,8 @@
   - [错误处理](topics/errors.md)
 - [术语表](glossary.md)
 - [API 介绍](api/index.md)
+  - [模式匹配](api/match.md)
+  - [标准输入输出](api/stdio.md)
   - [协程与并发](api/tasks.md)
     - [显式任务终态 settle](api/settle.md)
     - [异步收尾 with_cleanup](api/with_cleanup.md)

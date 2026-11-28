@@ -11,7 +11,7 @@
 namespace {
 /** @brief 验证内存流的完整读写、游标及整数编码。 */
 faio::task<bool> memory_roundtrip() {
-  faio::io::MemoryStream stream;
+  faio::io::memory_stream stream;
   faio_test::take(co_await faio::io::write_u32(stream, 0x12345678u));
   faio_test::take(co_await faio::io::write_all(stream, std::string_view{"faio"}));
   faio_test::take(co_await stream.seek(0));
@@ -24,17 +24,17 @@ faio::task<bool> memory_roundtrip() {
 
 /** @brief EOF 错误携带此前已完成的读取进度。 */
 faio::task<bool> eof_progress() {
-  faio::io::MemoryStream stream{std::string_view{"abc"}};
+  faio::io::memory_stream stream{std::string_view{"abc"}};
   std::array<char, 5> output{};
   const auto result = co_await faio::io::read_exact(stream, output);
-  co_return !result && result.error().value() == faio::Error::UnexpectedEOF
+  co_return !result && result.error().value() == faio::error::UNEXPECTED_EOF
       && result.error().progress() == 3;
 }
 
 /** @brief 验证普通文件的完整读写、定位与元数据。 */
 faio::task<bool> file_roundtrip(const std::filesystem::path& path) {
   auto file = faio_test::take(
-      co_await faio::fs::File::open(path, faio::fs::OpenOptions{}.read().write().create_new()));
+      co_await faio::fs::file::open(path, faio::fs::open_options{}.read().write().create_new()));
   constexpr std::string_view payload{"faio-file"};
   faio_test::take(co_await file.write_all(std::span<const char>{payload}));
   faio_test::take(co_await file.flush());
@@ -50,13 +50,13 @@ faio::task<bool> file_roundtrip(const std::filesystem::path& path) {
 
 /** @brief 打开不存在的文件时返回错误。 */
 faio::task<bool> missing_file(const std::filesystem::path& path) {
-  const auto file = co_await faio::fs::File::open(path, faio::fs::OpenOptions{}.read());
+  const auto file = co_await faio::fs::file::open(path, faio::fs::open_options{}.read());
   co_return !file;
 }
 }  // namespace
 
 /** @brief 内存流支持组合读写与整数编码。 */
-TEST(Io, MemoryStream) {
+TEST(Io, memory_stream) {
   faio::runtime::detail::runtime_context context{faio_test::config()};
   EXPECT_TRUE(context.block_on(memory_roundtrip()));
 }
@@ -79,9 +79,9 @@ TEST(Io, Filesystem) {
 TEST(Io, ErrorContext) {
   auto context = std::make_shared<faio::error_context>();
   context->message = "测试错误";
-  const auto error = faio::Error{3, 7, faio::error_domain::tls}.with_context(context);
+  const auto error = faio::error{3, 7, faio::error_domain::TLS}.with_context(context);
   const auto copy = error;
-  EXPECT_EQ(copy.domain(), faio::error_domain::tls);
+  EXPECT_EQ(copy.domain(), faio::error_domain::TLS);
   EXPECT_EQ(copy.progress(), 7u);
   EXPECT_EQ(copy.context(), context);
   EXPECT_EQ(copy.message(), "测试错误");

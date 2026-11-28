@@ -11,11 +11,11 @@ namespace faio::io {
  * flags。
  */
 inline auto open2(const char* path, const open_how* how) {
-  return detail::Open2{path, how};
+  return detail::open2_awaiter{path, how};
 }
 
 /** @brief 按目录描述符和路径解析选项打开文件。 */
 inline auto openat2(int directory, const char* path, const open_how* how) {
-  return detail::Open2{directory, path, how};
+  return detail::open2_awaiter{directory, path, how};
 }
 }  // namespace faio::io

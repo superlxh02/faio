@@ -26,14 +26,14 @@ auto as_sender(faio::task<T> child) {
 
 /**
  * @brief 向当前执行上下文提交 sender 图，并沿用当前任务的停止与排空责任。
- * @tparam Sender 要提交的 sender 类型。
+ * @tparam sender_type 要提交的 sender 类型。
  * @param sender 立即提交的 sender。
  * @return 一次性等待句柄。成功时交付值元组，停止时交付空结果，失败时抛出异常。
  * @throws std::logic_error 调用线程没有绑定 faio 执行上下文。
  */
-template <class Sender>
-auto spawn_sender(Sender&& sender) {
-  return this_runtime().spawn_sender(std::forward<Sender>(sender));
+template <class sender_type>
+auto spawn_sender(sender_type&& sender) {
+  return this_runtime().spawn_sender(std::forward<sender_type>(sender));
 }
 
 /** @brief 服务共享访问覆盖整个回调；借用的调度器和操作须在回调内结束，关闭则在访问结束后执行。 */

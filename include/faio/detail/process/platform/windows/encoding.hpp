@@ -17,11 +17,11 @@ inline auto widen(std::string_view value) -> expected<std::wstring> {
   if (value.empty())
     return std::wstring{};
   if (value.size() > INT_MAX)
-    return std::unexpected{process_error(errc::invalid_configuration)};
+    return std::unexpected{process_error(errc::INVALID_CONFIGURATION)};
   const int size = ::MultiByteToWideChar(
       CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
   if (!size)
-    return std::unexpected{process_error(errc::invalid_configuration)};
+    return std::unexpected{process_error(errc::INVALID_CONFIGURATION)};
   std::wstring result(static_cast<std::size_t>(size), L'\0');
   if (!::MultiByteToWideChar(CP_UTF8,
                              MB_ERR_INVALID_CHARS,

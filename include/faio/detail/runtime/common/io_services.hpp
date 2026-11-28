@@ -22,12 +22,12 @@ inline io::engine_config make_io_services(const runtime_config& config) {
   services.native_queue_entries =
       static_cast<unsigned>(std::clamp<std::size_t>(config._num_events, 8, 4096));
   services.max_operations = std::max<std::size_t>(4096, config._num_events);
-  services.current_thread_submissions = config._mode == mode::current_thread;
+  services.current_thread_submissions = config._mode == mode::CURRENT_THREAD;
 
-  auto startup = blocking::startup_policy::preheated;
+  auto startup = blocking::startup_policy::PREHEATED;
 #if defined(__linux__)
   if (io::detail::resolve_io_backend(config._requested_io_backend) == io_backend::IO_URING)
-    startup = blocking::startup_policy::on_demand;
+    startup = blocking::startup_policy::ON_DEMAND;
 #endif
   services.filesystem_service = std::make_shared<blocking::service>(
       config._filesystem_threads, config._filesystem_queue_limit, 1, startup);
@@ -36,7 +36,7 @@ inline io::engine_config make_io_services(const runtime_config& config) {
   services.cleanup_service =
       std::make_shared<blocking::service>(1, config._filesystem_queue_limit, 1, startup);
   services.placement_service = std::make_shared<io::detail::io_placement_group>(
-      config._mode == mode::current_thread ? 1 : config._num_workers);
+      config._mode == mode::CURRENT_THREAD ? 1 : config._num_workers);
   return services;
 }
 

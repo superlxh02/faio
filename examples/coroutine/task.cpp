@@ -76,7 +76,7 @@ faio::task<void> show_tasks() {
 int main() {
   try {
     faio::runtime::configure(faio::config_builder{}
-                                 .set_mode(faio::runtime::mode::multi_thread)
+                                 .set_mode(faio::runtime::mode::MULTI_THREAD)
                                  .set_num_workers(2)
                                  .build());
     faio::block_on(show_tasks());

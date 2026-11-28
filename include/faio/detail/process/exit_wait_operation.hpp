@@ -13,7 +13,8 @@
 
 namespace faio::process::detail {
 /** @brief 在产生副作用前检查父取消、显式取消和已过期截止时间。 */
-inline auto preflight(io::OperationOptions options, std::stop_token parent = {}) -> expected<void> {
+inline auto preflight(io::operation_options options, std::stop_token parent = {})
+    -> expected<void> {
   if (options.stop.stop_requested() || parent.stop_requested())
     return std::unexpected{make_error(ECANCELED)};
   if (options.deadline && std::chrono::steady_clock::now() >= *options.deadline)
@@ -22,30 +23,30 @@ inline auto preflight(io::OperationOptions options, std::stop_token parent = {})
 }
 
 /** @brief 将单次退出等待与运行时完成发布租约绑定的状态，地址保持不变。 */
-class ExitWaitOperation : public std::enable_shared_from_this<ExitWaitOperation> {
+class exit_wait_operation : public std::enable_shared_from_this<exit_wait_operation> {
  public:
   /** @brief 禁止复制退出等待状态，避免重复持有所有权或复制运行状态。 */
-  ExitWaitOperation(const ExitWaitOperation&) = delete;
+  exit_wait_operation(const exit_wait_operation&) = delete;
   /** @brief 退出等待状态不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(const ExitWaitOperation&) -> ExitWaitOperation& = delete;
+  auto operator=(const exit_wait_operation&) -> exit_wait_operation& = delete;
   /** @brief 退出等待状态不能移动；回调和协程依赖其固定地址。 */
-  ExitWaitOperation(ExitWaitOperation&&) = delete;
+  exit_wait_operation(exit_wait_operation&&) = delete;
   /** @brief 退出等待状态不支持移动赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(ExitWaitOperation&&) -> ExitWaitOperation& = delete;
+  auto operator=(exit_wait_operation&&) -> exit_wait_operation& = delete;
   /** @brief 释放等待结果及租约；已接纳的等待应先完成排空。 */
-  ~ExitWaitOperation() = default;
+  ~exit_wait_operation() = default;
 
   /** @brief 分配地址固定的等待状态，避免回调在挂起后引用被移动的对象。 */
-  static auto create(std::shared_ptr<ProcessState> state,
-                     io::OperationOptions options,
-                     std::stop_token parent) -> expected<std::shared_ptr<ExitWaitOperation>> {
+  static auto create(std::shared_ptr<process_state> state,
+                     io::operation_options options,
+                     std::stop_token parent) -> expected<std::shared_ptr<exit_wait_operation>> {
     try {
-      struct factory final : ExitWaitOperation {
+      struct factory final : exit_wait_operation {
         /** @brief 原样转发构造参数，通过 make_shared 在一次分配中创建地址固定的状态。 */
-        factory(std::shared_ptr<ProcessState> owned,
-                io::OperationOptions operation,
+        factory(std::shared_ptr<process_state> owned,
+                io::operation_options operation,
                 std::stop_token token)
-            : ExitWaitOperation(std::move(owned), operation, token) {}
+            : exit_wait_operation(std::move(owned), operation, token) {}
       };
 
       return std::make_shared<factory>(std::move(state), options, parent);
@@ -55,7 +56,7 @@ class ExitWaitOperation : public std::enable_shared_from_this<ExitWaitOperation>
   }
 
   /** @brief 登记唯一等待者和两个取消回调，在进程退出或首次等待失败后撤下等待者。 */
-  auto wait() -> task<expected<ExitStatus>>;
+  auto wait() -> task<expected<exit_status>>;
 
   /** @brief 从进程记录读取已缓存的终态，并尝试完成本次等待。 */
   void notify_terminal() noexcept {
@@ -67,7 +68,7 @@ class ExitWaitOperation : public std::enable_shared_from_this<ExitWaitOperation>
   }
 
   /** @brief 保存本次请求的取消原因，并推动尚未交付的工作结束。 */
-  void request_stop(Error error) noexcept { finish(std::unexpected{std::move(error)}); }
+  void request_stop(error error) noexcept { finish(std::unexpected{std::move(error)}); }
 
   /** @brief 从进程记录中撤下本等待者，腾出位置供后续等待登记。 */
   void unlink() noexcept { state_->detach_waiter(shared_from_this()); }
@@ -77,13 +78,13 @@ class ExitWaitOperation : public std::enable_shared_from_this<ExitWaitOperation>
 
  private:
   /** @brief 固定本次等待的进程记录、操作选项及父取消令牌。 */
-  ExitWaitOperation(std::shared_ptr<ProcessState> state,
-                    io::OperationOptions options,
-                    std::stop_token parent)
+  exit_wait_operation(std::shared_ptr<process_state> state,
+                      io::operation_options options,
+                      std::stop_token parent)
       : state_(std::move(state)), options_(options), parent_(parent) {}
 
   /** @brief 在结果锁下只发布一次等待结果，随后持有发布租约唤醒协程。 */
-  void finish(expected<ExitStatus> value) noexcept {
+  void finish(expected<exit_status> value) noexcept {
     {
       std::lock_guard lock(mutex_);
       if (result_)
@@ -96,11 +97,11 @@ class ExitWaitOperation : public std::enable_shared_from_this<ExitWaitOperation>
     completion_.notify();
   }
 
-  std::shared_ptr<ProcessState> state_; /**< 等待结束前保持原生进程记录有效。 */
-  io::OperationOptions options_;        /**< 本次退出等待的显式取消及绝对截止时间。 */
-  std::stop_token parent_;              /**< 创建操作时继承的父取消令牌。 */
-  std::mutex mutex_;                    /**< 保护单次等待的唯一完成结果。 */
-  std::optional<expected<ExitStatus>>
+  std::shared_ptr<process_state> state_; /**< 等待结束前保持原生进程记录有效。 */
+  io::operation_options options_;        /**< 本次退出等待的显式取消及绝对截止时间。 */
+  std::stop_token parent_;               /**< 创建操作时继承的父取消令牌。 */
+  std::mutex mutex_;                     /**< 保护单次等待的唯一完成结果。 */
+  std::optional<expected<exit_status>>
       result_; /**< 进程退出、取消、到期或运行时关闭中最先产生的结果。 */
   ::faio::detail::completion_event
       completion_; /**< 不可提前放弃的完成通知，保证结果发布安全排空。 */
@@ -110,12 +111,12 @@ class ExitWaitOperation : public std::enable_shared_from_this<ExitWaitOperation>
 };
 
 /** @brief 登记唯一等待者和两个取消回调，在进程退出或首次等待失败后撤下等待者。 */
-inline auto ExitWaitOperation::wait() -> task<expected<ExitStatus>> {
+inline auto exit_wait_operation::wait() -> task<expected<exit_status>> {
   auto keep = shared_from_this();
   if (auto checked = preflight(options_, parent_); !checked)
     co_return std::unexpected{checked.error()};
   if (state_->runtime_stopped())
-    co_return std::unexpected{process_error(errc::runtime_shutdown)};
+    co_return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
   execution_scope_.capture();
   auto lease = execution_scope_.acquire_child();
@@ -135,7 +136,7 @@ inline auto ExitWaitOperation::wait() -> task<expected<ExitStatus>> {
   };
   std::stop_callback parent_callback{parent_, stop};
   std::stop_callback explicit_callback{options_.stop, stop};
-  if (auto service = ProcessService::instance())
+  if (auto service = process_service::instance())
     (*service)->notify_control_change();
   co_await completion_.wait();
   unlink();

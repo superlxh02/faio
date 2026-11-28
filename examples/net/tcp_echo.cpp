@@ -12,11 +12,10 @@
 #include <utility>
 
 namespace {
-const auto address = faio::net::SocketAddr{faio::net::Ipv4Addr{127, 0, 0, 1}, 8080};
+const auto address = faio::net::socket_addr{faio::net::ipv4_addr{127, 0, 0, 1}, 8080};
 
 /** @brief 持续读取一条连接并回写，直到对端关闭或 I/O 失败。 */
-faio::task<void> handle_connection(faio::net::TcpStream stream,
-                                   faio::net::SocketAddr peer) {
+faio::task<void> handle_connection(faio::net::tcp_stream stream, faio::net::socket_addr peer) {
   std::array<char, 4096> buffer{};
   for (;;) {
     const auto count = co_await stream.read(buffer);
@@ -29,8 +28,7 @@ faio::task<void> handle_connection(faio::net::TcpStream stream,
       co_return;
     }
 
-    const auto written =
-        co_await stream.write_all(std::span<const char>{buffer}.first(*count));
+    const auto written = co_await stream.write_all(std::span<const char>{buffer}.first(*count));
     if (!written) {
       faio::log::logger()->error("写回 {} 失败：{}", peer.to_string(), written.error().message());
       co_return;
@@ -40,7 +38,7 @@ faio::task<void> handle_connection(faio::net::TcpStream stream,
 
 /** @brief 绑定端口并持续接受连接。 */
 faio::task<int> serve() {
-  auto listener = faio::net::TcpListener::bind(address);
+  auto listener = faio::net::tcp_listener::bind(address);
   if (!listener) {
     faio::log::logger()->error("绑定 {} 失败：{}", address.to_string(), listener.error().message());
     co_return 1;

@@ -61,7 +61,7 @@ struct join_handle_state {
       if (error)
         std::rethrow_exception(error);
     } catch (const operation_cancelled&) {
-      normal_cancelled = cancellation_policy == cancellation_error_policy::normal_if_stop_requested
+      normal_cancelled = cancellation_policy == cancellation_error_policy::NORMAL_IF_STOP_REQUESTED
                          && stop_source.stop_requested();
     } catch (...) {
       normal_cancelled = false;

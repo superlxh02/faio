@@ -27,32 +27,32 @@
 namespace faio {
 /** @brief 原生错误的来源；解析器错误不能作为 errno 解释。 */
 enum class error_domain {
-  faio,       /**< faio 自定义错误码。 */
-  posix,      /**< errno 定义的系统调用错误。 */
-  resolver,   /**< 地址解析器 getaddrinfo 返回的错误。 */
-  win32,      /**< Windows 系统接口错误。 */
-  winsock,    /**< Windows socket 接口错误。 */
-  tls,        /**< TLS 配置、握手、证书验证或记录层错误。 */
-  process = 7 /**< 子进程启动、等待、管道或捕获错误；错误域编号保持不变。 */
+  FAIO,       /**< faio 自定义错误码。 */
+  POSIX,      /**< errno 定义的系统调用错误。 */
+  RESOLVER,   /**< 地址解析器 getaddrinfo 返回的错误。 */
+  WIN32_API,  /**< Windows 系统接口错误。 */
+  WINSOCK,    /**< Windows socket 接口错误。 */
+  TLS,        /**< TLS 配置、握手、证书验证或记录层错误。 */
+  PROCESS = 7 /**< 子进程启动、等待、管道或捕获错误；错误域编号保持不变。 */
 };
 
 /** @brief 可选模块共用的诊断上下文，持有诊断数据；完整定义位于 Error 之后。 */
 struct error_context;
 
 /** @brief 错误值。 */
-class Error {
+class error {
  public:
   /** @brief 自定义错误码从 1000 开始，0 至 999 留给系统错误。 */
-  enum ErrorCode {
-    EmptySqe = 1000,   /**< io_uring 暂无可用的提交队列条目。 */
-    InvalidAddresses,  /**< 没有可用于本次操作的有效地址。 */
-    ClosedChannel,     /**< 通道已经关闭，不能继续传递数据。 */
-    UnexpectedEOF,     /**< 尚未完成预期读取便遇到流末尾。 */
-    WriteZero,         /**< 仍有待写数据时，底层写入返回零字节。 */
-    TooLongTime,       /**< 时间参数超出支持范围。 */
-    PassedTime,        /**< 请求的时间点已经过去。 */
-    InvalidSocketType, /**< socket 类型与所请求的操作不匹配。 */
-    ReuniteFailed,     /**< 尝试合并来自不同连接的读写半部。 */
+  enum error_code {
+    EMPTY_SQE = 1000,    /**< io_uring 暂无可用的提交队列条目。 */
+    INVALID_ADDRESSES,   /**< 没有可用于本次操作的有效地址。 */
+    CLOSED_CHANNEL,      /**< 通道已经关闭，不能继续传递数据。 */
+    UNEXPECTED_EOF,      /**< 尚未完成预期读取便遇到流末尾。 */
+    WRITE_ZERO,          /**< 仍有待写数据时，底层写入返回零字节。 */
+    TOO_LONG_TIME,       /**< 时间参数超出支持范围。 */
+    PASSED_TIME,         /**< 请求的时间点已经过去。 */
+    INVALID_SOCKET_TYPE, /**< socket 类型与所请求的操作不匹配。 */
+    REUNITE_FAILED,      /**< 尝试合并来自不同连接的读写半部。 */
   };
 
  public:
@@ -62,9 +62,9 @@ class Error {
    * @param transferred 失败前已经生效的字节数。
    * @param domain 决定 err_code 解释方式的错误来源。
    */
-  explicit Error(int err_code,
+  explicit error(int err_code,
                  std::uint64_t transferred = 0,
-                 error_domain domain = error_domain::posix)
+                 error_domain domain = error_domain::POSIX)
       : err_code_{err_code}, transferred_(transferred), domain_(domain) {}
 
   /** @brief 失败前已经生效的字节数；取消不回滚系统调用的副作用。 */
@@ -90,7 +90,7 @@ class Error {
    * @param details 与错误副本共享的不可变诊断信息。
    * @return 保留错误码、错误域和进度的新错误。
    */
-  auto with_context(std::shared_ptr<const error_context> details) const -> Error {
+  auto with_context(std::shared_ptr<const error_context> details) const -> error {
     auto result = *this;
     result.context_ = std::move(details);
     return result;
@@ -101,7 +101,7 @@ class Error {
    * @param bytes 新的已完成字节数，包含调用者需要累计的历史进度。
    * @return 更新进度后的错误副本。
    */
-  auto with_progress(std::uint64_t bytes) const -> Error {
+  auto with_progress(std::uint64_t bytes) const -> error {
     auto result = *this;
     result.transferred_ = bytes;
     return result;
@@ -133,7 +133,7 @@ struct error_context {
   std::string message;                       /**< 持有可读诊断文本，避免借用临时错误字符串。 */
   std::vector<std::uint64_t> native_reasons; /**< TLS 等后端提供的原生原因码，按提取顺序保存。 */
   std::optional<std::int64_t> verify_code;   /**< 可选的证书验证结果码。 */
-  std::optional<Error> cause;              /**< 引发本层失败的底层错误，保留其域、进度和上下文。 */
+  std::optional<error> cause;              /**< 引发本层失败的底层错误，保留其域、进度和上下文。 */
   std::optional<std::uint32_t> process_id; /**< 与进程失败关联的原生子进程标识。 */
   std::optional<std::uint32_t> process_exit_code; /**< 已观察到的原生进程退出码。 */
   std::optional<int> process_signal;              /**< POSIX 子进程因信号退出时的信号编号。 */
@@ -144,33 +144,33 @@ struct error_context {
 };
 
 /** @brief 依次从诊断上下文、模块错误域和系统错误码获取错误消息。 */
-inline auto Error::message() const noexcept -> std::string_view {
+inline auto error::message() const noexcept -> std::string_view {
   if (context_)
     return context_->message;
-  if (domain_ == error_domain::tls)
+  if (domain_ == error_domain::TLS)
     return "TLS error";
-  if (domain_ == error_domain::process)
+  if (domain_ == error_domain::PROCESS)
     return "Process error";
-  if (domain_ == error_domain::resolver)
+  if (domain_ == error_domain::RESOLVER)
     return gai_strerror(err_code_);
   switch (err_code_) {
-    case EmptySqe:
+    case EMPTY_SQE:
       return "No sqe is available";
-    case InvalidAddresses:
+    case INVALID_ADDRESSES:
       return "Invalid addresses";
-    case ClosedChannel:
+    case CLOSED_CHANNEL:
       return "Channel has closed";
-    case UnexpectedEOF:
+    case UNEXPECTED_EOF:
       return "Read EOF too early";
-    case WriteZero:
+    case WRITE_ZERO:
       return "Write return zero";
-    case TooLongTime:
+    case TOO_LONG_TIME:
       return "Time is too long";
-    case PassedTime:
+    case PASSED_TIME:
       return "Time has passed";
-    case InvalidSocketType:
+    case INVALID_SOCKET_TYPE:
       return "Invalid socket type";
-    case ReuniteFailed:
+    case REUNITE_FAILED:
       return "Tried to reunite halves that are not from the same socket";
     default:
       return strerror(err_code_);
@@ -183,8 +183,8 @@ inline auto Error::message() const noexcept -> std::string_view {
  * @return 进度为零的错误对象。
  */
 [[nodiscard]]
-inline auto make_error(int err) -> Error {
-  return Error{err};
+inline auto make_error(int err) -> error {
+  return error{err};
 }
 
 /**
@@ -192,13 +192,13 @@ inline auto make_error(int err) -> Error {
  * @tparam T 成功值类型，可以为 void。
  */
 template <typename T>
-using expected = std::expected<T, Error>;
+using expected = std::expected<T, error>;
 }  // namespace faio
 
 namespace std {
 /** @brief 允许通过标准格式化接口输出 faio 错误的消息和数值。 */
 template <>
-class formatter<faio::Error> {
+class formatter<faio::error> {
  public:
   /**
    * @brief 校验错误对象的格式说明符并返回解析停止位置。
@@ -224,7 +224,7 @@ class formatter<faio::Error> {
    * @param context 持有输出迭代器的格式化上下文。
    * @return 写入结束位置的迭代器。
    */
-  auto format(const faio::Error& error, auto& context) const noexcept {
+  auto format(const faio::error& error, auto& context) const {
     return format_to(context.out(), "{} (error {})", error.message(), error.value());
   }
 };

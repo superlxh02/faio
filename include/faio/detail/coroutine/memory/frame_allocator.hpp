@@ -52,7 +52,7 @@ static_assert(frame_cache_max_retained <= 256 * 1024);
  * 元数据与回收链表位于 ASan 对帧正文标记的不可访问区域之外；跨线程销毁、
  * 带大小参数或不带大小参数的 delete 均可通过同一记录找到正确的原始分配。
  */
-enum class frame_allocation_kind : std::uint8_t { heap, mapped_extent };
+enum class frame_allocation_kind : std::uint8_t { HEAP, MAPPED_EXTENT };
 
 /** @brief 协程帧分配来源与释放信息。 */
 struct alignas(std::max_align_t) frame_allocation_header {
@@ -64,7 +64,7 @@ struct alignas(std::max_align_t) frame_allocation_header {
   frame_allocation_header* next{}; /**< 仅在协程帧完整销毁后加入当前线程的缓存链。 */
   std::size_t allocated_bytes;     /**< 原始块的精确范围，包含对齐填充与尺寸级空隙。 */
   std::uint8_t bin;                /**< 0xff 表示不进入小帧缓存；释放后端由 kind 决定。 */
-  frame_allocation_kind kind{frame_allocation_kind::heap}; /**< 在填充空间中记录释放协议。 */
+  frame_allocation_kind kind{frame_allocation_kind::HEAP}; /**< 在填充空间中记录释放协议。 */
 };
 
 inline constexpr std::uint8_t uncached_frame_bin = 0xff;
@@ -244,7 +244,7 @@ inline void* allocate_coroutine_frame(std::size_t bytes, std::size_t alignment) 
                                                 .next = nullptr,
                                                 .allocated_bytes = available,
                                                 .bin = uncached_frame_bin,
-                                                .kind = frame_allocation_kind::mapped_extent});
+                                                .kind = frame_allocation_kind::MAPPED_EXTENT});
 #if defined(FAIO_DETAIL_FRAME_ASAN)
       __asan_poison_memory_region(original, extent->mapping_bytes());
       __asan_unpoison_memory_region(header, sizeof(*header));
@@ -267,7 +267,7 @@ inline void* allocate_coroutine_frame(std::size_t bytes, std::size_t alignment) 
                                             .next = nullptr,
                                             .allocated_bytes = allocated_bytes,
                                             .bin = bin,
-                                            .kind = frame_allocation_kind::heap});
+                                            .kind = frame_allocation_kind::HEAP});
 #if defined(FAIO_DETAIL_FRAME_ASAN)
   __asan_poison_memory_region(allocation, allocated_bytes);
   __asan_unpoison_memory_region(header, sizeof(*header));
@@ -286,7 +286,7 @@ inline void release_coroutine_frame(void* frame) noexcept {
   auto* frame_cache = thread ? thread->frames.cache : nullptr;
   if (frame_cache && frame_cache->retain(header))
     return;
-  if (header->kind == frame_allocation_kind::mapped_extent) {
+  if (header->kind == frame_allocation_kind::MAPPED_EXTENT) {
     auto* extent = header->extent;
     std::destroy_at(header);
     large_frame_pool::release(extent);

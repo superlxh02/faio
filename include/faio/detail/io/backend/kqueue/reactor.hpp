@@ -132,7 +132,7 @@ class kqueue_reactor {
       return 0;
     const bool noticed = wake_pending_.exchange(false, std::memory_order_seq_cst);
 #if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
-    control_test_step(reactor_control_test_point::poll_after_consume);
+    control_test_step(reactor_control_test_point::POLL_AFTER_CONSUME);
 #endif
     if (noticed)
       timeout = 0;
@@ -156,16 +156,16 @@ class kqueue_reactor {
       const auto& event = events[static_cast<std::size_t>(i)];
       std::uint32_t flags{};
       if (event.filter == EVFILT_READ)
-        flags |= readable_bit;
+        flags |= READABLE_BIT;
       if (event.filter == EVFILT_WRITE)
-        flags |= writable_bit;
+        flags |= WRITABLE_BIT;
       if (event.flags & EV_ERROR)
-        flags |= error_bit;
+        flags |= ERROR_BIT;
       if (event.flags & EV_EOF) {
         if (event.filter == EVFILT_READ)
-          flags |= readable_bit | read_closed_bit;
+          flags |= READABLE_BIT | READ_CLOSED_BIT;
         else if (event.filter == EVFILT_WRITE)
-          flags |= writable_bit | write_closed_bit;
+          flags |= WRITABLE_BIT | WRITE_CLOSED_BIT;
       }
       output[static_cast<std::size_t>(i)] =
           map(event.filter == EVFILT_USER
@@ -181,7 +181,7 @@ class kqueue_reactor {
     if (wake_pending_.exchange(true, std::memory_order_seq_cst))
       return;
 #if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
-    control_test_step(reactor_control_test_point::wake_before_syscall);
+    control_test_step(reactor_control_test_point::WAKE_BEFORE_SYSCALL);
 #endif
     struct kevent change{};
     EV_SET(&change, 0, EVFILT_USER, 0, NOTE_TRIGGER, 0, nullptr);

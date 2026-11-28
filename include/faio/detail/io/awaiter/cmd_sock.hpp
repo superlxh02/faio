@@ -14,19 +14,20 @@ inline constexpr int socket_inq_command = 0, socket_outq_command = 1, socket_get
                      socket_setsockopt_command = 3;
 
 /**  @brief CmdSock 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class CmdSock : public IORegistrantAwaiter<CmdSock> {
-  using Base = IORegistrantAwaiter<CmdSock>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class cmd_sock : public io_registrant_awaiter<cmd_sock> {
+  using base_type =
+      io_registrant_awaiter<cmd_sock>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造套接字控制等待器。 */
-  CmdSock(int command, native_descriptor fd, int level, int option, void* value, int length)
-      : Base{[&] {
+  cmd_sock(int command, native_descriptor fd, int level, int option, void* value, int length)
+      : base_type{[&] {
           io_request r;
-          r.kind = command == socket_getsockopt_command   ? operation_kind::getsockopt
-                   : command == socket_setsockopt_command ? operation_kind::setsockopt
-                   : command == socket_inq_command        ? operation_kind::socket_inq
-                   : command == socket_outq_command       ? operation_kind::socket_outq
-                                                          : operation_kind::unsupported;
+          r.kind = command == socket_getsockopt_command   ? operation_kind::GETSOCKOPT
+                   : command == socket_setsockopt_command ? operation_kind::SETSOCKOPT
+                   : command == socket_inq_command        ? operation_kind::SOCKET_INQ
+                   : command == socket_outq_command       ? operation_kind::SOCKET_OUTQ
+                                                          : operation_kind::UNSUPPORTED;
           r.fd = fd;
           r.argument = level;
           r.argument2 = option;
@@ -53,18 +54,18 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 inline auto getsockopt(
     detail::native_descriptor fd, int level, int option, void* value, int length) {
-  return detail::CmdSock{detail::socket_getsockopt_command, fd, level, option, value, length};
+  return detail::cmd_sock{detail::socket_getsockopt_command, fd, level, option, value, length};
 }
 
 /** @brief 设置原生套接字选项。 */
 inline auto setsockopt(
     detail::native_descriptor fd, int level, int option, void* value, int length) {
-  return detail::CmdSock{detail::socket_setsockopt_command, fd, level, option, value, length};
+  return detail::cmd_sock{detail::socket_setsockopt_command, fd, level, option, value, length};
 }
 
 /** @brief 提交原生套接字控制请求。 */
 inline auto cmdsock(
     int command, detail::native_descriptor fd, int level, int option, void* value, int length) {
-  return detail::CmdSock{command, fd, level, option, value, length};
+  return detail::cmd_sock{command, fd, level, option, value, length};
 }
 }  // namespace faio::io

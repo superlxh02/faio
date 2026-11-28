@@ -20,8 +20,8 @@
 #include <utility>
 
 namespace faio::net::detail {
-class CreateSocketAwaiter;
-class Socket;
+class create_socket_awaiter;
+class socket;
 
 /**  @brief 独占原生 socket 的 RAII 所有者，平台关联策略不改变统一的所有权约定。 */
 class owned_native_socket {
@@ -81,7 +81,7 @@ class owned_native_socket {
   }
 
  private:
-  friend class Socket;
+  friend class socket;
 
   /** @brief 接管原生 socket 的关闭责任。 */
   owned_native_socket(native_socket_type fd, native_socket_association association) noexcept
@@ -99,39 +99,39 @@ class owned_native_socket {
 };
 
 /**  @brief 与后端无关的 socket；控制块绑定创建时的 I/O 域，移动不改变归属。 */
-class Socket : public io::detail::FileDescriptor {
+class socket : public io::detail::file_descriptor {
  public:
   /** @brief 接管 socket 资源并保存其 IO 上下文归属。 */
-  explicit Socket(native_socket_type fd, io::io_context context = io::io_context::current())
-      : FileDescriptor{fd, std::move(context)} {}
+  explicit socket(native_socket_type fd, io::io_context context = io::io_context::current())
+      : file_descriptor{fd, std::move(context)} {}
 
   /** @brief 接管 socket 资源并保存其 IO 上下文归属。 */
-  explicit Socket(std::shared_ptr<io::detail::resource_state> resource)
-      : FileDescriptor{std::move(resource)} {}
+  explicit socket(std::shared_ptr<io::detail::resource_state> resource)
+      : file_descriptor{std::move(resource)} {}
 
   /** @brief 接管源对象的状态和资源租约。 */
-  Socket(Socket&&) noexcept = default;
+  socket(socket&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  auto operator=(Socket&&) noexcept -> Socket& = default;
+  auto operator=(socket&&) noexcept -> socket& = default;
 
   /** @brief 禁止复制此对象。 */
-  Socket(const Socket&) = delete;
+  socket(const socket&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const Socket&) -> Socket& = delete;
+  auto operator=(const socket&) -> socket& = delete;
 
   /** @brief 释放 socket 的共享资源租约。 */
-  ~Socket() = default;
+  ~socket() = default;
 
   /**  @brief 独立方向半部共享同一控制块，绝不复制原生 handle。 */
-  [[nodiscard]] auto share() const -> Socket { return Socket{resource()}; }
+  [[nodiscard]] auto share() const -> socket { return socket{resource()}; }
 
   /** @brief 将 socket 绑定到给定本地地址。 */
   template <class Addr>
     requires socket_address<Addr>
   [[nodiscard]] auto bind(const Addr& address) -> expected<void> {
-    return io::detail::with_resource(resource(), io::Interest::none, [&]() -> expected<void> {
+    return io::detail::with_resource(resource(), io::interest::NONE, [&]() -> expected<void> {
       if (::bind(fd(), address.sockaddr(), address.length()) < 0)
         return std::unexpected{socket_error()};
       return {};
@@ -142,7 +142,7 @@ class Socket : public io::detail::FileDescriptor {
   [[nodiscard]] auto listen(int backlog = SOMAXCONN) -> expected<void> {
     if (backlog < 0)
       return std::unexpected{make_error(EINVAL)};
-    return io::detail::with_resource(resource(), io::Interest::none, [&]() -> expected<void> {
+    return io::detail::with_resource(resource(), io::interest::NONE, [&]() -> expected<void> {
       if (::listen(fd(), backlog) < 0)
         return std::unexpected{socket_error()};
       return {};
@@ -150,14 +150,14 @@ class Socket : public io::detail::FileDescriptor {
   }
 
   /** @brief 请求关闭 socket 的指定传输方向。 */
-  auto shutdown(io::ShutdownBehavior how) noexcept {
+  auto shutdown(io::shutdown_behavior how) noexcept {
     return io::shutdown(resource(), static_cast<int>(how));
   }
 
   /** @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。 */
   [[nodiscard]] auto into_native() -> expected<owned_native_socket> {
     auto result = native_socket_association::detach(resource(),
-                                                    [&] { return FileDescriptor::into_native(); });
+                                                    [&] { return file_descriptor::into_native(); });
     if (!result)
       return std::unexpected{result.error()};
     return owned_native_socket{*result, native_socket_association::capture(resource())};
@@ -180,9 +180,9 @@ class Socket : public io::detail::FileDescriptor {
    * release，异常期间不丢失关闭责任。
    */
   [[nodiscard]] static auto adopt_checked(native_socket_type descriptor, io::io_context context)
-      -> expected<Socket> {
+      -> expected<socket> {
     try {
-      return Socket{descriptor, std::move(context)};
+      return socket{descriptor, std::move(context)};
     } catch (const std::system_error& error) {
       return std::unexpected{socket_error_from_code(error.code().value())};
     } catch (const std::bad_alloc&) {
@@ -203,12 +203,12 @@ class Socket : public io::detail::FileDescriptor {
     const bool valid =
         expected_family == AF_UNIX ? *family == AF_UNIX : *family == AF_INET || *family == AF_INET6;
     if (!valid)
-      return std::unexpected{make_error(Error::InvalidSocketType)};
+      return std::unexpected{make_error(::faio::error::INVALID_SOCKET_TYPE)};
     return {};
   }
 
   /** @brief 创建 socket 并绑定到指定 IO 上下文。 */
-  template <class T = Socket>
+  template <class T = socket>
   [[nodiscard]] static auto create(int domain,
                                    int type,
                                    int protocol,
@@ -220,14 +220,14 @@ class Socket : public io::detail::FileDescriptor {
     owned_native_socket guard{*descriptor};
     if (auto prepared = prepare_created_native_socket(*descriptor); !prepared)
       return std::unexpected{prepared.error()};
-    auto socket = adopt_checked(*descriptor, std::move(context));
-    if (!socket)
-      return std::unexpected{socket.error()};
+    auto created_socket = adopt_checked(*descriptor, std::move(context));
+    if (!created_socket)
+      return std::unexpected{created_socket.error()};
     (void)guard.release();
-    if constexpr (std::same_as<T, Socket>)
-      return socket;
+    if constexpr (std::same_as<T, socket>)
+      return created_socket;
     else
-      return T{std::move(*socket)};
+      return T{std::move(*created_socket)};
   }
 
   /**
@@ -238,25 +238,25 @@ class Socket : public io::detail::FileDescriptor {
    * 观察， 也不将原生请求交给应用线程池。同步 create 的 expected 约定保持独立。
    */
   [[nodiscard]] static auto create_async(int domain, int type, int protocol, io::io_context context)
-      -> CreateSocketAwaiter;
+      -> create_socket_awaiter;
 };
 
 /**
  *  @brief 转换原生 socket 创建结果的所有权，不分配额外 task 协程帧。
  * @details 挂起与恢复直接委托现有 raw awaiter；本类型仅在成功完成后导入 fd。
  */
-class CreateSocketAwaiter {
+class create_socket_awaiter {
  public:
   /** @brief 构造异步 socket 创建等待器。 */
-  CreateSocketAwaiter(int domain, int type, int protocol, io::io_context context)
+  create_socket_awaiter(int domain, int type, int protocol, io::io_context context)
       : context_{context ? std::move(context) : io::io_context::current()},
         operation_{io::socket(domain, type, protocol).with_context(context_)} {}
 
   /** @brief 禁止复制此对象。 */
-  CreateSocketAwaiter(const CreateSocketAwaiter&) = delete;
+  create_socket_awaiter(const create_socket_awaiter&) = delete;
 
   /** @brief 接管源对象的状态和资源租约。 */
-  CreateSocketAwaiter(CreateSocketAwaiter&&) noexcept = default;
+  create_socket_awaiter(create_socket_awaiter&&) noexcept = default;
 
   /** @brief 检查等待是否已经满足；返回 true 时编译器跳过挂起登记。 */
   bool await_ready() const noexcept { return consumed_ || operation_.await_ready(); }
@@ -268,7 +268,7 @@ class CreateSocketAwaiter {
   }
 
   /** @brief 完成交接后领取结果，并按接口约定传播失败或取消。 */
-  auto await_resume() -> expected<Socket> {
+  auto await_resume() -> expected<socket> {
     if (std::exchange(consumed_, true))
       return std::unexpected{make_error(EINVAL)};
     auto descriptor = operation_.await_resume();
@@ -277,7 +277,7 @@ class CreateSocketAwaiter {
     owned_native_socket guard{*descriptor};
     if (auto result = prepare_created_native_socket(guard.get()); !result)
       return std::unexpected{result.error()};
-    auto socket = Socket::adopt_checked(guard.get(), std::move(context_));
+    auto socket = socket::adopt_checked(guard.get(), std::move(context_));
     if (!socket)
       return std::unexpected{socket.error()};
     (void)guard.release();
@@ -291,8 +291,8 @@ class CreateSocketAwaiter {
 };
 
 /** @brief 异步创建 socket 并交付指定传输类型。 */
-inline auto Socket::create_async(int domain, int type, int protocol, io::io_context context)
-    -> CreateSocketAwaiter {
+inline auto socket::create_async(int domain, int type, int protocol, io::io_context context)
+    -> create_socket_awaiter {
   return {domain, type, protocol, std::move(context)};
 }
 }  // namespace faio::net::detail

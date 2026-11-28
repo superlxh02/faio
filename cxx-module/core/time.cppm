@@ -6,7 +6,7 @@ export module faio.time;
 export import faio.coroutine;
 
 export namespace faio::time {
-using ::faio::time::MissedTickBehavior;
+using ::faio::time::missed_tick_behavior;
 using ::faio::time::interval;
 using ::faio::time::interval_at;
 using ::faio::time::sleep;

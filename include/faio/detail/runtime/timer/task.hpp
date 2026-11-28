@@ -19,7 +19,7 @@ namespace faio::runtime::detail::timer {
  * sleep 持有 coroutine_handle，到期只交给调度器排队。
  * I/O 截止时间在统一 domain 中按代际 token 取消，与 sleep 时间轮分开管理。
  */
-class TimerTask {
+class timer_task {
   /** @brief 定时到期通知。 */
   class notification {
    public:
@@ -64,18 +64,18 @@ class TimerTask {
 
  public:
   /** @brief 构造定时任务节点。 */
-  TimerTask(std::chrono::steady_clock::time_point deadline,
-            std::coroutine_handle<> handle,
-            std::shared_ptr<std::atomic<unsigned char>> claim = {})
+  timer_task(std::chrono::steady_clock::time_point deadline,
+             std::coroutine_handle<> handle,
+             std::shared_ptr<std::atomic<unsigned char>> claim = {})
       : _handle(handle), _deadline(deadline), _claim(std::move(claim)) {}
 
   /** @brief 构造定时任务节点。 */
   template <class S>
-  TimerTask(std::chrono::steady_clock::time_point deadline,
-            std::coroutine_handle<> handle,
-            std::shared_ptr<std::atomic<unsigned char>> claim,
-            ::faio::detail::basic_resume_target<S> target)
-      : TimerTask(deadline, handle, std::move(claim)) {
+  timer_task(std::chrono::steady_clock::time_point deadline,
+             std::coroutine_handle<> handle,
+             std::shared_ptr<std::atomic<unsigned char>> claim,
+             ::faio::detail::basic_resume_target<S> target)
+      : timer_task(deadline, handle, std::move(claim)) {
     if constexpr (std::same_as<S, ::faio::default_scheduler>)
       target_ = target;
     else {
@@ -85,7 +85,7 @@ class TimerTask {
   }
 
   /** @brief 销毁定时任务节点。 */
-  ~TimerTask() {
+  ~timer_task() {
     if (notification_)
       notification_.destroy();
   }
@@ -119,7 +119,7 @@ class TimerTask {
  public:
   std::coroutine_handle<> _handle{nullptr};        /**< 协程句柄（sleep 场景） */
   std::chrono::steady_clock::time_point _deadline; /**< 截止时间 */
-  std::unique_ptr<TimerTask> _next{nullptr};       /**< 链表下一个节点 */
+  std::unique_ptr<timer_task> _next{nullptr};      /**< 链表下一个节点 */
   std::shared_ptr<std::atomic<unsigned char>>
       _claim; /**< 到期与取消共享的原子领取状态，确保协程只恢复一次。 */
 

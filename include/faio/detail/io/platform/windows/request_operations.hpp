@@ -15,20 +15,20 @@
 namespace faio::io::detail::windows_operations {
 /** @brief 根据请求种类及资源属性判定是否需要文件执行路径。 */
 inline bool is_file_request(const io_request& req) noexcept {
-  return req.kind == operation_kind::open || req.kind == operation_kind::open2
-         || req.kind == operation_kind::fsync
-         || ((req.kind == operation_kind::read || req.kind == operation_kind::write
-              || req.kind == operation_kind::readv || req.kind == operation_kind::writev)
-             && req.native_kind == native_handle_kind::windows_handle)
-         || (req.kind == operation_kind::close
-             && req.native_kind == native_handle_kind::windows_handle);
+  return req.kind == operation_kind::OPEN || req.kind == operation_kind::OPEN2
+         || req.kind == operation_kind::FSYNC
+         || ((req.kind == operation_kind::READ || req.kind == operation_kind::WRITE
+              || req.kind == operation_kind::READV || req.kind == operation_kind::WRITEV)
+             && req.native_kind == native_handle_kind::WINDOWS_HANDLE)
+         || (req.kind == operation_kind::CLOSE
+             && req.native_kind == native_handle_kind::WINDOWS_HANDLE);
 }
 
 /** @brief 检查原生关闭是否可能阻塞，决定是否交给隔离清理服务。 */
 inline bool needs_deferred_close(const resource_state& resource, native_descriptor fd) noexcept {
-  if (resource.native_kind == native_handle_kind::windows_handle)
+  if (resource.native_kind == native_handle_kind::WINDOWS_HANDLE)
     return true;
-  if (resource.native_kind == native_handle_kind::windows_pipe)
+  if (resource.native_kind == native_handle_kind::WINDOWS_PIPE)
     return false;
   ::linger option{};
   int length = sizeof(option);
@@ -43,7 +43,7 @@ inline bool needs_deferred_close(const resource_state& resource, native_descript
 
 /** @brief 执行原生句柄关闭。 */
 inline int close_native(native_descriptor fd, native_handle_kind kind) noexcept {
-  if (kind == native_handle_kind::windows_handle || kind == native_handle_kind::windows_pipe)
+  if (kind == native_handle_kind::WINDOWS_HANDLE || kind == native_handle_kind::WINDOWS_PIPE)
     return ::CloseHandle(reinterpret_cast<HANDLE>(fd))
                ? 0
                : windows::encode_windows_error(::GetLastError());
@@ -57,7 +57,7 @@ template <class Request>
 inline std::int64_t perform_socket_scalar(Request& r) noexcept {
   const int size = static_cast<int>(std::min<std::size_t>(r.length, INT_MAX));
   const int value =
-      r.kind == operation_kind::recv
+      r.kind == operation_kind::RECV
           ? ::recv(static_cast<SOCKET>(r.fd), static_cast<char*>(r.buffer), size, r.flags)
           : ::send(
                 static_cast<SOCKET>(r.fd), static_cast<const char*>(r.const_buffer), size, r.flags);
@@ -69,10 +69,10 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
   const SOCKET socket = static_cast<SOCKET>(r.fd);
   int result{};
   switch (r.kind) {
-    case operation_kind::shutdown:
+    case operation_kind::SHUTDOWN:
       result = ::shutdown(socket, r.argument);
       break;
-    case operation_kind::socket: {
+    case operation_kind::SOCKET: {
       if (r.flags)
         return -EOPNOTSUPP;
       const SOCKET created = ::WSASocketW(r.argument,
@@ -91,30 +91,30 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
       }
       return static_cast<std::int64_t>(created);
     }
-    case operation_kind::getsockopt: {
+    case operation_kind::GETSOCKOPT: {
       int length = static_cast<int>(r.length);
       result = ::getsockopt(socket, r.argument, r.argument2, static_cast<char*>(r.buffer), &length);
       if (!result)
         return length;
       break;
     }
-    case operation_kind::setsockopt:
+    case operation_kind::SETSOCKOPT:
       result = ::setsockopt(socket,
                             r.argument,
                             r.argument2,
                             static_cast<const char*>(r.const_buffer),
                             static_cast<int>(r.length));
       break;
-    case operation_kind::socket_inq: {
+    case operation_kind::SOCKET_INQ: {
       u_long bytes{};
       result = ::ioctlsocket(socket, FIONREAD, &bytes);
       if (!result)
         return bytes;
       break;
     }
-    case operation_kind::socket_outq:
+    case operation_kind::SOCKET_OUTQ:
       return -EOPNOTSUPP;
-    case operation_kind::accept_nowait: {
+    case operation_kind::ACCEPT_NOWAIT: {
       SOCKET accepted = ::accept(socket, r.output_address, r.output_address_length);
       if (accepted == INVALID_SOCKET) {
         auto e = ::WSAGetLastError();
@@ -122,17 +122,17 @@ inline std::int64_t perform(io_request& r, bool&) noexcept {
       }
       return static_cast<std::int64_t>(accepted);
     }
-    case operation_kind::open:
+    case operation_kind::OPEN:
       return windows::open_file(r);
-    case operation_kind::read:
-    case operation_kind::write:
+    case operation_kind::READ:
+    case operation_kind::WRITE:
       return windows::scalar_file(r);
-    case operation_kind::readv:
-    case operation_kind::writev:
+    case operation_kind::READV:
+    case operation_kind::WRITEV:
       return windows::vectored_file(r);
-    case operation_kind::close:
+    case operation_kind::CLOSE:
       return -close_native(r.fd, r.native_kind);
-    case operation_kind::fsync:
+    case operation_kind::FSYNC:
       return ::FlushFileBuffers(reinterpret_cast<HANDLE>(r.fd))
                  ? 0
                  : -windows::encode_windows_error(::GetLastError());

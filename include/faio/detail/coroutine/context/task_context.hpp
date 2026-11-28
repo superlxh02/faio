@@ -17,7 +17,7 @@
 
 namespace faio {
 namespace detail {
-enum class cancellation_error_policy { fatal_if_unobserved, normal_if_stop_requested };
+enum class cancellation_error_policy { FATAL_IF_UNOBSERVED, NORMAL_IF_STOP_REQUESTED };
 
 /** @brief 此所有者仅维持取消回调链，不持有协程帧或结果；保留祖先回调不会通过子任务结果形成所有权环。 */
 struct cancellation_state {
@@ -31,7 +31,7 @@ struct cancellation_state {
   std::shared_ptr<cancellation_state> parent; /**< 保持父级取消连接的共享状态。 */
   std::stop_source source; /**< 本操作或任务图的停止源，向已登记等待者广播协作取消。 */
   std::optional<std::stop_callback<forward>>
-      link; /**< 父停止令牌到当前停止源的回调连接，析构时注销。 */
+      link{}; /**< 父停止令牌到当前停止源的回调连接，析构时注销。 */
 
   /** @brief 构造取消状态。 */
   cancellation_state(std::stop_token token, std::shared_ptr<cancellation_state> owner)
@@ -57,7 +57,7 @@ struct task_context {
       stop_token{}; /**< 本任务的停止令牌，继承自父任务或根任务停止源，协程迁移后仍关联同一停止状态。 */
   cancellation_error_policy cancellation_policy{
       cancellation_error_policy::
-          fatal_if_unobserved};        /**< 未观察的取消异常处理策略，随任务上下文传播。 */
+          FATAL_IF_UNOBSERVED};        /**< 未观察的取消异常处理策略，随任务上下文传播。 */
   task_scheduling_policy scheduling{}; /**< 启动时解析的有效调度约束，父子按值继承。 */
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
   external_scope_ref external_scope{};

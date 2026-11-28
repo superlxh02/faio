@@ -54,24 +54,24 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
                                                       config.blocking_queue_limit,
                                                       1,
                                                       backend_.native()
-                                                          ? blocking::startup_policy::on_demand
-                                                          : blocking::startup_policy::preheated)),
+                                                          ? blocking::startup_policy::ON_DEMAND
+                                                          : blocking::startup_policy::PREHEATED)),
         dns_(config.resolver_service
                  ? config.resolver_service
                  : std::make_shared<blocking::service>(config.resolver_threads,
                                                        config.blocking_queue_limit,
                                                        1,
                                                        backend_.native()
-                                                           ? blocking::startup_policy::on_demand
-                                                           : blocking::startup_policy::preheated)),
+                                                           ? blocking::startup_policy::ON_DEMAND
+                                                           : blocking::startup_policy::PREHEATED)),
         cleanup_(config.cleanup_service
                      ? config.cleanup_service
                      : std::make_shared<blocking::service>(
                            1,
                            config.blocking_queue_limit,
                            1,
-                           backend_.native() ? blocking::startup_policy::on_demand
-                                             : blocking::startup_policy::preheated)),
+                           backend_.native() ? blocking::startup_policy::ON_DEMAND
+                                             : blocking::startup_policy::PREHEATED)),
         own_fs_(!config.filesystem_service),
         own_dns_(!config.resolver_service),
         own_cleanup_(!config.cleanup_service),
@@ -121,10 +121,10 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   io_capabilities capabilities() const noexcept {
     io_capabilities c;
     c.backend = backend_.name();
-    c.native_filesystem = backend_.native() && supports_native(operation_kind::read)
-                          && supports_native(operation_kind::write);
-    c.zero_copy = supports_native(operation_kind::send_zc);
-    c.native_accept_nowait = supports_native(operation_kind::accept_nowait);
+    c.native_filesystem = backend_.native() && supports_native(operation_kind::READ)
+                          && supports_native(operation_kind::WRITE);
+    c.zero_copy = supports_native(operation_kind::SEND_ZC);
+    c.native_accept_nowait = supports_native(operation_kind::ACCEPT_NOWAIT);
     return c;
   }
 
@@ -180,7 +180,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   resource_ptr adopt(native_descriptor fd,
                      bool owns = true,
                      bool regular = false,
-                     native_handle_kind kind = native_handle_kind::windows_socket) {
+                     native_handle_kind kind = native_handle_kind::WINDOWS_SOCKET) {
     std::lock_guard lock(mutex_);
     if (stopped())
       throw std::system_error(ECANCELED, std::generic_category(), "IO domain 已停止");
@@ -203,14 +203,14 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       throw std::overflow_error("IO resource token exhausted");
     r->handle.store(fd, std::memory_order_release);
     r->regular_file = regular;
-    r->native_kind = regular ? native_handle_kind::windows_handle : kind;
+    r->native_kind = regular ? native_handle_kind::WINDOWS_HANDLE : kind;
     if (const int error =
             backend_.register_resource({static_cast<std::uintptr_t>(fd), r->native_kind}, r->id);
         error)
       throw std::system_error(-error, std::generic_category(), "IOCP register_resource");
     r->registered = true;
     r->socket_family =
-        r->native_kind == native_handle_kind::windows_socket ? query_socket_family(fd) : 0;
+        r->native_kind == native_handle_kind::WINDOWS_SOCKET ? query_socket_family(fd) : 0;
     resources_.emplace(r->id, r);
     descriptors_[fd] = r;
     r->owns_handle = owns;
@@ -219,7 +219,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
 
   /** @brief 接管 OVERLAPPED 管道句柄，不启用文件游标或阻塞通道。 */
   resource_ptr adopt_pipe(native_descriptor fd) {
-    return adopt(fd, true, false, native_handle_kind::windows_pipe);
+    return adopt(fd, true, false, native_handle_kind::WINDOWS_PIPE);
   }
 
   /** @brief 借用资源而不接管关闭责任。 */
@@ -269,7 +269,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   }
 
   /** @brief 在资源状态锁内取得指定方向的组合操作预留。 */
-  expected<void> reserve(resource_state& resource, Interest interest, void* owner) noexcept {
+  expected<void> reserve(resource_state& resource, interest interest, void* owner) noexcept {
     std::lock_guard lock(mutex_);
     const auto bits = static_cast<unsigned>(interest);
     if (!owner || !bits || bits > 3)
@@ -287,7 +287,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   }
 
   /** @brief 只释放由同一稳定身份持有的方向预留，并推进等待关闭的资源。 */
-  void unreserve(resource_state& resource, Interest interest, void* owner) noexcept {
+  void unreserve(resource_state& resource, interest interest, void* owner) noexcept {
     std::lock_guard lock(mutex_);
     const auto bits = static_cast<unsigned>(interest);
     if (bits & 1 && resource.read_reserved == owner)
@@ -367,11 +367,11 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       return {};
 
     if constexpr (std::is_same_v<Request, scalar_io_request>) {
-      if (request.kind != operation_kind::recv && request.kind != operation_kind::send)
+      if (request.kind != operation_kind::RECV && request.kind != operation_kind::SEND)
         return {};
 
-    } else if (request.kind != operation_kind::recv && request.kind != operation_kind::send
-               && request.kind != operation_kind::read && request.kind != operation_kind::write) {
+    } else if (request.kind != operation_kind::RECV && request.kind != operation_kind::SEND
+               && request.kind != operation_kind::READ && request.kind != operation_kind::WRITE) {
       return {};
     }
     const auto& resource = request.resource;
@@ -500,12 +500,12 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   }
 
   /**  @brief 仅按代际 token 查找取消目标；Prepared 阶段收到的取消也会持续保留。 */
-  void request_cancel(operation_token token, cancel_reason reason = cancel_reason::user) noexcept {
+  void request_cancel(operation_token token, cancel_reason reason = cancel_reason::USER) noexcept {
     {
       std::lock_guard lock(mutex_);
       if (auto* op = lookup(token); op && !op->terminal && !op->request.uncancellable) {
         if (!op->cancellation)
-          op->cancellation = reason == cancel_reason::deadline ? ETIMEDOUT : ECANCELED;
+          op->cancellation = reason == cancel_reason::DEADLINE ? ETIMEDOUT : ECANCELED;
         if (op->accepted)
           cancel_operation(*op);
       }
@@ -584,7 +584,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
         const auto event = events[static_cast<std::size_t>(i)];
         if (!event.key)
           continue;
-        if (event.kind != backend_event_kind::readiness) {
+        if (event.kind != backend_event_kind::READINESS) {
           complete_native(event);
           continue;
         }
@@ -597,9 +597,9 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
         ++resource->readiness_generation;
 
         resource->readiness |= event.flags;
-        if (resource->reader && event.flags & (readable_bit | error_bit))
+        if (resource->reader && event.flags & (READABLE_BIT | ERROR_BIT))
           attempt(*resource->reader);
-        if (resource->writer && event.flags & (writable_bit | error_bit))
+        if (resource->writer && event.flags & (WRITABLE_BIT | ERROR_BIT))
           attempt(*resource->writer);
         auto* observer = resource->observers;
         while (observer) {
@@ -653,19 +653,19 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   }
 
   /**  @brief 停机先拒绝提交，随后取消、关闭、排空；清理通道保持可用。 */
-  void begin_shutdown(shutdown_policy policy = shutdown_policy::cancel_all) noexcept {
+  void begin_shutdown(shutdown_policy policy = shutdown_policy::CANCEL_ALL) noexcept {
     if (stopped_.exchange(true, std::memory_order_acq_rel))
       return;
-    if (policy == shutdown_policy::cancel_all)
+    if (policy == shutdown_policy::CANCEL_ALL)
       stop_.request_stop();
 
     std::unordered_map<std::uint64_t, ::faio::move_only_function<void()>> cleanups;
     {
       std::lock_guard lock(mutex_);
       backend_.begin_shutdown();
-      draining_ = policy == shutdown_policy::drain;
+      draining_ = policy == shutdown_policy::DRAIN;
       cleanups.swap(shutdown_cleanups_);
-      if (policy == shutdown_policy::cancel_all) {
+      if (policy == shutdown_policy::CANCEL_ALL) {
         for (auto& entry : operations_)
           if (entry->allocated && !entry->terminal && !entry->request.uncancellable) {
             if (!entry->cancellation)
@@ -676,7 +676,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       for (auto it = resources_.begin(); it != resources_.end();) {
         auto weak = (it++)->second;
         if (auto resource = weak.lock();
-            resource && (policy == shutdown_policy::cancel_all || !resource->active))
+            resource && (policy == shutdown_policy::CANCEL_ALL || !resource->active))
           begin_close(*resource, nullptr);
       }
     }
@@ -769,16 +769,16 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   }
 
   /** @brief 读取资源就绪位与观察代际，供就绪守卫安全消费提示。 */
-  std::pair<Ready, std::uint64_t> snapshot_readiness(
+  std::pair<readiness, std::uint64_t> snapshot_readiness(
       const resource_state& resource) const noexcept {
     std::lock_guard lock(mutex_);
-    return {Ready{resource.readiness, resource.readiness_generation},
+    return {readiness{resource.readiness, resource.readiness_generation},
             resource.readiness_generation};
   }
 
   /** @brief 仅清除当前观察代际的指定就绪方向，不能抹掉后来收到的新事件。 */
   void clear_readiness(resource_state& resource,
-                       Interest interest,
+                       interest interest,
                        std::uint64_t generation) noexcept {
     std::lock_guard lock(mutex_);
     if (resource.readiness_generation == generation)
@@ -786,16 +786,17 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   }
 
   /** @brief 读取资源就绪位与观察代际，供就绪守卫安全消费提示。 */
-  std::pair<Ready, std::uint64_t> snapshot_readiness(const resource_ptr& resource) const noexcept {
+  std::pair<readiness, std::uint64_t> snapshot_readiness(
+      const resource_ptr& resource) const noexcept {
     std::lock_guard lock(mutex_);
-    return {
-        Ready{resource ? resource->readiness : 0, resource ? resource->readiness_generation : 0},
-        resource ? resource->readiness_generation : 0};
+    return {readiness{resource ? resource->readiness : 0,
+                      resource ? resource->readiness_generation : 0},
+            resource ? resource->readiness_generation : 0};
   }
 
   /**  @brief 只清除同一代际的观察结果，保留 guard 之后到达的新事件。 */
   void clear_readiness(const resource_ptr& resource,
-                       Interest interest,
+                       interest interest,
                        std::uint64_t generation) noexcept {
     std::lock_guard lock(mutex_);
     if (resource && resource->readiness_generation == generation)
@@ -805,7 +806,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
   /**  @brief try_* 与异步方向执行权共用同一 gate，EAGAIN 清除相应缓存。 */
   template <class F>
   auto with_resource(const resource_ptr& resource,
-                     Interest interest,
+                     interest interest,
                      F&& function,
                      void* reservation = nullptr) -> std::invoke_result_t<F> {
     using result_type = std::invoke_result_t<F>;
@@ -825,7 +826,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     auto result = std::invoke(std::forward<F>(function));
     if (!result
         && (result.error().value() == EAGAIN || result.error().value() == EWOULDBLOCK
-            || (result.error().domain() == error_domain::winsock
+            || (result.error().domain() == error_domain::WINSOCK
                 && result.error().value() == WSAEWOULDBLOCK)))
       resource->readiness &= ~bits;
     return result;
@@ -862,7 +863,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     }
     if (!selected) {
       if (backend_.native()
-          && (request.kind == operation_kind::close || request.internal_control)) {
+          && (request.kind == operation_kind::CLOSE || request.internal_control)) {
         try {
           if (native_controls_.size() >= max_resources_ + operations_.size()
               || next_control_ == UINT32_MAX)
@@ -927,40 +928,40 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     if (!op || op->accepted)
       return false;
     op->accepted = true;
-    if (stopped() && op->request.kind != operation_kind::close && !op->request.uncancellable)
+    if (stopped() && op->request.kind != operation_kind::CLOSE && !op->request.uncancellable)
       finish(*op, -ECANCELED);
     else if (op->cancellation)
       finish(*op, -op->cancellation);
     else if (op->request.validation_error)
       finish(*op, -op->request.validation_error);
 
-    else if (op->request.kind == operation_kind::ready
+    else if (op->request.kind == operation_kind::READY
              && (op->request.argument <= 0 || op->request.argument > 3))
       finish(*op, -EINVAL);
 
-    else if (op->request.kind == operation_kind::recvmsg && !op->request.output_message)
+    else if (op->request.kind == operation_kind::RECVMSG && !op->request.output_message)
       finish(*op, -EFAULT);
-    else if (op->request.kind == operation_kind::recvmsg
+    else if (op->request.kind == operation_kind::RECVMSG
              && static_cast<std::uint64_t>(op->request.output_message->msg_iovlen)
                     > native_iov_limit)
       finish(*op, -EINVAL);
-    else if (op->request.kind == operation_kind::recvmsg && op->request.output_message->msg_iovlen
+    else if (op->request.kind == operation_kind::RECVMSG && op->request.output_message->msg_iovlen
              && !op->request.output_message->msg_iov)
       finish(*op, -EFAULT);
-    else if (op->request.kind == operation_kind::close && !op->request.resource
+    else if (op->request.kind == operation_kind::CLOSE && !op->request.resource
              && op->request.fd < 0)
       finish(*op, -EBADF);
     else {
       try {
         auto& req = op->request;
         if (!req.bypass_resource_registration && !req.resource && req.fd >= 0
-            && req.kind != operation_kind::open && req.kind != operation_kind::open2
-            && req.kind != operation_kind::socket)
+            && req.kind != operation_kind::OPEN && req.kind != operation_kind::OPEN2
+            && req.kind != operation_kind::SOCKET)
           req.resource = borrow(req.fd);
         const auto& r = req.resource;
         if (r && r->owner.get() != this)
           finish(*op, -EXDEV);
-        else if (r && req.kind != operation_kind::close && (r->fd() < 0 || r->closing))
+        else if (r && req.kind != operation_kind::CLOSE && (r->fd() < 0 || r->closing))
           finish(*op, -EBADF);
         else if (req.establish_reservation && !r)
           finish(*op, -EBADF);
@@ -971,7 +972,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
             req.native_kind = r->native_kind;
           if (req.deadline && *req.deadline <= std::chrono::steady_clock::now())
             finish(*op, -ETIMEDOUT);
-          else if (req.kind == operation_kind::close && r) {
+          else if (req.kind == operation_kind::CLOSE && r) {
             r->owns_handle = true;
             begin_close(*r, op);
           } else {
@@ -1006,7 +1007,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
                 ++r->active;
 
                 op->counts_active = true;
-                if (req.kind == operation_kind::ready) {
+                if (req.kind == operation_kind::READY) {
                   op->observer = true;
                   op->observer_next = r->observers;
                   r->observers = op;
@@ -1022,7 +1023,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
                 submit_file(*op);
               else if (req.observed_would_block && r && r->registered
                        && req.observed_readiness_generation == r->readiness_generation
-                       && !(r->readiness & (direction_of(req.kind) | error_bit))) {
+                       && !(r->readiness & (direction_of(req.kind) | ERROR_BIT))) {
               } else
                 attempt(*op);
             }
@@ -1099,11 +1100,11 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
 
   /**  @brief native 能力固定，零拷贝接口使用等价 OVERLAPPED 发送而不宣称零拷贝。 */
   bool can_native_request(const io_request& request) const noexcept {
-    if (request.native_kind == native_handle_kind::windows_handle && request.windows_implicit_cursor
+    if (request.native_kind == native_handle_kind::WINDOWS_HANDLE && request.windows_implicit_cursor
         && ::GetFileType(reinterpret_cast<HANDLE>(request.fd)) == FILE_TYPE_DISK)
       return false;
 
-    return request.kind == operation_kind::send_zc || request.kind == operation_kind::sendmsg_zc
+    return request.kind == operation_kind::SEND_ZC || request.kind == operation_kind::SENDMSG_ZC
            || supports_native(request.kind);
   }
 
@@ -1194,13 +1195,13 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       return;
     }
     const auto result = fatal_error_
-                            ? backend_submit_result{backend_submit_status::rejected, fatal_error_}
+                            ? backend_submit_result{backend_submit_status::REJECTED, fatal_error_}
                             : backend_.try_submit({op.token.value, &op.request});
-    if (result.status == backend_submit_status::accepted) {
+    if (result.status == backend_submit_status::ACCEPTED) {
       op.native_inflight = true;
       op.native_pending = false;
-    } else if (result.status == backend_submit_status::would_queue
-               || ((op.request.kind == operation_kind::close || op.request.internal_control)
+    } else if (result.status == backend_submit_status::WOULD_QUEUE
+               || ((op.request.kind == operation_kind::CLOSE || op.request.internal_control)
                    && result.error == ENOMEM)) {
       if (!op.native_pending) {
         op.native_pending = true;
@@ -1208,14 +1209,14 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
           native_pending_.push_back(op.token);
         } catch (...) {
           op.native_pending = false;
-          if (op.request.kind == operation_kind::close || op.request.internal_control)
+          if (op.request.kind == operation_kind::CLOSE || op.request.internal_control)
             std::terminate();
           finish(op, -ENOMEM);
         }
       }
     } else {
       op.native_pending = false;
-      if (op.request.kind == operation_kind::close) {
+      if (op.request.kind == operation_kind::CLOSE) {
         std::terminate();
       } else
         finish(op, -result.error);
@@ -1259,12 +1260,12 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
 
   /**  @brief 原生结果与资源就绪在核心汇合；MORE 结果保留到 NOTIF 后才发布一次。 */
   void complete_native(const backend_event& event) noexcept {
-    if (event.kind == backend_event_kind::cancel_ack)
+    if (event.kind == backend_event_kind::CANCEL_ACK)
       return;
     auto* op = lookup(operation_token{event.key});
     if (!op || !op->native_inflight || op->terminal)
       return;
-    if (event.kind == backend_event_kind::buffer_release) {
+    if (event.kind == backend_event_kind::BUFFER_RELEASE) {
       if (!op->native_waiting_release)
         return;
       op->native_waiting_release = false;
@@ -1288,20 +1289,20 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
         finish(*op, event.result);
       return;
     }
-    if (op->request.kind == operation_kind::ready && event.result >= 0 && op->request.resource) {
+    if (op->request.kind == operation_kind::READY && event.result >= 0 && op->request.resource) {
       auto& resource = *op->request.resource;
       std::uint32_t flags{};
       if (event.result & (POLLIN | POLLPRI))
-        flags |= readable_bit;
+        flags |= READABLE_BIT;
       if (event.result & POLLOUT)
-        flags |= writable_bit;
+        flags |= WRITABLE_BIT;
       if (event.result & (POLLERR | POLLNVAL))
-        flags |= error_bit;
+        flags |= ERROR_BIT;
       if (event.result & POLLHUP)
-        flags |= readable_bit | writable_bit | closed_bit;
+        flags |= READABLE_BIT | WRITABLE_BIT | CLOSED_BIT;
 #ifdef POLLRDHUP
       if (event.result & POLLRDHUP)
-        flags |= readable_bit | read_closed_bit;
+        flags |= READABLE_BIT | READ_CLOSED_BIT;
 #endif
       ++resource.readiness_generation;
       resource.readiness |= flags;
@@ -1357,7 +1358,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       finish(op, -op.cancellation);
       return;
     }
-    if (op.request.kind == operation_kind::ready) {
+    if (op.request.kind == operation_kind::READY) {
       const auto mask = static_cast<std::uint32_t>(op.request.argument);
       if (!mask || mask > 3 || !resource) {
         finish(op, -EINVAL);
@@ -1367,11 +1368,11 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
         finish(op, e);
         return;
       }
-      if (resource->readiness & (mask | error_bit))
+      if (resource->readiness & (mask | ERROR_BIT))
         finish(op, resource->readiness);
       return;
     }
-    if (op.request.kind == operation_kind::cancel) {
+    if (op.request.kind == operation_kind::CANCEL) {
       if (static_cast<unsigned>(op.request.flags) & ~3u) {
         finish(op, -ENOTSUP);
 
@@ -1383,7 +1384,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
               && (entry->request.resource == resource
                   || (entry->request.bypass_resource_registration && !entry->request.resource
                       && entry->request.fd == op.request.fd))
-              && entry->request.kind != operation_kind::close && !entry->request.uncancellable) {
+              && entry->request.kind != operation_kind::CLOSE && !entry->request.uncancellable) {
             if (!entry->cancellation)
               entry->cancellation = ECANCELED;
             cancel_operation(*entry);
@@ -1392,7 +1393,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
       finish(op, 0);
       return;
     }
-    if (op.request.kind == operation_kind::sendmsg)
+    if (op.request.kind == operation_kind::SENDMSG)
       op.request.message.msg_iov = op.request.vectors.data();
     const auto result = windows_operations::perform(op.request, op.connecting);
     if (result == -EAGAIN || result == -EWOULDBLOCK || result == -EINPROGRESS
@@ -1429,9 +1430,9 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
         }
       }
       bool connecting = false;
-      if (operation->request.kind == operation_kind::close
-          && operation->request.native_kind == native_handle_kind::windows_handle)
-        self->forget_native_handle(operation->request.fd, native_handle_kind::windows_handle);
+      if (operation->request.kind == operation_kind::CLOSE
+          && operation->request.native_kind == native_handle_kind::WINDOWS_HANDLE)
+        self->forget_native_handle(operation->request.fd, native_handle_kind::WINDOWS_HANDLE);
       const auto result = windows_operations::perform(operation->request, connecting);
       {
         std::lock_guard lock(self->mutex_);
@@ -1451,29 +1452,29 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     if (op.terminal || op.running_file || op.native_inflight)
       return;
     if (op.cancellation && result >= 0
-        && ((op.request.kind == operation_kind::accept
-             || op.request.kind == operation_kind::accept_nowait)
-            || op.request.kind == operation_kind::open || op.request.kind == operation_kind::open2
-            || op.request.kind == operation_kind::socket)) {
+        && ((op.request.kind == operation_kind::ACCEPT
+             || op.request.kind == operation_kind::ACCEPT_NOWAIT)
+            || op.request.kind == operation_kind::OPEN || op.request.kind == operation_kind::OPEN2
+            || op.request.kind == operation_kind::SOCKET)) {
       const native_descriptor fd = static_cast<native_descriptor>(result);
       if (!defer_native_close(fd))
         defer_cleanup([fd,
-                       kind = op.request.kind == operation_kind::open
-                                  ? native_handle_kind::windows_handle
-                                  : native_handle_kind::windows_socket] {
+                       kind = op.request.kind == operation_kind::OPEN
+                                  ? native_handle_kind::WINDOWS_HANDLE
+                                  : native_handle_kind::WINDOWS_SOCKET] {
           (void)windows_operations::close_native(fd, kind);
         });
     }
     op.terminal = true;
     op.transferred = result > 0 && direction_of(op.request.kind)
-                             && op.request.kind != operation_kind::accept
-                             && op.request.kind != operation_kind::accept_nowait
-                             && op.request.kind != operation_kind::connect
+                             && op.request.kind != operation_kind::ACCEPT
+                             && op.request.kind != operation_kind::ACCEPT_NOWAIT
+                             && op.request.kind != operation_kind::CONNECT
                          ? static_cast<std::uint64_t>(result)
                          : 0;
-    if (op.request.kind == operation_kind::unlinkat && result == 0)
+    if (op.request.kind == operation_kind::UNLINKAT && result == 0)
       op.transferred = 1;
-    if (op.request.kind == operation_kind::ready && result >= 0 && op.request.resource)
+    if (op.request.kind == operation_kind::READY && result >= 0 && op.request.resource)
       op.transferred = op.request.resource->readiness_generation;
     op.result = op.cancellation ? -op.cancellation : result;
     const auto& resource = op.request.resource;
@@ -1520,7 +1521,7 @@ class io_domain : public std::enable_shared_from_this<io_domain> {
     for (auto& entry : operations_)
       if (entry->allocated && entry->accepted && !entry->terminal && entry.get() != waiter
           && entry->request.resource.get() == &resource
-          && entry->request.kind != operation_kind::close)
+          && entry->request.kind != operation_kind::CLOSE)
         if (!entry->cancellation)
           entry->cancellation = ECANCELED;
     auto* reader = resource.reader;

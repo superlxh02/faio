@@ -11,11 +11,11 @@
 #include <span>
 
 namespace {
-const auto address = faio::net::SocketAddr{faio::net::Ipv4Addr{127, 0, 0, 1}, 8081};
+const auto address = faio::net::socket_addr{faio::net::ipv4_addr{127, 0, 0, 1}, 8081};
 
 /** @brief 绑定端口并持续回显数据报。 */
 faio::task<int> serve() {
-  auto socket = faio::net::UdpSocket::bind(address);
+  auto socket = faio::net::udp_socket::bind(address);
   if (!socket) {
     faio::log::logger()->error("绑定 {} 失败：{}", address.to_string(), socket.error().message());
     co_return 1;
@@ -31,8 +31,7 @@ faio::task<int> serve() {
     }
 
     auto [size, peer] = *datagram;
-    const auto sent =
-        co_await socket->send_to(std::span<const char>{buffer}.first(size), peer);
+    const auto sent = co_await socket->send_to(std::span<const char>{buffer}.first(size), peer);
     if (!sent) {
       faio::log::logger()->error("发回 {} 失败：{}", peer.to_string(), sent.error().message());
       co_return 1;

@@ -123,10 +123,10 @@ class uring_backend {
    */
   bool supports(std::uint32_t kind) const noexcept {
     const auto operation = static_cast<operation_kind>(kind);
-    if (operation == operation_kind::accept_nowait && !accept_nowait_)
+    if (operation == operation_kind::ACCEPT_NOWAIT && !accept_nowait_)
       return false;
-    if ((operation == operation_kind::getsockopt || operation == operation_kind::setsockopt
-         || operation == operation_kind::socket_inq || operation == operation_kind::socket_outq)
+    if ((operation == operation_kind::GETSOCKOPT || operation == operation_kind::SETSOCKOPT
+         || operation == operation_kind::SOCKET_INQ || operation == operation_kind::SOCKET_OUTQ)
         && !socket_commands_)
       return false;
 
@@ -148,13 +148,13 @@ class uring_backend {
     std::lock_guard lock(mutex_);
     auto& request = *operation.request;
     if (!supports(static_cast<std::uint32_t>(request.kind)))
-      return {backend_submit_status::rejected, EOPNOTSUPP};
+      return {backend_submit_status::REJECTED, EOPNOTSUPP};
     if (!pending_cancels_.empty())
       issue_cancels();
 
     auto* sqe = ::io_uring_get_sqe(&ring_);
     if (!sqe)
-      return {backend_submit_status::would_queue, 0};
+      return {backend_submit_status::WOULD_QUEUE, 0};
     const auto key = ++next_key_;
     if (!key || key >= wake_key_)
       std::terminate();
@@ -165,7 +165,7 @@ class uring_backend {
       entry.request = &request;
       entry.sigpipe_sensitive =
           request.resource && !request.resource->regular_file
-          && (request.kind == operation_kind::write || request.kind == operation_kind::writev);
+          && (request.kind == operation_kind::WRITE || request.kind == operation_kind::WRITEV);
       prepare(*sqe, request, entry);
       request.native_completion_key = key;
       if (entry.sigpipe_sensitive)
@@ -178,12 +178,12 @@ class uring_backend {
       ::io_uring_sqe_set_data64(sqe, 0);
       entries_.erase(key);
       request.native_completion_key = 0;
-      return {backend_submit_status::rejected, ENOMEM};
+      return {backend_submit_status::REJECTED, ENOMEM};
     }
     ::io_uring_sqe_set_data64(sqe, key);
     ++statistics_.native_submitted;
 
-    return {backend_submit_status::accepted, 0};
+    return {backend_submit_status::ACCEPTED, 0};
   }
 
   /**
@@ -233,12 +233,12 @@ class uring_backend {
       const bool pending_notice = wake_pending_.load(std::memory_order_seq_cst);
 
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-      control_test_step(control_test_point::poll_after_load);
+      control_test_step(control_test_point::POLL_AFTER_LOAD);
 #endif
       const bool noticed =
           pending_notice && wake_pending_.exchange(false, std::memory_order_seq_cst);
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-      control_test_step(control_test_point::poll_after_consume);
+      control_test_step(control_test_point::POLL_AFTER_CONSUME);
 #endif
       control_progress_ = false;
       const auto flushed = flush_locked();
@@ -261,7 +261,7 @@ class uring_backend {
     sigpipe_scope protected_wait{protect_wait};
     int waited;
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-    control_test_step(control_test_point::poll_before_wait);
+    control_test_step(control_test_point::POLL_BEFORE_WAIT);
 #endif
     do {
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
@@ -305,14 +305,14 @@ class uring_backend {
   void wake() const noexcept {
     const bool already_pending = wake_pending_.exchange(true, std::memory_order_seq_cst);
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-    control_test_step(control_test_point::wake_after_exchange);
+    control_test_step(control_test_point::WAKE_AFTER_EXCHANGE);
 #endif
     if (already_pending)
       return;
     const std::uint64_t one = 1;
     ssize_t written;
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-    control_test_step(control_test_point::wake_before_write);
+    control_test_step(control_test_point::WAKE_BEFORE_WRITE);
 #endif
     do {
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
@@ -403,65 +403,65 @@ class uring_backend {
   /** @brief 只作 operation 到真实内核 opcode 的映射；缺项在接受前明确拒绝。 */
   static int opcode_for(operation_kind kind) noexcept {
     switch (kind) {
-      case operation_kind::recv:
+      case operation_kind::RECV:
         return IORING_OP_RECV;
-      case operation_kind::send:
+      case operation_kind::SEND:
         return IORING_OP_SEND;
-      case operation_kind::recvfrom:
-      case operation_kind::recvmsg:
+      case operation_kind::RECVFROM:
+      case operation_kind::RECVMSG:
         return IORING_OP_RECVMSG;
-      case operation_kind::sendto:
-      case operation_kind::sendmsg:
+      case operation_kind::SENDTO:
+      case operation_kind::SENDMSG:
         return IORING_OP_SENDMSG;
-      case operation_kind::send_zc:
+      case operation_kind::SEND_ZC:
         return IORING_OP_SEND_ZC;
-      case operation_kind::sendmsg_zc:
+      case operation_kind::SENDMSG_ZC:
         return IORING_OP_SENDMSG_ZC;
-      case operation_kind::connect:
+      case operation_kind::CONNECT:
         return IORING_OP_CONNECT;
-      case operation_kind::accept:
-      case operation_kind::accept_nowait:
+      case operation_kind::ACCEPT:
+      case operation_kind::ACCEPT_NOWAIT:
         return IORING_OP_ACCEPT;
-      case operation_kind::read:
+      case operation_kind::READ:
         return IORING_OP_READ;
-      case operation_kind::write:
+      case operation_kind::WRITE:
         return IORING_OP_WRITE;
-      case operation_kind::readv:
+      case operation_kind::READV:
         return IORING_OP_READV;
-      case operation_kind::writev:
+      case operation_kind::WRITEV:
         return IORING_OP_WRITEV;
-      case operation_kind::open:
+      case operation_kind::OPEN:
         return IORING_OP_OPENAT;
-      case operation_kind::open2:
+      case operation_kind::OPEN2:
         return IORING_OP_OPENAT2;
-      case operation_kind::fsync:
+      case operation_kind::FSYNC:
         return IORING_OP_FSYNC;
-      case operation_kind::close:
+      case operation_kind::CLOSE:
         return IORING_OP_CLOSE;
-      case operation_kind::shutdown:
+      case operation_kind::SHUTDOWN:
         return IORING_OP_SHUTDOWN;
-      case operation_kind::socket:
+      case operation_kind::SOCKET:
         return IORING_OP_SOCKET;
-      case operation_kind::ready:
+      case operation_kind::READY:
         return IORING_OP_POLL_ADD;
-      case operation_kind::getsockopt:
-      case operation_kind::setsockopt:
-      case operation_kind::socket_inq:
-      case operation_kind::socket_outq:
+      case operation_kind::GETSOCKOPT:
+      case operation_kind::SETSOCKOPT:
+      case operation_kind::SOCKET_INQ:
+      case operation_kind::SOCKET_OUTQ:
         return IORING_OP_URING_CMD;
-      case operation_kind::statx:
+      case operation_kind::STATX:
         return IORING_OP_STATX;
-      case operation_kind::mkdirat:
+      case operation_kind::MKDIRAT:
         return IORING_OP_MKDIRAT;
-      case operation_kind::unlinkat:
+      case operation_kind::UNLINKAT:
         return IORING_OP_UNLINKAT;
-      case operation_kind::renameat:
+      case operation_kind::RENAMEAT:
         return IORING_OP_RENAMEAT;
-      case operation_kind::linkat:
+      case operation_kind::LINKAT:
         return IORING_OP_LINKAT;
-      case operation_kind::symlinkat:
+      case operation_kind::SYMLINKAT:
         return IORING_OP_SYMLINKAT;
-      case operation_kind::ftruncate:
+      case operation_kind::FTRUNCATE:
         return IORING_OP_FTRUNCATE;
       default:
         return -1;
@@ -480,13 +480,13 @@ class uring_backend {
   static void prepare(io_uring_sqe& sqe, io_request& r, entry& owner) {
     const auto length = static_cast<unsigned>(std::min<std::size_t>(r.length, UINT_MAX));
     switch (r.kind) {
-      case operation_kind::recv:
+      case operation_kind::RECV:
         ::io_uring_prep_recv(&sqe, r.fd, r.buffer, length, r.flags);
         break;
-      case operation_kind::send:
+      case operation_kind::SEND:
         ::io_uring_prep_send(&sqe, r.fd, r.const_buffer, length, r.flags | MSG_NOSIGNAL);
         break;
-      case operation_kind::send_zc:
+      case operation_kind::SEND_ZC:
         ::io_uring_prep_send_zc(&sqe,
                                 r.fd,
                                 r.const_buffer,
@@ -494,7 +494,7 @@ class uring_backend {
                                 r.flags | MSG_NOSIGNAL,
                                 static_cast<unsigned>(r.argument));
         break;
-      case operation_kind::recvfrom:
+      case operation_kind::RECVFROM:
         r.scalar_vector = {r.buffer, r.length};
         r.message = {};
         r.message.msg_name = r.output_address;
@@ -503,14 +503,14 @@ class uring_backend {
         r.message.msg_iovlen = 1;
         ::io_uring_prep_recvmsg(&sqe, r.fd, &r.message, r.flags);
         break;
-      case operation_kind::recvmsg:
+      case operation_kind::RECVMSG:
         r.message = *r.output_message;
         if (r.message.msg_iovlen)
           r.vectors.assign(r.message.msg_iov, r.message.msg_iov + r.message.msg_iovlen);
         r.message.msg_iov = r.vectors.data();
         ::io_uring_prep_recvmsg(&sqe, r.fd, &r.message, r.flags);
         break;
-      case operation_kind::sendto:
+      case operation_kind::SENDTO:
         r.scalar_vector = {const_cast<void*>(r.const_buffer), r.length};
         r.message = {};
         r.message.msg_name = &r.address;
@@ -519,43 +519,43 @@ class uring_backend {
         r.message.msg_iovlen = 1;
         ::io_uring_prep_sendmsg(&sqe, r.fd, &r.message, r.flags | MSG_NOSIGNAL);
         break;
-      case operation_kind::sendmsg:
+      case operation_kind::SENDMSG:
         r.message.msg_iov = r.vectors.data();
         ::io_uring_prep_sendmsg(&sqe, r.fd, &r.message, r.flags | MSG_NOSIGNAL);
         break;
-      case operation_kind::sendmsg_zc:
+      case operation_kind::SENDMSG_ZC:
         r.message.msg_iov = r.vectors.data();
         ::io_uring_prep_sendmsg_zc(&sqe, r.fd, &r.message, r.flags | MSG_NOSIGNAL);
         break;
-      case operation_kind::connect:
+      case operation_kind::CONNECT:
         ::io_uring_prep_connect(
             &sqe, r.fd, reinterpret_cast<sockaddr*>(&r.address), r.address_length);
         break;
-      case operation_kind::accept:
-      case operation_kind::accept_nowait:
+      case operation_kind::ACCEPT:
+      case operation_kind::ACCEPT_NOWAIT:
         ::io_uring_prep_accept(&sqe,
                                r.fd,
                                r.output_address,
                                r.output_address_length,
                                r.flags | SOCK_NONBLOCK | SOCK_CLOEXEC);
-        if (r.kind == operation_kind::accept_nowait)
+        if (r.kind == operation_kind::ACCEPT_NOWAIT)
           sqe.ioprio |= IORING_ACCEPT_DONTWAIT;
         break;
-      case operation_kind::read:
+      case operation_kind::READ:
         ::io_uring_prep_read(&sqe,
                              r.fd,
                              r.buffer,
                              length,
                              r.resource && !r.resource->regular_file ? UINT64_MAX : r.offset);
         break;
-      case operation_kind::write:
+      case operation_kind::WRITE:
         ::io_uring_prep_write(&sqe,
                               r.fd,
                               r.const_buffer,
                               length,
                               r.resource && !r.resource->regular_file ? UINT64_MAX : r.offset);
         break;
-      case operation_kind::readv:
+      case operation_kind::READV:
         ::io_uring_prep_readv2(&sqe,
                                r.fd,
                                r.vectors.data(),
@@ -563,7 +563,7 @@ class uring_backend {
                                r.resource && !r.resource->regular_file ? UINT64_MAX : r.offset,
                                r.flags);
         break;
-      case operation_kind::writev:
+      case operation_kind::WRITEV:
         ::io_uring_prep_writev2(&sqe,
                                 r.fd,
                                 r.vectors.data(),
@@ -571,28 +571,28 @@ class uring_backend {
                                 r.resource && !r.resource->regular_file ? UINT64_MAX : r.offset,
                                 r.flags);
         break;
-      case operation_kind::open:
+      case operation_kind::OPEN:
         ::io_uring_prep_openat(
             &sqe, r.fd, r.path.c_str(), r.flags | O_CLOEXEC, static_cast<mode_t>(r.argument));
         break;
-      case operation_kind::open2:
+      case operation_kind::OPEN2:
         owner.how = {r.extension_flags | O_CLOEXEC, r.extension_mode, r.extension_resolve};
         ::io_uring_prep_openat2(&sqe, r.fd, r.path.c_str(), &owner.how);
         break;
-      case operation_kind::fsync:
+      case operation_kind::FSYNC:
         ::io_uring_prep_fsync(&sqe, r.fd, r.flags);
         break;
-      case operation_kind::close:
+      case operation_kind::CLOSE:
         ::io_uring_prep_close(&sqe, r.fd);
         break;
-      case operation_kind::shutdown:
+      case operation_kind::SHUTDOWN:
         ::io_uring_prep_shutdown(&sqe, r.fd, r.argument);
         break;
-      case operation_kind::socket:
+      case operation_kind::SOCKET:
         ::io_uring_prep_socket(
             &sqe, r.argument, r.argument2 | SOCK_NONBLOCK | SOCK_CLOEXEC, r.argument3, r.flags);
         break;
-      case operation_kind::ready: {
+      case operation_kind::READY: {
         unsigned flags = POLLERR | POLLHUP;
         if (r.argument & 1)
           flags |= POLLIN;
@@ -601,7 +601,7 @@ class uring_backend {
         ::io_uring_prep_poll_add(&sqe, r.fd, flags);
         break;
       }
-      case operation_kind::getsockopt:
+      case operation_kind::GETSOCKOPT:
         ::io_uring_prep_cmd_sock(&sqe,
                                  SOCKET_URING_OP_GETSOCKOPT,
                                  r.fd,
@@ -610,7 +610,7 @@ class uring_backend {
                                  r.buffer,
                                  static_cast<int>(r.length));
         break;
-      case operation_kind::setsockopt:
+      case operation_kind::SETSOCKOPT:
         ::io_uring_prep_cmd_sock(&sqe,
                                  SOCKET_URING_OP_SETSOCKOPT,
                                  r.fd,
@@ -619,13 +619,13 @@ class uring_backend {
                                  const_cast<void*>(r.const_buffer),
                                  static_cast<int>(r.length));
         break;
-      case operation_kind::socket_inq:
+      case operation_kind::SOCKET_INQ:
         ::io_uring_prep_cmd_sock(&sqe, SOCKET_URING_OP_SIOCINQ, r.fd, 0, 0, nullptr, 0);
         break;
-      case operation_kind::socket_outq:
+      case operation_kind::SOCKET_OUTQ:
         ::io_uring_prep_cmd_sock(&sqe, SOCKET_URING_OP_SIOCOUTQ, r.fd, 0, 0, nullptr, 0);
         break;
-      case operation_kind::statx:
+      case operation_kind::STATX:
         ::io_uring_prep_statx(&sqe,
                               r.fd,
                               r.path.c_str(),
@@ -633,13 +633,13 @@ class uring_backend {
                               static_cast<unsigned>(r.argument),
                               static_cast<struct statx*>(r.buffer));
         break;
-      case operation_kind::mkdirat:
+      case operation_kind::MKDIRAT:
         ::io_uring_prep_mkdirat(&sqe, r.fd, r.path.c_str(), static_cast<mode_t>(r.argument));
         break;
-      case operation_kind::unlinkat:
+      case operation_kind::UNLINKAT:
         ::io_uring_prep_unlinkat(&sqe, r.fd, r.path.c_str(), r.flags);
         break;
-      case operation_kind::renameat:
+      case operation_kind::RENAMEAT:
         ::io_uring_prep_renameat(&sqe,
                                  r.fd,
                                  r.path.c_str(),
@@ -647,13 +647,13 @@ class uring_backend {
                                  r.path2.c_str(),
                                  static_cast<unsigned>(r.flags));
         break;
-      case operation_kind::linkat:
+      case operation_kind::LINKAT:
         ::io_uring_prep_linkat(&sqe, r.fd, r.path.c_str(), r.argument2, r.path2.c_str(), r.flags);
         break;
-      case operation_kind::symlinkat:
+      case operation_kind::SYMLINKAT:
         ::io_uring_prep_symlinkat(&sqe, r.path.c_str(), r.fd, r.path2.c_str());
         break;
-      case operation_kind::ftruncate:
+      case operation_kind::FTRUNCATE:
         ::io_uring_prep_ftruncate(&sqe, r.fd, static_cast<loff_t>(r.offset));
         break;
       default:
@@ -794,12 +794,12 @@ class uring_backend {
         control_progress_ = true;
         std::uint64_t ignored;
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-        control_test_step(control_test_point::harvest_before_drain);
+        control_test_step(control_test_point::HARVEST_BEFORE_DRAIN);
 #endif
         while (::read(wake_fd_, &ignored, sizeof(ignored)) > 0) {
         }
 #if defined(FAIO_URING_CONTROL_TESTS) && FAIO_URING_CONTROL_TESTS
-        control_test_step(control_test_point::harvest_after_drain);
+        control_test_step(control_test_point::HARVEST_AFTER_DRAIN);
 #endif
       }
       const auto found = entries_.find(key);
@@ -811,18 +811,18 @@ class uring_backend {
         entries_.erase(found);
       } else if (found != entries_.end()) {
         auto& value = found->second;
-        auto kind = value.ack ? backend_event_kind::cancel_ack : backend_event_kind::result;
+        auto kind = value.ack ? backend_event_kind::CANCEL_ACK : backend_event_kind::RESULT;
         if (value.ack)
           ++statistics_.cancel_ack;
         else if (cqe->flags & IORING_CQE_F_NOTIF) {
-          kind = backend_event_kind::buffer_release;
+          kind = backend_event_kind::BUFFER_RELEASE;
           ++statistics_.buffer_notifications;
         } else
           ++statistics_.native_completed;
-        if (value.request && value.request->kind == operation_kind::recvfrom && cqe->res >= 0
+        if (value.request && value.request->kind == operation_kind::RECVFROM && cqe->res >= 0
             && value.request->output_address_length)
           *value.request->output_address_length = value.request->message.msg_namelen;
-        if (value.request && value.request->kind == operation_kind::recvmsg && cqe->res >= 0) {
+        if (value.request && value.request->kind == operation_kind::RECVMSG && cqe->res >= 0) {
           auto& r = *value.request;
           r.output_message->msg_namelen = r.message.msg_namelen;
           r.output_message->msg_controllen = r.message.msg_controllen;

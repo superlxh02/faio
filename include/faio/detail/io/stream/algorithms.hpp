@@ -30,9 +30,9 @@ task<expected<std::size_t>> read_exact(Reader& reader, std::span<char> buffer) {
       co_return std::unexpected{
           detail::transfer_error(result.error(), total + result.error().progress())};
     if (!*result)
-      co_return std::unexpected{Error{Error::UnexpectedEOF, total}};
+      co_return std::unexpected{::faio::error{::faio::error::UNEXPECTED_EOF, total}};
     if (*result > buffer.size() - total)
-      co_return std::unexpected{Error{EIO, total}};
+      co_return std::unexpected{::faio::error{EIO, total}};
     total += *result;
     co_await this_coro::yield_if_needed();
   }
@@ -49,9 +49,9 @@ task<expected<void>> write_all(Writer& writer, std::span<const char> buffer) {
       co_return std::unexpected{
           detail::transfer_error(result.error(), total + result.error().progress())};
     if (!*result)
-      co_return std::unexpected{Error{Error::WriteZero, total}};
+      co_return std::unexpected{::faio::error{::faio::error::WRITE_ZERO, total}};
     if (*result > buffer.size() - total)
-      co_return std::unexpected{Error{EIO, total}};
+      co_return std::unexpected{::faio::error{EIO, total}};
     total += *result;
     co_await this_coro::yield_if_needed();
   }
@@ -91,7 +91,7 @@ task<expected<std::size_t>> read_to_end(
     if (!*result)
       co_return total;
     if (*result > remaining)
-      co_return std::unexpected{Error{EIO, total}};
+      co_return std::unexpected{::faio::error{EIO, total}};
     output.insert(output.end(), buffer.data(), buffer.data() + *result);
     total += *result;
     co_await this_coro::yield_if_needed();
@@ -116,7 +116,7 @@ task<expected<std::size_t>> read_to_string(
     if (!*result)
       co_return total;
     if (*result > remaining)
-      co_return std::unexpected{Error{EIO, total}};
+      co_return std::unexpected{::faio::error{EIO, total}};
     output.append(buffer.data(), *result);
     total += *result;
     co_await this_coro::yield_if_needed();
@@ -141,7 +141,7 @@ task<expected<std::uint64_t>> copy(Reader& reader,
     if (!*read)
       co_return total;
     if (*read > buffer_size)
-      co_return std::unexpected{Error{EIO, static_cast<std::size_t>(total)}};
+      co_return std::unexpected{::faio::error{EIO, static_cast<std::size_t>(total)}};
     auto write = co_await write_all(writer, std::span<const char>{buffer.data(), *read});
     if (!write)
       co_return std::unexpected{detail::transfer_error(

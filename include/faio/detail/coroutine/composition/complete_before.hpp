@@ -17,7 +17,7 @@
 
 namespace faio {
 /** @brief 截止组合的互斥终态，分别记录工作和触发器的错误。 */
-enum class deadline_status { value, work_error, trigger_error, deadline, stopped };
+enum class deadline_status { VALUE, WORK_ERROR, TRIGGER_ERROR, DEADLINE, STOPPED };
 
 namespace detail {
 template <class T>
@@ -37,18 +37,18 @@ class [[nodiscard]] deadline_outcome {
   /** @brief 根据胜出分支及其实际终态查询结果，领取值后仍可查询。 */
   deadline_status status() const noexcept {
     if (const auto* work = std::get_if<0>(&winner_)) {
-      if (work->status() == task_outcome_status::value)
-        return deadline_status::value;
-      if (work->status() == task_outcome_status::error)
-        return deadline_status::work_error;
+      if (work->status() == task_outcome_status::VALUE)
+        return deadline_status::VALUE;
+      if (work->status() == task_outcome_status::ERROR_VALUE)
+        return deadline_status::WORK_ERROR;
     } else {
       const auto& trigger = std::get<1>(winner_);
-      if (trigger.status() == task_outcome_status::value)
-        return deadline_status::deadline;
-      if (trigger.status() == task_outcome_status::error)
-        return deadline_status::trigger_error;
+      if (trigger.status() == task_outcome_status::VALUE)
+        return deadline_status::DEADLINE;
+      if (trigger.status() == task_outcome_status::ERROR_VALUE)
+        return deadline_status::TRIGGER_ERROR;
     }
-    return deadline_status::stopped;
+    return deadline_status::STOPPED;
   }
 
   /** @brief 返回错误或停止关联的异常，工作成功或截止时为空。 */
@@ -75,19 +75,19 @@ class [[nodiscard]] deadline_outcome {
 };
 
 namespace detail {
-enum class deadline_branch_id { none, work, trigger };
+enum class deadline_branch_id { NONE, WORK, TRIGGER };
 
 /** @brief 两条分支使用独立输出槽，排空后由调用方领取胜出结果。 */
 template <class T>
 struct deadline_race {
   std::stop_source stop;
-  std::atomic<deadline_branch_id> winner{deadline_branch_id::none};
+  std::atomic<deadline_branch_id> winner{deadline_branch_id::NONE};
   std::optional<task_outcome<T>> work;
   std::optional<task_outcome<void>> trigger;
 
   /** @brief 终态构造完成后竞争胜出权，仅胜出分支请求同组停止。 */
   void publish(deadline_branch_id branch) noexcept {
-    auto expected = deadline_branch_id::none;
+    auto expected = deadline_branch_id::NONE;
     if (winner.compare_exchange_strong(expected, branch, std::memory_order_acq_rel))
       stop.request_stop();
   }
@@ -95,11 +95,11 @@ struct deadline_race {
   /** @brief 只在两个分支均已退出后移动胜出槽。 */
   deadline_outcome<T> take_winner() {
     switch (winner.load(std::memory_order_acquire)) {
-      case deadline_branch_id::work:
+      case deadline_branch_id::WORK:
         return deadline_outcome<T>{std::in_place_index<0>, std::move(*work)};
-      case deadline_branch_id::trigger:
+      case deadline_branch_id::TRIGGER:
         return deadline_outcome<T>{std::in_place_index<1>, std::move(*trigger)};
-      case deadline_branch_id::none:
+      case deadline_branch_id::NONE:
         throw std::logic_error("截止组合结束时没有已发布的分支终态");
     }
     std::terminate();
@@ -135,14 +135,14 @@ template <class T, class S>
 task<deadline_outcome<T>, S> complete_before(task<T, S> work, task<void, S> trigger) {
   detail::deadline_race<T> race;
   auto summary = co_await task_group<S>(
-      group_options{group_error_policy::collect_all},
+      group_options{group_error_policy::COLLECT_ALL},
       [&race, work = std::move(work), trigger = std::move(trigger)](
           basic_task_group_context<S>& group) mutable -> task<void, S> {
         try {
           (void)group.spawn_observed(detail::run_deadline_branch(
-              std::move(work), race.work, race, detail::deadline_branch_id::work));
+              std::move(work), race.work, race, detail::deadline_branch_id::WORK));
           (void)group.spawn_observed(detail::run_deadline_branch(
-              std::move(trigger), race.trigger, race, detail::deadline_branch_id::trigger));
+              std::move(trigger), race.trigger, race, detail::deadline_branch_id::TRIGGER));
         } catch (...) {
           race.stop.request_stop();
           throw;

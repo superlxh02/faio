@@ -72,7 +72,7 @@ faio::task<void> show_work_wins() {
   faio::sync::latch untriggered{1};
   /** @brief 此处始终不给截止任务启动信号，工作分支的胜负不取决于线程调度速度。 */
   auto result = co_await faio::complete_before(ready_value(), wait_for_deadline(untriggered));
-  if (result.status() != faio::deadline_status::value || result.take_value() != 42)
+  if (result.status() != faio::deadline_status::VALUE || result.take_value() != 42)
     throw std::logic_error("预期工作先完成并交付 42");
   faio::log::logger()->info("工作先完成：取得 42，截止等待也已退出");
 }
@@ -94,7 +94,7 @@ faio::task<void> show_deadline_wins() {
         co_return 42;
       },
       [&](const faio::task_exit& exit) -> faio::task<void> {
-        work_cancelled = exit.status == faio::task_exit::kind::cancelled;
+        work_cancelled = exit.status == faio::task_exit::kind::CANCELLED;
         cleanup_started.count_down();
         co_await allow_cleanup.wait();
         buffer_use = {};
@@ -107,7 +107,7 @@ faio::task<void> show_deadline_wins() {
   const bool waiting_for_cleanup = work_cancelled && !operation.done() && !buffer_use.empty();
   allow_cleanup.count_down();
   auto result = co_await operation;
-  if (!waiting_for_cleanup || result.status() != faio::deadline_status::deadline
+  if (!waiting_for_cleanup || result.status() != faio::deadline_status::DEADLINE
       || !buffer_use.empty()) {
     throw std::logic_error("预期截止先触发，清理结束后才交付结果");
   }

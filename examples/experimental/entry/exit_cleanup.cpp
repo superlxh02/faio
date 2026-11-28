@@ -31,7 +31,7 @@ faio::task<void> background(std::shared_ptr<faio::sync::latch> started) {
           co_await pending.wait();
         },
         [](const faio::task_exit& exit) -> faio::task<void> {
-          if (exit.status != faio::task_exit::kind::cancelled)
+          if (exit.status != faio::task_exit::kind::CANCELLED)
             throw std::logic_error("后台任务应因入口返回而收到停止请求");
 
           co_await faio::this_coro::yield();

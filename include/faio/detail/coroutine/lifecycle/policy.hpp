@@ -12,9 +12,9 @@
 namespace faio {
 /** @brief 任务体退出原因；只观察状态和异常，不领取或移动任务结果。 */
 struct task_exit {
-  enum class kind { succeeded, failed, cancelled };
+  enum class kind { SUCCEEDED, FAILED, CANCELLED };
 
-  kind status{kind::succeeded};
+  kind status{kind::SUCCEEDED};
   std::exception_ptr exception{};
 };
 

@@ -190,7 +190,7 @@ root_task unobserved_root_task_wrapper(task<T, S> child) {
     co_await std::move(child);
   } catch (const operation_cancelled&) {
     const auto& context = current_task_context();
-    if (context.cancellation_policy != cancellation_error_policy::normal_if_stop_requested
+    if (context.cancellation_policy != cancellation_error_policy::NORMAL_IF_STOP_REQUESTED
         || !context.stop_token.stop_requested())
       throw;
   }

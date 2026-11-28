@@ -51,7 +51,7 @@ faio::task<void> stable_contract() {
 
   const std::array<char, 4> payload{'f', 'a', 'i', 'o'};
   std::array<char, 4> bytes{};
-  faio::io::MemoryStream stream;
+  faio::io::memory_stream stream;
   (co_await faio::io::write_all(stream, payload)).value();
   const auto offset = (co_await stream.seek(0)).value();
   const auto read = (co_await faio::io::read_exact(stream, bytes)).value();
@@ -72,14 +72,14 @@ faio::task<void> stable_contract() {
 
 #if !defined(_WIN32)
   constexpr std::string_view socket_path = "/tmp/faio-contract.sock";
-  if (faio::net::unix::UnixAddr::pathname(socket_path).value().path() != socket_path)
+  if (faio::net::unix::unix_addr::pathname(socket_path).value().path() != socket_path)
     throw std::runtime_error("Unix socket address lost its path");
 
   int pipe_fds[2];
   if (::pipe(pipe_fds) != 0)
     throw std::runtime_error("pipe creation failed");
-  faio::io::unix::OwnedFd writer{pipe_fds[1]};
-  faio::io::unix::AsyncFd<> reader{faio::io::unix::OwnedFd{pipe_fds[0]}};
+  faio::io::unix::owned_fd writer{pipe_fds[1]};
+  faio::io::unix::async_fd<> reader{faio::io::unix::owned_fd{pipe_fds[0]}};
   if (::write(writer.get(), "x", 1) != 1)
     throw std::runtime_error("pipe write failed");
   const auto readiness = (co_await reader.readable()).value();
@@ -96,8 +96,8 @@ faio::task<void> stable_contract() {
   const auto invalid_host = co_await faio::net::lookup_host(std::string{"x\0y", 3}, 0);
   if (invalid_host || invalid_host.error().native_code() != EINVAL)
     throw std::runtime_error("resolver accepted an embedded NUL");
-  auto receiver = faio::net::UdpDatagram::bind(loopback).value();
-  auto sender = faio::net::UdpDatagram::bind(loopback).value();
+  auto receiver = faio::net::udp_datagram::bind(loopback).value();
+  auto sender = faio::net::udp_datagram::bind(loopback).value();
   const auto sent = (co_await sender.send_to(payload, receiver.local_addr().value())).value();
   bytes.fill(0);
   const auto [count, source] = (co_await receiver.recv_from(bytes).set_timeout(3s)).value();

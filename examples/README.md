@@ -12,6 +12,8 @@
 |---|---|---|
 | [quickstart.cpp](quickstart.cpp) | `quickstart` | 第一个异步任务，输出 `Hello, world!` |
 | [module/quickstart.cpp](module/quickstart.cpp) | `quickstart_module` | 只导入 `faio`，并发任务返回 42，以退出码 0 检查结果 |
+| [common/match.cpp](common/match.cpp) | `match_basics` | 匹配 expected、optional、值和条件分支 |
+| [stdio/console.cpp](stdio/console.cpp) | `stdio_console` | 异步格式化输出、标准错误输出和刷新；无需交互输入 |
 
 下面一组是协程和任务组合。它们覆盖任务生命周期、并发汇合、取消这些容易写错的地方。
 
@@ -44,6 +46,7 @@
 |---|---|---|
 | [net/tcp_echo.cpp](net/tcp_echo.cpp) | `tcp_echo` | 持续监听的 TCP 回显服务（127.0.0.1:8080） |
 | [net/udp_echo.cpp](net/udp_echo.cpp) | `udp_echo` | 持续监听的 UDP 回显服务（127.0.0.1:8081） |
+| [net/unix_echo.cpp](net/unix_echo.cpp) | `unix_echo` | Unix 域流套接字的本机回显，演示结束后清理路径；仅非 Windows 平台构建 |
 | [tls/echo.cpp](tls/echo.cpp) | `tls_echo` | 本机加密回显、显式 CA 和主机名验证 |
 | [process/command.cpp](process/command.cpp) | `process_command` | 捕获标准输出及错误、超时后终止并回收 |
 
@@ -70,6 +73,14 @@ ctest --preset mac-main-release -L example --output-on-failure
 ```
 
 `faio_examples` 聚合头文件版的非实验示例。也可以把表中的目标名直接交给 `cmake --build --preset <preset> --target <target>` 单独构建。开启 `FAIO_BUILD_TESTS` 后，每个程序注册成名为 `example_<target>` 的测试，带 `example` 标签；上面的 `ctest` 命令按标签把它们一起跑一遍。
+
+`unix_echo` 通过临时路径连接本机服务端与客户端，检查回显结果后自动退出并清理路径。CMake、Bazel 和 xmake 都仅在非 Windows 平台构建此示例。单独构建和运行：
+
+```sh
+cmake --build --preset mac-main-release --target unix_echo
+./target/cmake-build-mac-main-release/examples/unix_echo
+ctest --preset mac-main-release -R '^example_unix_echo$' --output-on-failure
+```
 
 TLS 和进程组件默认关闭。启用 `FAIO_ENABLE_TLS=ON` 后，`tls_echo` 需要依次传入服务端证书、私钥和客户端信任的 CA：
 

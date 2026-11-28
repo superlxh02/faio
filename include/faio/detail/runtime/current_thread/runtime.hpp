@@ -72,7 +72,7 @@ class current_thread_runtime {
   current_thread_runtime& operator=(const current_thread_runtime&) = delete;
 
   /** @brief 销毁单线程运行时。 */
-  ~current_thread_runtime() { stop(io::shutdown_policy::drain); }
+  ~current_thread_runtime() { stop(io::shutdown_policy::DRAIN); }
 
   /** @brief 取得绑定的调度器。 */
   scheduler_ref scheduler() noexcept { return scheduler_ref{scheduler_}; }
@@ -106,7 +106,7 @@ class current_thread_runtime {
   }
 
   /** @brief 停止接纳并排空运行时工作。 */
-  void stop(io::shutdown_policy policy = io::shutdown_policy::cancel_all) {
+  void stop(io::shutdown_policy policy = io::shutdown_policy::CANCEL_ALL) {
     stop_impl(policy, false);
   }
 
@@ -128,10 +128,10 @@ class current_thread_runtime {
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
     completion_.begin_quiescing();
     completion_.begin_draining();
-    if (policy == io::shutdown_policy::cancel_all)
+    if (policy == io::shutdown_policy::CANCEL_ALL)
       completion_.request_stop();
 #endif
-    if (policy == io::shutdown_policy::cancel_all)
+    if (policy == io::shutdown_policy::CANCEL_ALL)
       engine_->begin_shutdown(policy);
     std::unique_lock drive_lock(drive_mutex_);
     drive_locked([&] { return roots_.counter.count() == 0 && completion_.quiescent(); }, true);

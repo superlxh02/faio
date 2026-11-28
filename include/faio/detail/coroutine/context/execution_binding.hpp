@@ -61,11 +61,11 @@ class execution_thread_binding_base
 
   ::faio::runtime::detail::blocking_pool* blocking() const noexcept { return blocking_; }
 
-  template <class LocalState, class S>
-  LocalState* local_state_for(basic_scheduler_ref<S> target) const noexcept {
-    if (!matches(target) || local_type_ != &execution_binding_type_tag<LocalState>)
+  template <class local_state_type, class S>
+  local_state_type* local_state_for(basic_scheduler_ref<S> target) const noexcept {
+    if (!matches(target) || local_type_ != &execution_binding_type_tag<local_state_type>)
       return nullptr;
-    return static_cast<LocalState*>(local_state_);
+    return static_cast<local_state_type*>(local_state_);
   }
 
  protected:
@@ -75,10 +75,10 @@ class execution_thread_binding_base
   template <class>
   friend class execution_thread_binding;
 
-  template <class S, class LocalState>
+  template <class S, class local_state_type>
   execution_thread_binding_base(basic_scheduler_ref<S> scheduler,
                                 task_lifetime_ref lifetime,
-                                LocalState& local_state,
+                                local_state_type& local_state,
                                 std::size_t worker_id,
                                 ::faio::runtime::detail::blocking_pool* blocking
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
@@ -94,7 +94,7 @@ class execution_thread_binding_base
         scheduler_type_(scheduler ? &execution_binding_type_tag<S> : nullptr),
         lifetime_(lifetime),
         local_state_(std::addressof(local_state)),
-        local_type_(&execution_binding_type_tag<LocalState>),
+        local_type_(&execution_binding_type_tag<local_state_type>),
         worker_id_(worker_id),
         blocking_(blocking),
         bound_cpu_(bound_cpu) {
@@ -115,10 +115,10 @@ template <class S>
 class execution_thread_binding final : public execution_thread_binding_base {
  public:
   /** @brief 构造执行线程的静态服务绑定。 */
-  template <class LocalState>
+  template <class local_state_type>
   execution_thread_binding(basic_scheduler_ref<S> scheduler,
                            task_lifetime_ref lifetime,
-                           LocalState& local_state,
+                           local_state_type& local_state,
                            std::size_t worker_id,
                            ::faio::runtime::detail::blocking_pool* blocking = nullptr
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION

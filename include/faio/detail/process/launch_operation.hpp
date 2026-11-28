@@ -16,17 +16,17 @@
 #endif
 namespace faio::process::detail {
 /** @brief 准备原生资源、创建进程并交给服务，只有全部接管成功才交付 Child。 */
-inline auto spawn_sync(CommandSnapshot snapshot) -> expected<Child> {
+inline auto spawn_sync(command_snapshot snapshot) -> expected<child> {
   try {
     if (snapshot.context().stopped())
-      return std::unexpected{process_error(errc::runtime_shutdown)};
+      return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
     auto prepared = prepare_launch(std::move(snapshot));
     if (!prepared)
       return std::unexpected{prepared.error()};
     auto native = launch_native(*prepared);
     if (!native)
       return std::unexpected{native.error()};
-    auto service = ProcessService::instance();
+    auto service = process_service::instance();
     if (!service)
       return std::unexpected{service.error()};
     auto watched = (*service)->watch(prepared->record(), std::move(*native));
@@ -34,7 +34,7 @@ inline auto spawn_sync(CommandSnapshot snapshot) -> expected<Child> {
       return std::unexpected{watched.error()};
 
     struct delivery_guard {
-      std::shared_ptr<ProcessState> state; /**< 尚未交付公共控制权的原生进程记录。 */
+      std::shared_ptr<process_state> state; /**< 尚未交付公共控制权的原生进程记录。 */
 
       /** @brief 即使登记运行时关联或接管标准流时抛出异常，也不留下无人控制的运行中进程。 */
       ~delivery_guard() {
@@ -57,8 +57,8 @@ inline auto spawn_sync(CommandSnapshot snapshot) -> expected<Child> {
     if (!error)
       return std::unexpected{error.error()};
     if (prepared->snapshot().context().stopped())
-      return std::unexpected{process_error(errc::runtime_shutdown)};
-    Child child{prepared->record(),
+      return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
+    child child{prepared->record(),
                 prepared->snapshot().command().get_kill_on_drop(),
                 std::move(*input),
                 std::move(*output),
@@ -72,42 +72,43 @@ inline auto spawn_sync(CommandSnapshot snapshot) -> expected<Child> {
   }
 }
 /** @brief 启动请求从创建到交付或放弃的生命周期阶段。 */
-enum class LaunchPhase {
-  created,    /**< 已固定请求输入，尚未进入启动队列。 */
-  queued,     /**< 已占用有界启动队列位置。 */
-  launching,  /**< 启动线程已接纳，原生创建可能正在进行。 */
-  registered, /**< 为原生进程监视接管阶段保留的状态值。 */
-  delivered,  /**< 唯一结果已移交给等待者，不再接受启动取消。 */
-  abandoned,  /**< 取消胜出，未交付的新进程已转入终止清理。 */
-  finished    /**< 执行结果已保存，等待唯一调用方领取。 */
+enum class launch_phase {
+  CREATED,    /**< 已固定请求输入，尚未进入启动队列。 */
+  QUEUED,     /**< 已占用有界启动队列位置。 */
+  LAUNCHING,  /**< 启动线程已接纳，原生创建可能正在进行。 */
+  REGISTERED, /**< 为原生进程监视接管阶段保留的状态值。 */
+  DELIVERED,  /**< 唯一结果已移交给等待者，不再接受启动取消。 */
+  ABANDONED,  /**< 取消胜出，未交付的新进程已转入终止清理。 */
+  FINISHED    /**< 执行结果已保存，等待唯一调用方领取。 */
 };
 
 /** @brief 在调用协程与启动线程之间传递请求和唯一结果的状态，地址保持不变。 */
-class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
+class launch_operation : public std::enable_shared_from_this<launch_operation> {
  public:
   /** @brief 禁止复制启动操作状态，避免重复持有所有权或复制运行状态。 */
-  LaunchOperation(const LaunchOperation&) = delete;
+  launch_operation(const launch_operation&) = delete;
   /** @brief 启动操作状态不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(const LaunchOperation&) -> LaunchOperation& = delete;
+  auto operator=(const launch_operation&) -> launch_operation& = delete;
   /** @brief 启动操作状态不能移动；回调和协程依赖其固定地址。 */
-  LaunchOperation(LaunchOperation&&) = delete;
+  launch_operation(launch_operation&&) = delete;
   /** @brief 启动操作状态不支持移动赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(LaunchOperation&&) -> LaunchOperation& = delete;
+  auto operator=(launch_operation&&) -> launch_operation& = delete;
 
   /** @brief 未交付的成功启动结果仍需请求终止，避免遗留无人控制的子进程。 */
-  ~LaunchOperation() {
-    if (result_ && *result_ && phase_ != LaunchPhase::delivered)
+  ~launch_operation() {
+    if (result_ && *result_ && phase_ != launch_phase::DELIVERED)
       (void)(**result_).start_kill();
   }
 
   /** @brief 分配地址固定的启动状态，保存任务图租约；分配失败时返回错误。 */
-  static auto create(CommandSnapshot snapshot, io::OperationOptions options, std::stop_token parent)
-      -> expected<std::shared_ptr<LaunchOperation>> {
+  static auto create(command_snapshot snapshot,
+                     io::operation_options options,
+                     std::stop_token parent) -> expected<std::shared_ptr<launch_operation>> {
     try {
-      struct factory final : LaunchOperation {
+      struct factory final : launch_operation {
         /** @brief 原样转发构造参数，通过 make_shared 在一次分配中创建地址固定的状态。 */
-        factory(CommandSnapshot owned, io::OperationOptions operation, std::stop_token token)
-            : LaunchOperation(std::move(owned), operation, token) {}
+        factory(command_snapshot owned, io::operation_options operation, std::stop_token token)
+            : launch_operation(std::move(owned), operation, token) {}
       };
 
       return std::make_shared<factory>(std::move(snapshot), options, parent);
@@ -117,20 +118,20 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
   }
 
   /** @brief 在结果锁下读取当前启动阶段。 */
-  auto phase() const noexcept -> LaunchPhase {
+  auto phase() const noexcept -> launch_phase {
     std::lock_guard lock(mutex_);
     return phase_;
   }
 
   /** @brief 保存本次请求的取消原因，并推动尚未交付的工作结束。 */
-  void request_stop(Error error) noexcept {
+  void request_stop(error error) noexcept {
     {
       std::lock_guard lock(mutex_);
-      if (phase_ == LaunchPhase::delivered || phase_ == LaunchPhase::finished)
+      if (phase_ == launch_phase::DELIVERED || phase_ == launch_phase::FINISHED)
         return;
       cancel_ = std::move(error);
     }
-    if (auto service = ProcessService::instance())
+    if (auto service = process_service::instance())
       (*service)->cancel_queued(shared_from_this());
   }
 
@@ -139,13 +140,13 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
     bool cancelled{};
     {
       std::lock_guard lock(mutex_);
-      if (phase_ == LaunchPhase::launching || phase_ == LaunchPhase::finished
-          || phase_ == LaunchPhase::delivered)
+      if (phase_ == launch_phase::LAUNCHING || phase_ == launch_phase::FINISHED
+          || phase_ == launch_phase::DELIVERED)
         return;
-      phase_ = LaunchPhase::launching;
+      phase_ = launch_phase::LAUNCHING;
       cancelled = cancel_.has_value();
     }
-    expected<Child> result = std::unexpected{make_error(ECANCELED)};
+    expected<child> result = std::unexpected{make_error(ECANCELED)};
     if (!cancelled) {
       try {
         result = spawn_sync(std::move(*snapshot_));
@@ -160,10 +161,10 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
         if (result)
           (void)result->start_kill();
         result_ = std::unexpected{*cancel_};
-        phase_ = LaunchPhase::abandoned;
+        phase_ = launch_phase::ABANDONED;
       } else {
         result_.emplace(std::move(result));
-        phase_ = LaunchPhase::finished;
+        phase_ = launch_phase::FINISHED;
       }
     }
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
@@ -181,7 +182,7 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
     };
     std::stop_callback parent{parent_, stop};
     std::stop_callback explicit_stop{options_.stop, stop};
-    auto service = ProcessService::instance();
+    auto service = process_service::instance();
     if (!service)
       co_return std::unexpected{service.error()};
     auto enqueued = (*service)->enqueue_launch(keep);
@@ -195,23 +196,23 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
   }
 
   /** @brief 只允许一次移出已完成结果，并标记控制权已经交付。 */
-  auto take_result() -> expected<Child> {
+  auto take_result() -> expected<child> {
     std::lock_guard lock(mutex_);
     if (taken_)
       return std::unexpected{make_error(EBADF)};
     if (!result_)
-      return std::unexpected{process_error(errc::operation_in_progress)};
+      return std::unexpected{process_error(errc::OPERATION_IN_PROGRESS)};
     taken_ = true;
-    phase_ = LaunchPhase::delivered;
+    phase_ = launch_phase::DELIVERED;
     return std::move(*result_);
   }
 
  private:
   /** @brief 允许共享服务推进启动状态、登记监视资源并归还记录槽。 */
-  friend class ProcessService;
+  friend class process_service;
 
   /** @brief 保存启动输入并取得当前外部任务图的完成租约。 */
-  LaunchOperation(CommandSnapshot snapshot, io::OperationOptions options, std::stop_token parent)
+  launch_operation(command_snapshot snapshot, io::operation_options options, std::stop_token parent)
       : snapshot_(std::move(snapshot)), options_(options), parent_(parent) {
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
     execution_scope_.capture();
@@ -219,12 +220,12 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
   }
 
   mutable std::mutex mutex_;                    /**< 串行保护启动阶段、取消原因和唯一结果。 */
-  LaunchPhase phase_{LaunchPhase::created};     /**< 请求当前所在的启动交付阶段。 */
-  std::optional<CommandSnapshot> snapshot_;     /**< 执行前拥有的启动输入，原生创建结束后释放。 */
-  io::OperationOptions options_;                /**< 调用方提供的显式取消和整体截止时间。 */
+  launch_phase phase_{launch_phase::CREATED};   /**< 请求当前所在的启动交付阶段。 */
+  std::optional<command_snapshot> snapshot_;    /**< 执行前拥有的启动输入，原生创建结束后释放。 */
+  io::operation_options options_;               /**< 调用方提供的显式取消和整体截止时间。 */
   std::stop_token parent_;                      /**< 本次启动所继承的取消令牌。 */
-  std::optional<Error> cancel_;                 /**< 交付前观察到的取消或到期原因。 */
-  std::optional<expected<Child>> result_;       /**< 原生创建已排空后保存的成功 Child 或错误。 */
+  std::optional<error> cancel_;                 /**< 交付前观察到的取消或到期原因。 */
+  std::optional<expected<child>> result_;       /**< 原生创建已排空后保存的成功 Child 或错误。 */
   bool taken_{};                                /**< 保证结果只能移交一次。 */
   ::faio::detail::completion_event completion_; /**< 启动线程完成结果发布后的唤醒事件。 */
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
@@ -233,18 +234,18 @@ class LaunchOperation : public std::enable_shared_from_this<LaunchOperation> {
 };
 
 /** @brief 将启动请求加入有界队列；队列已满时立即拒绝。 */
-inline auto ProcessService::enqueue_launch(std::shared_ptr<LaunchOperation> operation)
+inline auto process_service::enqueue_launch(std::shared_ptr<launch_operation> operation)
     -> expected<void> {
   try {
     {
       std::lock_guard lock(mutex_);
       if (stopping_)
-        return std::unexpected{process_error(errc::runtime_shutdown)};
+        return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
       if (launches_.size() >= 256)
-        return std::unexpected{process_error(errc::launch_queue_full)};
+        return std::unexpected{process_error(errc::LAUNCH_QUEUE_FULL)};
       {
         std::lock_guard op_lock(operation->mutex_);
-        operation->phase_ = LaunchPhase::queued;
+        operation->phase_ = launch_phase::QUEUED;
       }
       launches_.push_back(std::move(operation));
     }
@@ -256,8 +257,8 @@ inline auto ProcessService::enqueue_launch(std::shared_ptr<LaunchOperation> oper
 }
 
 /** @brief 从启动队列移除尚未执行的请求，再发布其取消结果。 */
-inline void ProcessService::cancel_queued(
-    const std::shared_ptr<LaunchOperation>& operation) noexcept {
+inline void process_service::cancel_queued(
+    const std::shared_ptr<launch_operation>& operation) noexcept {
   bool removed{};
   {
     std::lock_guard lock(mutex_);
@@ -273,14 +274,14 @@ inline void ProcessService::cancel_queued(
 }
 
 /** @brief 由固定启动线程串行执行原生创建并协调 Windows 退出清理。 */
-inline void ProcessService::launch_loop() noexcept {
+inline void process_service::launch_loop() noexcept {
   for (;;) {
 #if defined(_WIN32)
     const auto revision = revision_.load();
     sweep();
     const auto deadline = next_deadline();
 #endif
-    std::shared_ptr<LaunchOperation> operation;
+    std::shared_ptr<launch_operation> operation;
     {
       std::unique_lock lock(mutex_);
 #if defined(_WIN32)
@@ -306,7 +307,7 @@ inline void ProcessService::launch_loop() noexcept {
 }
 
 /** @brief 停止固定服务线程并等待其结束，再排空平台退出通知的清理工作。 */
-inline ProcessService::~ProcessService() {
+inline process_service::~process_service() {
   stopping_.store(true);
   notify_control_change();
   if (launch_.joinable())
@@ -338,27 +339,29 @@ inline ProcessService::~ProcessService() {
 }
 
 /** @brief 启动操作排空后，决定是否向调用方交付新建的 Child。 */
-inline auto spawn_async_impl(CommandSnapshot snapshot, io::OperationOptions options)
-    -> task<expected<Child>> {
+inline auto spawn_async_impl(command_snapshot snapshot, io::operation_options options)
+    -> task<expected<child>> {
   auto body = [snapshot = std::move(snapshot),
-               options](io::detail::OperationState<Child>& result) mutable -> task<void> {
+               options](io::detail::stream_operation_state<child>& result) mutable -> task<void> {
     auto operation =
-        LaunchOperation::create(std::move(snapshot), options, co_await this_coro::stop_token());
+        launch_operation::create(std::move(snapshot), options, co_await this_coro::stop_token());
     if (!operation) {
       result.try_commit(
-          [&]() noexcept -> expected<Child> { return std::unexpected{operation.error()}; });
+          [&]() noexcept -> expected<child> { return std::unexpected{operation.error()}; });
       co_return;
     }
     auto waited = co_await (*operation)->wait();
     if (!waited) {
       result.try_commit(
-          [&]() noexcept -> expected<Child> { return std::unexpected{waited.error()}; });
+          [&]() noexcept -> expected<child> { return std::unexpected{waited.error()}; });
       co_return;
     }
     auto child = (*operation)->take_result();
-    if (!result.try_commit([&]() noexcept -> expected<Child> { return std::move(child); }) && child)
+    if (!result.try_commit(
+            [&]() noexcept -> expected<::faio::process::child> { return std::move(child); })
+        && child)
       (void)child->start_kill();
   };
-  co_return co_await io::detail::run_operation<Child>(options, std::move(body));
+  co_return co_await io::detail::run_operation<child>(options, std::move(body));
 }
 }  // namespace faio::process::detail

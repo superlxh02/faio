@@ -40,7 +40,7 @@ struct submitted_graph : execution_result<Tuple>,
       parent_cancellation_owner; /**< 共享持有父级取消回调链，保证其存活。 */
   faio::detail::cancellation_error_policy cancellation_policy{
       faio::detail::cancellation_error_policy::
-          fatal_if_unobserved}; /**< 随任务上下文传递的策略，用于处理未观察的取消异常。 */
+          FATAL_IF_UNOBSERVED}; /**< 随任务上下文传递的策略，用于处理未观察的取消异常。 */
   std::optional<std::stop_callback<request_root_stop>>
       parent_link; /**< 将父级停止请求转发到当前根任务的回调连接。 */
   std::atomic<bool> claimed{false}, abandoned{false},
@@ -57,7 +57,7 @@ struct submitted_graph : execution_result<Tuple>,
 
   /** @brief 检查失败是否属于父级允许的协作取消。 */
   bool matching_cancellation() const noexcept {
-    if (cancellation_policy != faio::detail::cancellation_error_policy::normal_if_stop_requested
+    if (cancellation_policy != faio::detail::cancellation_error_policy::NORMAL_IF_STOP_REQUESTED
         || !this->error || !root->stop_token().stop_requested())
       return false;
     try {

@@ -74,8 +74,8 @@ void report(const std::string& name, measurement result) {
 }
 
 /** @brief 为基准构造使用指定 worker 数量的运行时配置。 */
-faio::runtime::Config config(std::size_t workers) {
-  return faio::ConfigBuilder{}.set_num_workers(workers).build();
+faio::runtime::config config(std::size_t workers) {
+  return faio::config_builder{}.set_num_workers(workers).build();
 }
 
 /** @brief 返回固定整数的惰性协程，用作测试负载。 */
@@ -575,7 +575,7 @@ measurement timer_calibration(std::size_t n) {
   r.ns_per_op = elapsed(start) / n;
   return r;
 }
-}
+}  // namespace
 
 /** @brief 执行协程、同步原语和并发控制场景并输出 CSV。 */
 int main(int argc, char** argv) {

@@ -335,7 +335,7 @@ class mpsc {
     auto& shared = *lease.shared;
     for (;;) {
       if (!shared.receiver_open.load(std::memory_order_acquire))
-        co_return std::unexpected(make_error(Error::ClosedChannel));
+        co_return std::unexpected(make_error(error::CLOSED_CHANNEL));
       if (shared.try_push(value))
         co_return expected<void>{};
       co_await send_waiter{shared, {}};
@@ -345,14 +345,14 @@ class mpsc {
   /** @brief 接收通道消息并处理等待登记。 */
   static task<expected<T>, S> recv_impl(std::shared_ptr<state> shared) {
     if (!shared)
-      co_return std::unexpected(make_error(Error::ClosedChannel));
+      co_return std::unexpected(make_error(error::CLOSED_CHANNEL));
     for (;;) {
       if (!shared->receiver_open.load(std::memory_order_acquire))
-        co_return std::unexpected(make_error(Error::ClosedChannel));
+        co_return std::unexpected(make_error(error::CLOSED_CHANNEL));
       if (auto value = shared->try_pop())
         co_return std::move(*value);
       if (shared->senders.load(std::memory_order_acquire) == 0)
-        co_return std::unexpected(make_error(Error::ClosedChannel));
+        co_return std::unexpected(make_error(error::CLOSED_CHANNEL));
       co_await recv_waiter{*shared, {}};
     }
   }
@@ -377,7 +377,7 @@ class mpsc {
     /** @brief 检查等待条件是否已满足；返回 true 时，编译器跳过挂起登记。 */
     bool await_ready() {
       if (!lease_.shared || !lease_.shared->receiver_open.load(std::memory_order_acquire)) {
-        result_ = std::unexpected(make_error(Error::ClosedChannel));
+        result_ = std::unexpected(make_error(error::CLOSED_CHANNEL));
         return true;
       }
       return lease_.shared->try_push(value_);
@@ -460,8 +460,8 @@ class mpsc {
       if (value_)
         return std::move(*value_);
       if (shared_ && !shared_->receiver_open.load(std::memory_order_acquire))
-        return std::unexpected(make_error(Error::ClosedChannel));
-      return std::unexpected(make_error(Error::ClosedChannel));
+        return std::unexpected(make_error(error::CLOSED_CHANNEL));
+      return std::unexpected(make_error(error::CLOSED_CHANNEL));
     }
 
    private:
@@ -515,7 +515,7 @@ class mpsc {
     /** @brief 满队列返回 false；端点关闭返回 ClosedChannel。快路径不进入等待锁。 */
     expected<bool> try_send(T value) const {
       if (!shared_ || !shared_->receiver_open.load(std::memory_order_acquire))
-        return std::unexpected(make_error(Error::ClosedChannel));
+        return std::unexpected(make_error(error::CLOSED_CHANNEL));
       return shared_->try_push(value);
     }
 
@@ -565,7 +565,7 @@ class mpsc {
     /** @brief 尝试接收一条通道消息。 */
     expected<std::optional<T>> try_recv() const {
       if (!shared_ || !shared_->receiver_open.load(std::memory_order_acquire))
-        return std::unexpected(make_error(Error::ClosedChannel));
+        return std::unexpected(make_error(error::CLOSED_CHANNEL));
       if (shared_->receiver_busy.test_and_set(std::memory_order_acquire))
         throw std::logic_error("mpsc 只允许一个未完成的 recv");
 
@@ -579,7 +579,7 @@ class mpsc {
       if (auto value = shared_->try_pop())
         return std::move(value);
       if (shared_->senders.load(std::memory_order_acquire) == 0)
-        return std::unexpected(make_error(Error::ClosedChannel));
+        return std::unexpected(make_error(error::CLOSED_CHANNEL));
       return std::optional<T>{};
     }
 

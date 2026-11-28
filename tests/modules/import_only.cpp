@@ -61,11 +61,17 @@ int main() {
   if (!expected || *expected != 42)
     return 1;
 #elif defined(FAIO_IMPORT_IO)
-  const faio::io::MemoryStream stream;
+  const faio::io::memory_stream stream;
   if (!stream.bytes().empty())
     return 1;
+#elif defined(FAIO_IMPORT_STDIO)
+  if (!faio::block_on(faio::stdio::println("stdio={}", 42)))
+    return 1;
+  auto stream = faio::stdio::out();
+  if (!faio::block_on(stream.flush()))
+    return 1;
 #elif defined(FAIO_IMPORT_NET)
-  const auto address = faio::net::SocketAddr::parse("127.0.0.1", 42);
+  const auto address = faio::net::socket_addr::parse("127.0.0.1", 42);
   if (!address || address->port() != 42)
     return 1;
 #elif defined(FAIO_IMPORT_FS)
@@ -78,14 +84,14 @@ int main() {
     return 1;
   mutex.unlock();
 #elif defined(FAIO_IMPORT_TIME)
-  static_assert(faio::time::MissedTickBehavior::Burst != faio::time::MissedTickBehavior::Skip);
+  static_assert(faio::time::missed_tick_behavior::BURST != faio::time::missed_tick_behavior::SKIP);
 #elif defined(FAIO_IMPORT_LOG)
   if (!faio::log::logger())
     return 1;
 #elif defined(FAIO_IMPORT_TLS)
-  if (!faio::tls::ServerName::parse("localhost"))
+  if (!faio::tls::server_name::parse("localhost"))
     return 1;
 #elif defined(FAIO_IMPORT_PROCESS)
-  const faio::process::Command command{"unused-command"};
+  const faio::process::command command{"unused-command"};
 #endif
 }

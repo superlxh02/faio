@@ -62,16 +62,16 @@ auto resolve_root(external_host& host, root_handle bound, const Environment& env
 }
 
 /** @brief 将 receiver 的完成通知投递到目标运行时。 */
-template <faio::runtime::mode Mode, class Receiver>
+template <faio::runtime::mode Mode, class receiver_type>
 class schedule_operation {
   using token_type = stdexec::stop_token_of_t<
-      stdexec::env_of_t<Receiver>>; /**< 从接收器环境推导的停止令牌类型。 */
+      stdexec::env_of_t<receiver_type>>; /**< 从接收器环境推导的停止令牌类型。 */
  public:
   using operation_state_concept =
       stdexec::operation_state_tag; /**< 标记该类型为操作状态，连接后其地址必须保持不变。 */
 
   /** @brief 解析任务图并预留调度操作的接纳责任。 */
-  schedule_operation(external_host& host, root_handle bound, Receiver receiver)
+  schedule_operation(external_host& host, root_handle bound, receiver_type receiver)
       : receiver_(std::move(receiver)),
         token_(stdexec::get_stop_token(stdexec::get_env(receiver_))),
         root_(resolve_root(host, bound, stdexec::get_env(receiver_))),
@@ -143,10 +143,10 @@ class schedule_operation {
     stdexec::set_value(std::move(receiver));
   }
 
-  Receiver receiver_; /**< 接收操作结果的接收器，完成时将其移出，允许回调销毁当前操作。 */
-  token_type token_;  /**< 从接收器环境捕获的停止令牌，用于启动与结果交付前的取消检查。 */
-  root_handle root_;  /**< 持有任务图的根状态租约，维持接纳、取消及排空的归属。 */
-  bool owns_root_;    /**< 标记本操作是否承担根任务的完成责任。 */
+  receiver_type receiver_; /**< 接收操作结果的接收器，完成时将其移出，允许回调销毁当前操作。 */
+  token_type token_;       /**< 从接收器环境捕获的停止令牌，用于启动与结果交付前的取消检查。 */
+  root_handle root_;       /**< 持有任务图的根状态租约，维持接纳、取消及排空的归属。 */
+  bool owns_root_;         /**< 标记本操作是否承担根任务的完成责任。 */
   faio::detail::external_reservation
       reservation_; /**< 启动前预留的任务图接纳租约，发布成功后移交执行责任。 */
   bool started_{};  /**< 记录操作是否已启动，防止重复启动，或误将预留按未启动状态退还。 */
@@ -197,7 +197,7 @@ class execution_scheduler {
   /** @brief 返回当前调度模式的前向进展保证。 */
   auto query(stdexec::get_forward_progress_guarantee_t) const noexcept
       -> stdexec::forward_progress_guarantee {
-    return Mode == faio::runtime::mode::current_thread
+    return Mode == faio::runtime::mode::CURRENT_THREAD
                ? stdexec::forward_progress_guarantee::weakly_parallel
                : stdexec::forward_progress_guarantee::parallel;
   }
@@ -243,8 +243,8 @@ class schedule_sender {
   }
 
   /** @brief 连接 receiver，创建地址固定的异步操作。 */
-  template <stdexec::receiver Receiver>
-  auto connect(Receiver receiver) const -> detail::schedule_operation<Mode, Receiver> {
+  template <stdexec::receiver receiver_type>
+  auto connect(receiver_type receiver) const -> detail::schedule_operation<Mode, receiver_type> {
     return {scheduler_.context().external_host(), scheduler_.root(), std::move(receiver)};
   }
 
@@ -261,7 +261,7 @@ auto execution_scheduler<Mode>::schedule() const noexcept -> schedule_sender<Mod
 
 /** @brief 取得当前线程模式的调度器，模式不符时抛出异常。 */
 inline auto runtime_ref::get_current_thread_scheduler() const -> current_thread_scheduler {
-  if (mode() != faio::runtime::mode::current_thread)
+  if (mode() != faio::runtime::mode::CURRENT_THREAD)
     throw std::logic_error("faio experimental: current-thread scheduler unavailable");
   auto root = detail::current_root(context().external_host());
   if (!context().running() && !root)
@@ -271,7 +271,7 @@ inline auto runtime_ref::get_current_thread_scheduler() const -> current_thread_
 
 /** @brief 取得多工作线程模式的调度器；模式不符时抛出异常。 */
 inline auto runtime_ref::get_multi_thread_scheduler() const -> multi_thread_scheduler {
-  if (mode() != faio::runtime::mode::multi_thread)
+  if (mode() != faio::runtime::mode::MULTI_THREAD)
     throw std::logic_error("faio experimental: multi-thread scheduler unavailable");
   auto root = detail::current_root(context().external_host());
   if (!context().running() && !root)

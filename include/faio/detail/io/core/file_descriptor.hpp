@@ -9,34 +9,34 @@
 namespace faio::io::detail {
 
 /**  @brief 持有资源所有权的包装对象；移动/共享不改变 IO 归属，析构只请求非阻塞关闭。 */
-class FileDescriptor {
+class file_descriptor {
  protected:
   /** @brief 构造持有所有权的文件描述符。 */
-  explicit FileDescriptor(native_descriptor fd,
-                          io_context context = io_context::current(),
-                          bool regular = false)
+  explicit file_descriptor(native_descriptor fd,
+                           io_context context = io_context::current(),
+                           bool regular = false)
       : resource_(adopt_resource(context, fd, true, regular)) {
     resource_->wrappers.fetch_add(1, std::memory_order_relaxed);
   }
 
   /** @brief 构造持有所有权的文件描述符。 */
-  explicit FileDescriptor(io_context context, native_descriptor fd, bool regular = false)
-      : FileDescriptor(fd, std::move(context), regular) {}
+  explicit file_descriptor(io_context context, native_descriptor fd, bool regular = false)
+      : file_descriptor(fd, std::move(context), regular) {}
 
   /** @brief 构造持有所有权的文件描述符。 */
-  explicit FileDescriptor(resource_ptr resource) : resource_(std::move(resource)) {
+  explicit file_descriptor(resource_ptr resource) : resource_(std::move(resource)) {
     if (resource_)
       resource_->wrappers.fetch_add(1, std::memory_order_relaxed);
   }
 
   /** @brief 销毁持有所有权的文件描述符。 */
-  ~FileDescriptor() { release(); }
+  ~file_descriptor() { release(); }
 
   /** @brief 移动构造持有所有权的文件描述符。 */
-  FileDescriptor(FileDescriptor&& other) noexcept : resource_(std::move(other.resource_)) {}
+  file_descriptor(file_descriptor&& other) noexcept : resource_(std::move(other.resource_)) {}
 
   /** @brief 移动赋值。 */
-  FileDescriptor& operator=(FileDescriptor&& other) noexcept {
+  file_descriptor& operator=(file_descriptor&& other) noexcept {
     if (this != &other) {
       release();
       resource_ = std::move(other.resource_);
@@ -45,10 +45,10 @@ class FileDescriptor {
   }
 
   /** @brief 禁止复制构造持有所有权的文件描述符。 */
-  FileDescriptor(const FileDescriptor&) = delete;
+  file_descriptor(const file_descriptor&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  FileDescriptor& operator=(const FileDescriptor&) = delete;
+  file_descriptor& operator=(const file_descriptor&) = delete;
 
  public:
   /** @brief 读取原生句柄值，不转移关闭责任。 */
@@ -63,7 +63,7 @@ class FileDescriptor {
   }
 
   /** @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。 */
-  auto close() noexcept { return Close{resource_}; }
+  auto close() noexcept { return close_awaiter{resource_}; }
 
   /** @brief 把原生句柄及关闭责任转出，源包装随后不再拥有该句柄。 */
   expected<native_descriptor> into_native() noexcept {
@@ -91,7 +91,7 @@ class FileDescriptor {
    * 导出所有权再修改 flags。
    */
   expected<void> set_nonblocking(bool enabled) const noexcept {
-    return with_resource(resource_, Interest::none, [&] {
+    return with_resource(resource_, interest::NONE, [&] {
       return native_operations::set_nonblocking(fd(), enabled);
     });
   }
@@ -99,7 +99,7 @@ class FileDescriptor {
   /** @brief 查询原生描述符的非阻塞状态，错误按平台原生约定转换。 */
   expected<bool> nonblocking() const noexcept {
     return with_resource(
-        resource_, Interest::none, [&] { return native_operations::nonblocking(fd()); });
+        resource_, interest::NONE, [&] { return native_operations::nonblocking(fd()); });
   }
 
  private:

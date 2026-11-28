@@ -161,10 +161,10 @@ task<void> check_cancellable_wait() {
 
   auto result = co_await job;
   EXPECT_TRUE(child_token.stop_requested());
-  EXPECT_EQ(result.status(), status::stopped);
+  EXPECT_EQ(result.status(), status::STOPPED);
   EXPECT_NE(result.exception(), nullptr);
   EXPECT_THROW(result.value_or_throw(), faio::operation_cancelled);
-  EXPECT_EQ(result.status(), status::stopped);
+  EXPECT_EQ(result.status(), status::STOPPED);
 }
 
 /** @brief 停止请求不提前交付未完成的子任务。 */
@@ -180,7 +180,7 @@ task<void> check_normal_value_after_stop() {
   gate.notify();
 
   auto result = co_await job;
-  EXPECT_EQ(result.status(), status::value);
+  EXPECT_EQ(result.status(), status::VALUE);
   EXPECT_EQ(result.exception(), nullptr);
   EXPECT_EQ(result.take_value(), 19);
 }
@@ -190,7 +190,7 @@ task<void> check_cancel_shaped_transfer_error(move_control& control) {
   auto job = faio::spawn(faio::settle(result_move(control)));
   job.request_stop();
   auto result = co_await job;
-  EXPECT_EQ(result.status(), status::error);
+  EXPECT_EQ(result.status(), status::ERROR_VALUE);
   EXPECT_NE(result.exception(), nullptr);
   EXPECT_THROW(result.value_or_throw(), faio::operation_cancelled);
   EXPECT_EQ(control.moves, control.throw_on);
@@ -205,8 +205,9 @@ TEST(CoroutineLifetime, BlockOnReclaimsRegisteredRoots) {
     roots = detail::current_task_lifetime();
     auto work = faio::spawn(observed_value(starts));
     EXPECT_TRUE(roots);
-    if (roots)
+    if (roots) {
       EXPECT_GE(roots.native_handle()->count(), 2u);
+    }
     EXPECT_EQ(co_await work, 42);
   }(roots, starts));
 
@@ -217,40 +218,40 @@ TEST(CoroutineLifetime, BlockOnReclaimsRegisteredRoots) {
 
 TEST(CoroutineOutcome, ValueAndVoidAreConsumedOnlyOnce) {
   auto result = task_outcome<std::unique_ptr<int>>::from_value(std::make_unique<int>(13));
-  EXPECT_EQ(result.status(), status::value);
+  EXPECT_EQ(result.status(), status::VALUE);
   EXPECT_EQ(result.exception(), nullptr);
   const auto value = result.take_value();
   ASSERT_NE(value, nullptr);
   EXPECT_EQ(*value, 13);
-  EXPECT_EQ(result.status(), status::value);
+  EXPECT_EQ(result.status(), status::VALUE);
   EXPECT_THROW((void)result.take_value(), std::logic_error);
   EXPECT_THROW((void)result.value_or_throw(), std::logic_error);
 
   auto empty_value = task_outcome<void>::from_value();
-  EXPECT_EQ(empty_value.status(), status::value);
+  EXPECT_EQ(empty_value.status(), status::VALUE);
   EXPECT_EQ(empty_value.exception(), nullptr);
   EXPECT_NO_THROW(empty_value.value_or_throw());
-  EXPECT_EQ(empty_value.status(), status::value);
+  EXPECT_EQ(empty_value.status(), status::VALUE);
   EXPECT_THROW(empty_value.take_value(), std::logic_error);
 }
 
 TEST(CoroutineOutcome, ErrorAndStoppedPreserveDistinctStatesAndExceptionIdentity) {
   const auto failure = std::make_exception_ptr(std::runtime_error("outcome error"));
   auto error = task_outcome<int>::from_error(failure);
-  EXPECT_EQ(error.status(), status::error);
+  EXPECT_EQ(error.status(), status::ERROR_VALUE);
   EXPECT_EQ(error.exception(), failure);
   EXPECT_THROW((void)error.value_or_throw(), std::runtime_error);
-  EXPECT_EQ(error.status(), status::error);
+  EXPECT_EQ(error.status(), status::ERROR_VALUE);
 
   const auto cancellation = std::make_exception_ptr(faio::operation_cancelled{});
   auto stopped = task_outcome<void>::from_stopped(cancellation);
-  EXPECT_EQ(stopped.status(), status::stopped);
+  EXPECT_EQ(stopped.status(), status::STOPPED);
   EXPECT_EQ(stopped.exception(), cancellation);
   EXPECT_THROW(stopped.value_or_throw(), faio::operation_cancelled);
-  EXPECT_EQ(stopped.status(), status::stopped);
+  EXPECT_EQ(stopped.status(), status::STOPPED);
 
   auto unexplained = task_outcome<int>::from_stopped();
-  EXPECT_EQ(unexplained.status(), status::stopped);
+  EXPECT_EQ(unexplained.status(), status::STOPPED);
   EXPECT_EQ(unexplained.exception(), nullptr);
   EXPECT_THROW((void)unexplained.value_or_throw(), faio::operation_cancelled);
 }
@@ -259,12 +260,12 @@ TEST(CoroutineOutcome, ConsumerMoveFailureDoesNotRewritePublishedState) {
   move_control control;
   current_thread_runtime runtime;
   auto result = runtime.block_on(faio::settle(result_move(control)));
-  EXPECT_EQ(result.status(), status::value);
+  EXPECT_EQ(result.status(), status::VALUE);
   EXPECT_EQ(result.exception(), nullptr);
 
   control.throw_on = control.moves + 1;
   EXPECT_THROW((void)result.take_value(), std::runtime_error);
-  EXPECT_EQ(result.status(), status::value);
+  EXPECT_EQ(result.status(), status::VALUE);
   EXPECT_EQ(result.exception(), nullptr);
   EXPECT_EQ(control.moves, control.throw_on);
   EXPECT_THROW((void)result.take_value(), std::logic_error);
@@ -278,11 +279,11 @@ TEST(CoroutineSettle, WrapperIsLazyAndPreservesValueAndVoid) {
   EXPECT_EQ(starts, 0);
   auto value = runtime.block_on(std::move(settled));
   EXPECT_EQ(starts, 1);
-  EXPECT_EQ(value.status(), status::value);
+  EXPECT_EQ(value.status(), status::VALUE);
   EXPECT_EQ(value.value_or_throw(), 42);
 
   auto done = runtime.block_on(faio::settle(returns_void()));
-  EXPECT_EQ(done.status(), status::value);
+  EXPECT_EQ(done.status(), status::VALUE);
   EXPECT_EQ(done.exception(), nullptr);
   EXPECT_NO_THROW(done.value_or_throw());
 }
@@ -306,20 +307,20 @@ TEST(CoroutineSettle, PreservesCustomSchedulerThroughRealEnqueueAndResume) {
   ASSERT_TRUE(started.done());
   EXPECT_EQ(scheduler.pending, nullptr);
   auto outcome = settled.await_resume();
-  EXPECT_EQ(outcome.status(), status::value);
+  EXPECT_EQ(outcome.status(), status::VALUE);
   EXPECT_EQ(outcome.take_value(), 31);
 }
 
 TEST(CoroutineSettle, MoveOnlyAndBusinessExpectedAreValues) {
   current_thread_runtime runtime;
   auto outcome = runtime.block_on(faio::settle(unique_value()));
-  EXPECT_EQ(outcome.status(), status::value);
+  EXPECT_EQ(outcome.status(), status::VALUE);
   const auto owned = outcome.value_or_throw();
   ASSERT_NE(owned, nullptr);
   EXPECT_EQ(*owned, 17);
 
   auto expected = runtime.block_on(faio::settle(expected_value()));
-  EXPECT_EQ(expected.status(), status::value);
+  EXPECT_EQ(expected.status(), status::VALUE);
   EXPECT_EQ(expected.exception(), nullptr);
   const auto business_result = expected.take_value();
   ASSERT_FALSE(business_result.has_value());
@@ -329,12 +330,12 @@ TEST(CoroutineSettle, MoveOnlyAndBusinessExpectedAreValues) {
 TEST(CoroutineSettle, ErrorsIncludingUnexpectedCancellationAndEmptyTaskAreObserved) {
   current_thread_runtime runtime;
   auto standard = runtime.block_on(faio::settle(throws_standard()));
-  EXPECT_EQ(standard.status(), status::error);
+  EXPECT_EQ(standard.status(), status::ERROR_VALUE);
   ASSERT_NE(standard.exception(), nullptr);
   EXPECT_THROW((void)standard.value_or_throw(), std::runtime_error);
 
   auto raw = runtime.block_on(faio::settle(throws_nonstandard()));
-  EXPECT_EQ(raw.status(), status::error);
+  EXPECT_EQ(raw.status(), status::ERROR_VALUE);
   try {
     raw.value_or_throw();
     ADD_FAILURE() << "expected the child's nonstandard exception";
@@ -343,11 +344,11 @@ TEST(CoroutineSettle, ErrorsIncludingUnexpectedCancellationAndEmptyTaskAreObserv
   }
 
   auto unexpected_stop = runtime.block_on(faio::settle(throws_cancelled()));
-  EXPECT_EQ(unexpected_stop.status(), status::error);
+  EXPECT_EQ(unexpected_stop.status(), status::ERROR_VALUE);
   EXPECT_THROW(unexpected_stop.value_or_throw(), faio::operation_cancelled);
 
   auto empty = runtime.block_on(faio::settle(task<int>{}));
-  EXPECT_EQ(empty.status(), status::error);
+  EXPECT_EQ(empty.status(), status::ERROR_VALUE);
   EXPECT_THROW((void)empty.value_or_throw(), std::logic_error);
   EXPECT_THROW(runtime.block_on(task<int>{}), std::logic_error);
   EXPECT_THROW(runtime.block_on(throws_standard()), std::runtime_error);
@@ -368,7 +369,7 @@ TEST(CoroutineSettle, ProducerValueTransferFailuresPublishError) {
   current_thread_runtime runtime;
   move_control ordinary_failure{.throw_on = 2};
   auto error = runtime.block_on(faio::settle(result_move(ordinary_failure)));
-  EXPECT_EQ(error.status(), status::error);
+  EXPECT_EQ(error.status(), status::ERROR_VALUE);
   ASSERT_NE(error.exception(), nullptr);
   EXPECT_THROW((void)error.value_or_throw(), std::runtime_error);
   EXPECT_EQ(ordinary_failure.moves, 2);
@@ -401,7 +402,7 @@ TEST(CoroutineCleanup, FactoriesAreLazyAndRunOnceAfterStarting) {
   };
   const auto cleanup = [&](const faio::task_exit& exit) {
     ++cleanup_calls;
-    EXPECT_EQ(exit.status, faio::task_exit::kind::succeeded);
+    EXPECT_EQ(exit.status, faio::task_exit::kind::SUCCEEDED);
     EXPECT_EQ(exit.exception, nullptr);
     return returns_void();
   };
@@ -429,7 +430,7 @@ TEST(CoroutineCleanup, SynchronousBodyFactoryFailureStillRunsCleanupExactlyOnce)
   auto wrapped = faio::with_cleanup([&]() -> task<int> { std::rethrow_exception(failure); },
                                     [&](const faio::task_exit& exit) {
                                       ++cleanup_calls;
-                                      EXPECT_EQ(exit.status, faio::task_exit::kind::failed);
+                                      EXPECT_EQ(exit.status, faio::task_exit::kind::FAILED);
                                       EXPECT_EQ(exit.exception, failure);
                                       return returns_void();
                                     });
@@ -446,7 +447,7 @@ TEST(CoroutineCleanup, SynchronousCleanupFactoryFailureSupersedesSuccess) {
   current_thread_runtime runtime;
   const auto failure = std::make_exception_ptr(std::runtime_error("cleanup factory"));
   auto wrapped = faio::with_cleanup(returns_void, [&](const faio::task_exit& exit) -> task<void> {
-    EXPECT_EQ(exit.status, faio::task_exit::kind::succeeded);
+    EXPECT_EQ(exit.status, faio::task_exit::kind::SUCCEEDED);
     EXPECT_EQ(exit.exception, nullptr);
     std::rethrow_exception(failure);
   });
@@ -466,7 +467,7 @@ TEST(CoroutineCleanup, DoubleFailurePreservesBodyAndCleanupExceptionsInOrder) {
   auto wrapped = faio::with_cleanup([&] { return rethrow_task(primary); },
                                     [&](const faio::task_exit& exit) {
                                       ++cleanup_calls;
-                                      EXPECT_EQ(exit.status, faio::task_exit::kind::failed);
+                                      EXPECT_EQ(exit.status, faio::task_exit::kind::FAILED);
                                       EXPECT_EQ(exit.exception, primary);
                                       return rethrow_task(secondary);
                                     });
@@ -485,7 +486,7 @@ TEST(CoroutineCleanup, UnexpectedCancellationIsAnOrdinaryFailure) {
   const auto failure = std::make_exception_ptr(faio::operation_cancelled{});
   auto wrapped = faio::with_cleanup([&] { return rethrow_task(failure); },
                                     [&](const faio::task_exit& exit) {
-                                      EXPECT_EQ(exit.status, faio::task_exit::kind::failed);
+                                      EXPECT_EQ(exit.status, faio::task_exit::kind::FAILED);
                                       EXPECT_EQ(exit.exception, failure);
                                       return returns_void();
                                     });
@@ -521,7 +522,7 @@ task<void> check_cleanup_waits_after_body_cancellation(bool request_before_start
       },
       [&](const faio::task_exit& exit) -> task<void> {
         ++cleanup_calls;
-        EXPECT_EQ(exit.status, faio::task_exit::kind::cancelled);
+        EXPECT_EQ(exit.status, faio::task_exit::kind::CANCELLED);
         body_failure = exit.exception;
         cleanup_token = co_await faio::this_coro::stop_token();
         EXPECT_TRUE(cleanup_token.stop_possible());
@@ -586,7 +587,7 @@ task<void> check_stop_without_cancelling_body() {
       faio::spawn(faio::with_cleanup([&] { return return_after_stop(body_entered, body_gate); },
                                      [&](const faio::task_exit& exit) -> task<void> {
                                        ++cleanup_calls;
-                                       EXPECT_EQ(exit.status, faio::task_exit::kind::succeeded);
+                                       EXPECT_EQ(exit.status, faio::task_exit::kind::SUCCEEDED);
                                        EXPECT_EQ(exit.exception, nullptr);
                                        cleanup_token = co_await faio::this_coro::stop_token();
                                        cleanup_entered.count_down();
@@ -626,7 +627,7 @@ TEST(CoroutineCleanup, NestedCleanupCompletesInLexicalOrder) {
               co_return;
             },
             [&](const faio::task_exit& exit) -> task<void> {
-              EXPECT_EQ(exit.status, faio::task_exit::kind::succeeded);
+              EXPECT_EQ(exit.status, faio::task_exit::kind::SUCCEEDED);
               events.push_back(3);
               co_await faio::this_coro::yield();
               events.push_back(4);
@@ -634,7 +635,7 @@ TEST(CoroutineCleanup, NestedCleanupCompletesInLexicalOrder) {
         events.push_back(5);
       },
       [&](const faio::task_exit& exit) -> task<void> {
-        EXPECT_EQ(exit.status, faio::task_exit::kind::succeeded);
+        EXPECT_EQ(exit.status, faio::task_exit::kind::SUCCEEDED);
         events.push_back(6);
         co_await faio::this_coro::yield();
         events.push_back(7);
@@ -665,7 +666,7 @@ TEST(CoroutineCleanup, RestrictedQueueFailureDrainsAndStillRunsCleanup) {
   auto wrapped =
       faio::with_cleanup([&] { return saturate_private_queue(runs); },
                          [&](const faio::task_exit& exit) -> task<void> {
-                           EXPECT_EQ(exit.status, faio::task_exit::kind::failed);
+                           EXPECT_EQ(exit.status, faio::task_exit::kind::FAILED);
                            EXPECT_EQ(runs, (std::array{1, 1, 1, 0, 0, 0}));
                            EXPECT_TRUE(detail::current_task_context().scheduling.no_stealing);
                            co_await faio::this_coro::yield();
@@ -692,7 +693,7 @@ void expect_closed_group(faio::task_group_context& context, int& starts) {
     (void)context.spawn_observed(observed_value(starts));
     ADD_FAILURE() << "closed group accepted a new child";
   } catch (const std::system_error& failure) {
-    EXPECT_EQ(failure.code(), faio::make_error_code(faio::task_group_errc::closed));
+    EXPECT_EQ(failure.code(), faio::make_error_code(faio::task_group_errc::CLOSED));
   }
 }
 
@@ -703,7 +704,7 @@ TEST(CoroutineGroup, ResultsFollowAdmissionOrderAndHandlesAreOneShot) {
   std::vector<int> execution_order;
   int rejected_starts = 0;
   auto result = runtime.block_on(faio::task_group(
-      faio::group_options{faio::group_error_policy::collect_all},
+      faio::group_options{faio::group_error_policy::COLLECT_ALL},
       [&](faio::task_group_context& context) -> task<int> {
         auto first = context.spawn_observed(group_value(first_gate, execution_order, 1));
         auto second = context.spawn_observed(group_value(second_gate, execution_order, 2));
@@ -735,7 +736,7 @@ TEST(CoroutineGroup, ResultsFollowAdmissionOrderAndHandlesAreOneShot) {
   ASSERT_EQ(result.children.size(), 2U);
   for (std::size_t index = 0; index < result.children.size(); ++index) {
     EXPECT_EQ(result.children[index].index, index);
-    EXPECT_EQ(result.children[index].status, status::value);
+    EXPECT_EQ(result.children[index].status, status::VALUE);
     EXPECT_EQ(result.children[index].exception, nullptr);
   }
 }
@@ -761,7 +762,7 @@ TEST(CoroutineGroup, ConcurrentCloseAndAdmissionEitherAcceptsOrRejectsExactlyOnc
               child.emplace(context.spawn_observed(observed_value(starts)));
               accepted = true;
             } catch (const std::system_error& failure) {
-              EXPECT_EQ(failure.code(), faio::make_error_code(faio::task_group_errc::closed));
+              EXPECT_EQ(failure.code(), faio::make_error_code(faio::task_group_errc::CLOSED));
               rejected = true;
             }
           }
@@ -772,12 +773,12 @@ TEST(CoroutineGroup, ConcurrentCloseAndAdmissionEitherAcceptsOrRejectsExactlyOnc
         }));
 
     EXPECT_NE(accepted, rejected);
-    EXPECT_EQ(result.body.status(), status::value);
+    EXPECT_EQ(result.body.status(), status::VALUE);
     ASSERT_EQ(result.children.size(), accepted ? 1U : 0U);
     EXPECT_EQ(starts, accepted ? 1 : 0);
     if (accepted) {
       EXPECT_EQ(result.children.front().index, 0U);
-      EXPECT_EQ(result.children.front().status, status::value);
+      EXPECT_EQ(result.children.front().status, status::VALUE);
     }
   }
 }
@@ -798,9 +799,9 @@ TEST(CoroutineGroup, EscapedHandleCannotBeConsumedAfterBodyExits) {
       }));
 
   EXPECT_EQ(starts, 1);
-  EXPECT_EQ(result.body.status(), status::value);
+  EXPECT_EQ(result.body.status(), status::VALUE);
   ASSERT_EQ(result.children.size(), 1U);
-  EXPECT_EQ(result.children.front().status, status::value);
+  EXPECT_EQ(result.children.front().status, status::VALUE);
   ASSERT_TRUE(escaped.has_value());
   EXPECT_THROW(runtime.block_on(await_escaped_group_handle(*escaped)), std::logic_error);
 }
@@ -813,7 +814,7 @@ TEST(CoroutineGroup, CollectAllKeepsSiblingsRunningAndRetainsEveryError) {
   std::stop_token token;
   bool sibling_ran = false;
   auto result = runtime.block_on(
-      faio::task_group(faio::group_options{faio::group_error_policy::collect_all},
+      faio::task_group(faio::group_options{faio::group_error_policy::COLLECT_ALL},
                        [&](faio::task_group_context& context) -> task<void> {
                          token = context.stop_token();
                          auto first = context.spawn_observed(rethrow_task(first_failure));
@@ -831,30 +832,30 @@ TEST(CoroutineGroup, CollectAllKeepsSiblingsRunningAndRetainsEveryError) {
                        }));
   EXPECT_TRUE(sibling_ran);
   EXPECT_FALSE(token.stop_requested());
-  EXPECT_EQ(result.body.status(), status::error);
+  EXPECT_EQ(result.body.status(), status::ERROR_VALUE);
   EXPECT_EQ(result.body.exception(), body_failure);
   ASSERT_EQ(result.children.size(), 3U);
-  EXPECT_EQ(result.children[0].status, status::error);
+  EXPECT_EQ(result.children[0].status, status::ERROR_VALUE);
   EXPECT_EQ(result.children[0].exception, first_failure);
-  EXPECT_EQ(result.children[1].status, status::error);
+  EXPECT_EQ(result.children[1].status, status::ERROR_VALUE);
   EXPECT_EQ(result.children[1].exception, second_failure);
-  EXPECT_EQ(result.children[2].status, status::value);
+  EXPECT_EQ(result.children[2].status, status::VALUE);
 }
 
 TEST(CoroutineGroup, DroppedHandleFailureIsObservedAndDoesNotEscape) {
   current_thread_runtime runtime;
   const auto ignored = std::make_exception_ptr(17);
   auto result =
-      runtime.block_on(faio::task_group(faio::group_options{faio::group_error_policy::collect_all},
+      runtime.block_on(faio::task_group(faio::group_options{faio::group_error_policy::COLLECT_ALL},
                                         [&](faio::task_group_context& context) -> task<void> {
                                           (void)context.spawn_observed(rethrow_task(ignored));
                                           co_return;
                                         }));
 
-  EXPECT_EQ(result.body.status(), status::value);
+  EXPECT_EQ(result.body.status(), status::VALUE);
   ASSERT_EQ(result.children.size(), 1U);
   EXPECT_EQ(result.children.front().index, 0U);
-  EXPECT_EQ(result.children.front().status, status::error);
+  EXPECT_EQ(result.children.front().status, status::ERROR_VALUE);
   EXPECT_EQ(result.children.front().exception, ignored);
 }
 
@@ -876,7 +877,7 @@ task<void> check_group_failure_drains() {
             [&] { return wait_until_cancelled(peer_entered, peer_gate, peer_token); },
             [&](const faio::task_exit& exit) -> task<void> {
               peer_cancel = exit.exception;
-              EXPECT_EQ(exit.status, faio::task_exit::kind::cancelled);
+              EXPECT_EQ(exit.status, faio::task_exit::kind::CANCELLED);
               cleanup_entered.count_down();
               co_await cleanup_gate.wait();
               cleaned = true;
@@ -884,7 +885,7 @@ task<void> check_group_failure_drains() {
         co_await peer_entered.wait();
         auto failure = context.spawn_observed(rethrow_task(sentinel));
         const auto observed = co_await failure;
-        EXPECT_EQ(observed.status(), status::error);
+        EXPECT_EQ(observed.status(), status::ERROR_VALUE);
         EXPECT_EQ(observed.exception(), sentinel);
         EXPECT_TRUE(group_token.stop_requested());
       }));
@@ -898,13 +899,13 @@ task<void> check_group_failure_drains() {
 
   auto result = co_await completion;
   EXPECT_TRUE(cleaned);
-  EXPECT_EQ(result.body.status(), status::value);
+  EXPECT_EQ(result.body.status(), status::VALUE);
   EXPECT_NE(peer_cancel, nullptr);
   EXPECT_EQ(result.children.size(), 2U);
   if (result.children.size() == 2U) {
-    EXPECT_EQ(result.children[0].status, status::stopped);
+    EXPECT_EQ(result.children[0].status, status::STOPPED);
     EXPECT_EQ(result.children[0].exception, peer_cancel);
-    EXPECT_EQ(result.children[1].status, status::error);
+    EXPECT_EQ(result.children[1].status, status::ERROR_VALUE);
     EXPECT_EQ(result.children[1].exception, sentinel);
   }
 }
@@ -922,7 +923,7 @@ task<void> check_group_close_and_parent_cancel() {
   std::stop_token group_token;
   int rejected_starts = 0;
   auto completion = faio::spawn(faio::task_group(
-      faio::group_options{faio::group_error_policy::collect_all},
+      faio::group_options{faio::group_error_policy::COLLECT_ALL},
       [&](faio::task_group_context& context) -> task<void> {
         group_token = context.stop_token();
         auto accepted = context.spawn_observed(return_after_stop(child_entered, child_gate));
@@ -942,11 +943,12 @@ task<void> check_group_close_and_parent_cancel() {
   EXPECT_FALSE(completion.done());
   child_gate.notify();
   auto result = co_await completion;
-  EXPECT_EQ(result.body.status(), status::value);
+  EXPECT_EQ(result.body.status(), status::VALUE);
   EXPECT_EQ(rejected_starts, 0);
   EXPECT_EQ(result.children.size(), 1U);
-  if (result.children.size() == 1U)
-    EXPECT_EQ(result.children.front().status, status::value);
+  if (result.children.size() == 1U) {
+    EXPECT_EQ(result.children.front().status, status::VALUE);
+  }
 }
 
 TEST(CoroutineGroup, ParentStopDoesNotConflateCloseWithDrain) {
@@ -972,7 +974,7 @@ TEST(CoroutineGroup, NestedGroupsDrainLocallyWithoutUpstreamStop) {
         EXPECT_FALSE(outer_token.stop_requested());
       }));
   EXPECT_EQ(inner_calls, 1);
-  EXPECT_EQ(outer.body.status(), status::value);
+  EXPECT_EQ(outer.body.status(), status::VALUE);
   EXPECT_TRUE(outer.children.empty());
 }
 
@@ -980,7 +982,7 @@ TEST(CoroutineGroup, RestrictedAdmissionFailureRollsBackAndLeavesQueueReusable) 
   current_thread_runtime runtime{faio::config_builder{}.set_no_stealing_queue_capacity(4).build()};
   std::array<int, 6> runs{};
   auto result = runtime.block_on(
-      faio::task_group(faio::group_options{faio::group_error_policy::collect_all},
+      faio::task_group(faio::group_options{faio::group_error_policy::COLLECT_ALL},
                        [&](faio::task_group_context& context) -> task<void> {
                          for (auto& count : runs)
                            (void)context.spawn_observed(mark_restricted_child(count));
@@ -988,7 +990,7 @@ TEST(CoroutineGroup, RestrictedAdmissionFailureRollsBackAndLeavesQueueReusable) 
                        })
           .with_no_stealing());
 
-  EXPECT_EQ(result.body.status(), status::error);
+  EXPECT_EQ(result.body.status(), status::ERROR_VALUE);
   EXPECT_THROW(result.body.value_or_throw(), std::overflow_error);
   EXPECT_GT(result.children.size(), 0U);
   EXPECT_LT(result.children.size(), runs.size());
@@ -996,7 +998,7 @@ TEST(CoroutineGroup, RestrictedAdmissionFailureRollsBackAndLeavesQueueReusable) 
     EXPECT_EQ(runs[i], i < result.children.size() ? 1 : 0);
     if (i < result.children.size()) {
       EXPECT_EQ(result.children[i].index, i);
-      EXPECT_EQ(result.children[i].status, status::value);
+      EXPECT_EQ(result.children[i].status, status::VALUE);
     }
   }
 
@@ -1005,7 +1007,7 @@ TEST(CoroutineGroup, RestrictedAdmissionFailureRollsBackAndLeavesQueueReusable) 
         (void)context.spawn_observed(mark_restricted_child(runs.back()));
         co_return;
       }).with_no_stealing());
-  EXPECT_EQ(subsequent.body.status(), status::value);
+  EXPECT_EQ(subsequent.body.status(), status::VALUE);
   EXPECT_EQ(subsequent.children.size(), 1U);
   EXPECT_EQ(runs.back(), 1);
 }
@@ -1061,11 +1063,11 @@ task<void> check_limited_window(bool stop_requested) {
   EXPECT_EQ(outcomes.size(), window.gates.size());
   for (std::size_t i = 0; i < outcomes.size(); ++i) {
     if (stop_requested && i >= 2) {
-      EXPECT_EQ(outcomes[i].status(), status::stopped);
-      EXPECT_EQ(outcomes[i].stop_reason(), faio::task_stop_reason::not_started);
+      EXPECT_EQ(outcomes[i].status(), status::STOPPED);
+      EXPECT_EQ(outcomes[i].stop_reason(), faio::task_stop_reason::NOT_STARTED);
       EXPECT_EQ(window.starts[i], 0U);
     } else {
-      EXPECT_EQ(outcomes[i].status(), status::value);
+      EXPECT_EQ(outcomes[i].status(), status::VALUE);
       EXPECT_EQ(outcomes[i].take_value(), static_cast<int>(i + 10));
       EXPECT_EQ(window.starts[i], 1U);
     }
@@ -1091,20 +1093,20 @@ TEST(CoroutineGroup, RestrictedLimitedJoinDrainsAfterOversizedWindowAdmissionFai
   ASSERT_EQ(outcomes.size(), starts.size());
   std::size_t failure_position = 0;
   while (failure_position < outcomes.size()
-         && outcomes[failure_position].status() == status::value) {
+         && outcomes[failure_position].status() == status::VALUE) {
     EXPECT_EQ(outcomes[failure_position].take_value(), 42);
     EXPECT_EQ(starts[failure_position], 1);
     ++failure_position;
   }
   ASSERT_GT(failure_position, 0U);
   ASSERT_LT(failure_position, outcomes.size());
-  EXPECT_EQ(outcomes[failure_position].status(), status::error);
+  EXPECT_EQ(outcomes[failure_position].status(), status::ERROR_VALUE);
   EXPECT_THROW((void)outcomes[failure_position].value_or_throw(), std::overflow_error);
   for (std::size_t index = failure_position; index < outcomes.size(); ++index) {
     EXPECT_EQ(starts[index], 0);
     if (index != failure_position) {
-      EXPECT_EQ(outcomes[index].status(), status::stopped);
-      EXPECT_EQ(outcomes[index].stop_reason(), faio::task_stop_reason::not_started);
+      EXPECT_EQ(outcomes[index].status(), status::STOPPED);
+      EXPECT_EQ(outcomes[index].stop_reason(), faio::task_stop_reason::NOT_STARTED);
     }
   }
 
@@ -1146,13 +1148,13 @@ TEST(CoroutineGroup, LimitedFailFastPartitionsFailureCancellationAndNotStarted) 
 
   const auto outcomes = runtime.block_on(faio::join_all_limited(2, std::move(jobs)));
   ASSERT_EQ(outcomes.size(), 3U);
-  EXPECT_EQ(outcomes[0].status(), status::error);
+  EXPECT_EQ(outcomes[0].status(), status::ERROR_VALUE);
   EXPECT_EQ(outcomes[0].exception(), failure);
-  EXPECT_EQ(outcomes[1].status(), status::stopped);
-  EXPECT_EQ(outcomes[1].stop_reason(), faio::task_stop_reason::requested);
+  EXPECT_EQ(outcomes[1].status(), status::STOPPED);
+  EXPECT_EQ(outcomes[1].stop_reason(), faio::task_stop_reason::REQUESTED);
   EXPECT_TRUE(peer_token.stop_requested());
-  EXPECT_EQ(outcomes[2].status(), status::stopped);
-  EXPECT_EQ(outcomes[2].stop_reason(), faio::task_stop_reason::not_started);
+  EXPECT_EQ(outcomes[2].status(), status::STOPPED);
+  EXPECT_EQ(outcomes[2].stop_reason(), faio::task_stop_reason::NOT_STARTED);
   EXPECT_EQ(queued_starts, 0);
 }
 
@@ -1223,7 +1225,7 @@ task<void> check_settled_order_and_independent_failure() {
   EXPECT_EQ(outcomes.size(), 3U);
   if (outcomes.size() == 3U) {
     EXPECT_EQ(outcomes[0].take_value(), 10);
-    EXPECT_EQ(outcomes[1].status(), status::error);
+    EXPECT_EQ(outcomes[1].status(), status::ERROR_VALUE);
     EXPECT_EQ(outcomes[1].exception(), failure);
     EXPECT_EQ(outcomes[2].take_value(), 30);
   }
@@ -1243,11 +1245,11 @@ TEST(CoroutineSettled, ProducerMoveFailureIsLocalAndConsumerMoveDoesNotRewriteVa
   auto outcomes = runtime.block_on(faio::join_settled(result_move(failed), result_move(consumed)));
   auto& failure = std::get<0>(outcomes);
   auto& success = std::get<1>(outcomes);
-  EXPECT_EQ(failure.status(), status::error);
+  EXPECT_EQ(failure.status(), status::ERROR_VALUE);
   EXPECT_THROW((void)failure.value_or_throw(), std::runtime_error);
-  EXPECT_EQ(success.status(), status::value);
+  EXPECT_EQ(success.status(), status::VALUE);
   EXPECT_THROW((void)success.take_value(), std::runtime_error);
-  EXPECT_EQ(success.status(), status::value);
+  EXPECT_EQ(success.status(), status::VALUE);
   EXPECT_THROW((void)success.take_value(), std::logic_error);
 }
 
@@ -1303,7 +1305,7 @@ TEST(CoroutineSettled, PartialAdmissionFailureDrainsAcceptedBranchesBeforeThrowi
   auto subsequent =
       runtime.block_on(faio::join_all_settled(std::move(subsequent_jobs)).with_no_stealing());
   ASSERT_EQ(subsequent.size(), 1U);
-  EXPECT_EQ(subsequent.front().status(), status::value);
+  EXPECT_EQ(subsequent.front().status(), status::VALUE);
 }
 
 TEST(CoroutineSelectSuccess, ErrorThenSuccessUsesTheRepeatedVariantIndex) {
@@ -1381,7 +1383,7 @@ task<void> check_select_success_race_and_cleanup() {
       [&] { return wait_until_cancelled(loser_entered, loser_gate, loser_token); },
       [&](const faio::task_exit& exit) -> task<void> {
         ++cleanup_calls;
-        EXPECT_EQ(exit.status, faio::task_exit::kind::cancelled);
+        EXPECT_EQ(exit.status, faio::task_exit::kind::CANCELLED);
         EXPECT_NE(exit.exception, nullptr);
         cleanup_entered.count_down();
         co_await cleanup_gate.wait();
@@ -1413,10 +1415,12 @@ task<void> check_select_success_race_and_cleanup() {
   EXPECT_TRUE(result.value);
   if (result.winner_index && result.value) {
     EXPECT_EQ(result.value->index(), *result.winner_index);
-    if (result.value->index() == 1U)
+    if (result.value->index() == 1U) {
       EXPECT_EQ(std::get<1>(*result.value), 31);
-    if (result.value->index() == 2U)
+    }
+    if (result.value->index() == 2U) {
       EXPECT_EQ(std::get<2>(*result.value), 47);
+    }
   }
 }
 
@@ -1447,7 +1451,7 @@ TEST(CoroutineSelectSuccess, AllErrorsAreInInputOrderDespiteOutOfOrderCompletion
   ASSERT_EQ(result.failures.size(), 2U);
   for (std::size_t index = 0; index < result.failures.size(); ++index) {
     EXPECT_EQ(result.failures[index].index, index);
-    EXPECT_EQ(result.failures[index].status, status::error);
+    EXPECT_EQ(result.failures[index].status, status::ERROR_VALUE);
     EXPECT_FALSE(result.failures[index].stop_reason);
   }
   EXPECT_EQ(result.failures[0].exception, slow);
@@ -1472,8 +1476,8 @@ task<void> check_all_stopped_select() {
   EXPECT_EQ(result.failures.size(), tokens.size());
   for (std::size_t index = 0; index < result.failures.size(); ++index) {
     EXPECT_EQ(result.failures[index].index, index);
-    EXPECT_EQ(result.failures[index].status, status::stopped);
-    EXPECT_EQ(result.failures[index].stop_reason, faio::task_stop_reason::requested);
+    EXPECT_EQ(result.failures[index].status, status::STOPPED);
+    EXPECT_EQ(result.failures[index].stop_reason, faio::task_stop_reason::REQUESTED);
     EXPECT_NE(result.failures[index].exception, nullptr);
   }
   for (const auto& token : tokens)

@@ -14,7 +14,7 @@
 #include <type_traits>
 
 namespace faio::detail {
-enum class resume_submission { normal, io, yield, cooperative_yield };
+enum class resume_submission { NORMAL, IO, YIELD, COOPERATIVE_YIELD };
 
 /** @brief 无需容量预留的恢复占位状态。 */
 struct empty_resume_reservation {};
@@ -54,19 +54,19 @@ class basic_resume_target : private resume_reservation_for<S> {
   }
 
   /** @brief 提交普通就绪任务。 */
-  void schedule(std::coroutine_handle<> handle) const { submit(handle, resume_submission::normal); }
+  void schedule(std::coroutine_handle<> handle) const { submit(handle, resume_submission::NORMAL); }
 
   /** @brief 提交 I/O 完成后的就绪任务。 */
-  void schedule_io(std::coroutine_handle<> handle) const { submit(handle, resume_submission::io); }
+  void schedule_io(std::coroutine_handle<> handle) const { submit(handle, resume_submission::IO); }
 
   /** @brief 重新提交主动让出的协程。 */
   void schedule_yield(std::coroutine_handle<> handle) const {
-    submit(handle, resume_submission::yield);
+    submit(handle, resume_submission::YIELD);
   }
 
   /** @brief 重新提交预算耗尽的协程。 */
   void schedule_cooperative_yield(std::coroutine_handle<> handle) const {
-    submit(handle, resume_submission::cooperative_yield);
+    submit(handle, resume_submission::COOPERATIVE_YIELD);
   }
 
  private:
@@ -110,16 +110,16 @@ class basic_resume_target : private resume_reservation_for<S> {
         return;
       }
       switch (submission) {
-        case resume_submission::normal:
+        case resume_submission::NORMAL:
           scheduler_.schedule(handle);
           break;
-        case resume_submission::io:
+        case resume_submission::IO:
           scheduler_.schedule_io(handle);
           break;
-        case resume_submission::yield:
+        case resume_submission::YIELD:
           scheduler_.schedule_yield(handle);
           break;
-        case resume_submission::cooperative_yield:
+        case resume_submission::COOPERATIVE_YIELD:
           if constexpr (requires { scheduler.enqueue_cooperative_yield(handle); })
             scheduler.enqueue_cooperative_yield(handle);
           else

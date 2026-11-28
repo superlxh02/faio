@@ -29,9 +29,9 @@ struct submission_host_binding {
 };
 
 /** @brief 取得指定静态执行上下文的宿主。 */
-template <class ExecutionBinding, class SubmissionBinding>
-external_work_host* execution_host_for(const ExecutionBinding* execution,
-                                       const SubmissionBinding* submission) noexcept {
+template <class execution_binding_type, class submission_binding_type>
+external_work_host* execution_host_for(const execution_binding_type* execution,
+                                       const submission_binding_type* submission) noexcept {
   return execution ? execution->external_host() : submission ? submission->external_host : nullptr;
 }
 }  // namespace faio::detail

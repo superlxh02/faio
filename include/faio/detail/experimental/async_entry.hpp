@@ -40,10 +40,10 @@ struct entry_scope {
   std::optional<int> result{}; /**< 异步入口完成后保存的返回值。 */
   std::exception_ptr error{};  /**< 跨异步边界保存异常，在领取结果时重新抛出。 */
   entry_exit_policy exit_policy{
-      entry_exit_policy::cancel_and_drain}; /**< 入口任务返回后对派生任务采用的取消或排空策略。 */
+      entry_exit_policy::CANCEL_AND_DRAIN}; /**< 入口任务返回后对派生任务采用的取消或排空策略。 */
   faio::detail::cancellation_error_policy cancellation_policy{
       faio::detail::cancellation_error_policy::
-          normal_if_stop_requested}; /**< 随任务上下文传递的策略，用于处理未观察的取消异常。 */
+          NORMAL_IF_STOP_REQUESTED}; /**< 随任务上下文传递的策略，用于处理未观察的取消异常。 */
 };
 
 /** @brief 将运行时停止请求转发给入口停止源。 */
@@ -78,7 +78,7 @@ faio::detail::root_task entry_root_task_wrapper(entry_scope* scope, int argc, ch
   } catch (...) {
     scope->error = std::current_exception();
   }
-  if (scope->error || scope->exit_policy == entry_exit_policy::cancel_and_drain)
+  if (scope->error || scope->exit_policy == entry_exit_policy::CANCEL_AND_DRAIN)
     scope->stop.request_stop();
 }
 
@@ -117,7 +117,7 @@ int run_main(int faio_argc, char** faio_argv) noexcept {
   }
   if (service) {
     try {
-      service->shutdown(faio::io::shutdown_policy::cancel_all);
+      service->shutdown(faio::io::shutdown_policy::CANCEL_ALL);
     } catch (...) {
       if (!error)
         error = std::current_exception();

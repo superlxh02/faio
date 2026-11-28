@@ -36,11 +36,11 @@ void bind_execution_child(Root& root, basic_scheduler_ref<S> scheduler) {
 }
 
 /** @brief 绑定等待器执行上下文。 */
-template <bool HasParentContext, class Promise>
+template <bool has_parent_context, class Promise>
 external_scope_ref awaiter_execution_scope(std::coroutine_handle<Promise> continuation,
                                            bool matching_thread) noexcept {
   auto external = inherited_execution_scope(matching_thread);
-  if constexpr (HasParentContext)
+  if constexpr (has_parent_context)
     external = continuation.promise().context.external_scope;
   if (!matching_thread || external.host != current_external_host())
     external = {};

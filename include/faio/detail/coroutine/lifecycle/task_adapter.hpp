@@ -51,7 +51,7 @@ task<T, S> with_lifecycle_factory(Factory factory, Policy policy) {
   try {
     policy.before();
   } catch (...) {
-    guard.fail(task_exit::kind::failed, std::current_exception());
+    guard.fail(task_exit::kind::FAILED, std::current_exception());
     throw;
   }
 
@@ -67,11 +67,11 @@ task<T, S> with_lifecycle_factory(Factory factory, Policy policy) {
       co_return std::move(result);
     }
   } catch (const operation_cancelled&) {
-    guard.fail(returning_result ? task_exit::kind::failed : task_exit::kind::cancelled,
+    guard.fail(returning_result ? task_exit::kind::FAILED : task_exit::kind::CANCELLED,
                std::current_exception());
     throw;
   } catch (...) {
-    guard.fail(task_exit::kind::failed, std::current_exception());
+    guard.fail(task_exit::kind::FAILED, std::current_exception());
     throw;
   }
 }

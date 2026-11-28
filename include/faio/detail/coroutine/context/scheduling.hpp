@@ -36,25 +36,25 @@ inline void warn_inherited_binding_conflict(const task_scheduling_policy& inheri
 template <class S>
 task_scheduling_policy resolve_task_scheduling(task_scheduling_options requested,
                                                task_scheduling_policy inherited) {
-  if (requested.bind_core == scheduling_setting::enabled
-      && requested.stealing == scheduling_setting::enabled && !inherited.binds_core())
+  if (requested.bind_core == scheduling_setting::ENABLED
+      && requested.stealing == scheduling_setting::ENABLED && !inherited.binds_core())
     throw std::logic_error("绑核任务不能同时显式允许窃取");
 
   auto effective = inherited;
-  if (requested.stealing == scheduling_setting::enabled) {
+  if (requested.stealing == scheduling_setting::ENABLED) {
     if (inherited.no_stealing || inherited.binds_core())
       warn_inherited_stealing_conflict();
     else
       effective.no_stealing = false;
-  } else if (requested.stealing == scheduling_setting::disabled) {
+  } else if (requested.stealing == scheduling_setting::DISABLED) {
     effective.no_stealing = true;
   }
 
   if (inherited.binds_core()) {
-    if (requested.bind_core == scheduling_setting::disabled)
+    if (requested.bind_core == scheduling_setting::DISABLED)
       warn_inherited_binding_conflict(inherited);
     effective.no_stealing = true;
-  } else if (requested.bind_core == scheduling_setting::enabled) {
+  } else if (requested.bind_core == scheduling_setting::ENABLED) {
     effective.bound_worker = current_worker_id();
     effective.bound_cpu = current_bound_cpu();
     if (effective.bound_worker == no_worker_id || effective.bound_cpu < 0)

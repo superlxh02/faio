@@ -14,7 +14,8 @@
 namespace faio::io {
 /**  @brief Windows 原生文件 HANDLE 重载；显式转换完整指针位宽。 */
 inline auto openat(HANDLE directory, const char* path, int flags, mode_t mode = 0666) {
-  return detail::Open{reinterpret_cast<detail::native_descriptor>(directory), path, flags, mode};
+  return detail::open_awaiter{
+      reinterpret_cast<detail::native_descriptor>(directory), path, flags, mode};
 }
 
 /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
@@ -22,7 +23,8 @@ inline auto read(HANDLE handle,
                  void* buffer,
                  std::size_t length,
                  std::uint64_t offset = UINT64_MAX) {
-  return detail::Read{reinterpret_cast<detail::native_descriptor>(handle), buffer, length, offset};
+  return detail::read_awaiter{
+      reinterpret_cast<detail::native_descriptor>(handle), buffer, length, offset};
 }
 
 /** @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。 */
@@ -30,7 +32,8 @@ inline auto write(HANDLE handle,
                   const void* buffer,
                   std::size_t length,
                   std::uint64_t offset = UINT64_MAX) {
-  return detail::Write{reinterpret_cast<detail::native_descriptor>(handle), buffer, length, offset};
+  return detail::write_awaiter{
+      reinterpret_cast<detail::native_descriptor>(handle), buffer, length, offset};
 }
 
 /** @brief 发起分散读取，缓冲区描述及负载在完成前均须有效。 */
@@ -39,7 +42,7 @@ inline auto readv(HANDLE handle,
                   unsigned count,
                   std::uint64_t offset = UINT64_MAX,
                   int flags = 0) {
-  return detail::ReadV{
+  return detail::read_v_awaiter{
       reinterpret_cast<detail::native_descriptor>(handle), vectors, count, offset, flags};
 }
 
@@ -49,17 +52,17 @@ inline auto writev(HANDLE handle,
                    unsigned count,
                    std::uint64_t offset = UINT64_MAX,
                    int flags = 0) {
-  return detail::WriteV{
+  return detail::write_v_awaiter{
       reinterpret_cast<detail::native_descriptor>(handle), vectors, count, offset, flags};
 }
 
 /** @brief 请求文件持久化。 */
 inline auto fsync(HANDLE handle, unsigned flags = 0) {
-  return detail::Fsync{reinterpret_cast<detail::native_descriptor>(handle), flags};
+  return detail::fsync_awaiter{reinterpret_cast<detail::native_descriptor>(handle), flags};
 }
 
 /** @brief 请求结束资源使用，并按所属组件契约排空已经接受的操作。 */
 inline auto close(HANDLE handle) {
-  return detail::Close{handle};
+  return detail::close_awaiter{handle};
 }
 }  // namespace faio::io

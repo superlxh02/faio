@@ -21,8 +21,8 @@ void close_unbound_resource(Resource& resource) noexcept {
   const auto fd = resource.handle.exchange(-1);
   if (fd < 0)
     return;
-  if (resource.native_kind == native_handle_kind::windows_handle
-      || resource.native_kind == native_handle_kind::windows_pipe)
+  if (resource.native_kind == native_handle_kind::WINDOWS_HANDLE
+      || resource.native_kind == native_handle_kind::WINDOWS_PIPE)
     (void)::CloseHandle(reinterpret_cast<HANDLE>(fd));
   else
     (void)::closesocket(static_cast<SOCKET>(fd));
@@ -32,7 +32,7 @@ void close_unbound_resource(Resource& resource) noexcept {
 template <class Resource>
 void initialize_resource_kind(Resource& resource, bool regular) noexcept {
   resource.native_kind =
-      regular ? native_handle_kind::windows_handle : native_handle_kind::windows_socket;
+      regular ? native_handle_kind::WINDOWS_HANDLE : native_handle_kind::WINDOWS_SOCKET;
 }
 
 /** @brief 配置原生描述符的非阻塞状态，错误按平台原生约定转换。 */

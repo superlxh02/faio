@@ -28,13 +28,13 @@ struct variant_wheel_type;
 /** @brief 按层级索引生成时间轮类型的类型特征。 */
 template <std::size_t... N>
 struct variant_wheel_type<std::index_sequence<N...>> {
-  using type = std::variant<std::monostate, std::unique_ptr<TimerWheel<N>>...>;
+  using type = std::variant<std::monostate, std::unique_ptr<timer_wheel<N>>...>;
 };
 
 /** @brief 分层时间轮类型构造器。 */
 template <std::size_t N>
-struct VariantWheelBuilder {
-  using Type = typename variant_wheel_type<
+struct variant_wheel_builder {
+  using type = typename variant_wheel_type<
       std::make_index_sequence<N>>::type; /**< 仅形成类型，不为类型查询实例化构造及析构。 */
 };
 
@@ -48,10 +48,10 @@ struct VariantWheelBuilder {
  * - 主要操作接口为 add_task、remove_task 和 poll。
  */
 
-class Timer;
+class timer;
 
 /** @brief 运行时定时器。 */
-class Timer {
+class timer {
  public:
   /**
    * @brief stop_callback 可从其他线程调用；只记录请求，时间轮本身仍由所属 worker
@@ -60,26 +60,26 @@ class Timer {
   void request_prune() noexcept { _cancel_requests.fetch_add(1, std::memory_order_release); }
 
   /** @brief 禁止复制构造运行时定时器。 */
-  Timer(const Timer&) = delete;
+  timer(const timer&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  Timer& operator=(const Timer&) = delete;
+  timer& operator=(const timer&) = delete;
 
   /** @brief 禁止移动构造运行时定时器。 */
-  Timer(Timer&&) = delete;
+  timer(timer&&) = delete;
 
   /** @brief 禁止移动赋值。 */
-  Timer& operator=(Timer&&) = delete;
+  timer& operator=(timer&&) = delete;
 
   /** @brief 构造运行时定时器。 */
-  explicit Timer(bool bind_thread = true) {
+  explicit timer(bool bind_thread = true) {
     if (bind_thread)
       ::faio::detail::current_thread_context().io.timer = this;
     faio::log::logger()->debug("Timer: initialized at thread");
   }
 
   /** @brief 销毁运行时定时器。 */
-  ~Timer() {
+  ~timer() {
     if (auto* context = ::faio::detail::try_current_thread_context();
         context && context->io.timer == this)
       context->io.timer = nullptr;
@@ -95,8 +95,8 @@ class Timer {
    */
   auto add_task(std::chrono::steady_clock::time_point deadline,
                 std::coroutine_handle<> handle,
-                std::shared_ptr<std::atomic<unsigned char>> claim = {}) -> TimerTask* {
-    auto task = std::make_unique<TimerTask>(deadline, handle, std::move(claim));
+                std::shared_ptr<std::atomic<unsigned char>> claim = {}) -> timer_task* {
+    auto task = std::make_unique<timer_task>(deadline, handle, std::move(claim));
     auto* raw = task.get();
     add_task_impl(std::move(task));
     return raw;
@@ -107,8 +107,8 @@ class Timer {
   auto add_task(std::chrono::steady_clock::time_point deadline,
                 std::coroutine_handle<> handle,
                 std::shared_ptr<std::atomic<unsigned char>> claim,
-                ::faio::detail::basic_resume_target<S> target) -> TimerTask* {
-    auto task = std::make_unique<TimerTask>(deadline, handle, std::move(claim), target);
+                ::faio::detail::basic_resume_target<S> target) -> timer_task* {
+    auto task = std::make_unique<timer_task>(deadline, handle, std::move(claim), target);
     auto* raw = task.get();
     add_task_impl(std::move(task));
     return raw;
@@ -118,7 +118,7 @@ class Timer {
    * @brief 移除定时器任务
    * @param task 要移除的任务裸指针
    */
-  void remove_task(TimerTask* task) {
+  void remove_task(timer_task* task) {
     if (task == nullptr) {
       return;
     }
@@ -247,7 +247,7 @@ class Timer {
 
  private:
   /** @brief 内部添加任务的统一实现 */
-  void add_task_impl(std::unique_ptr<TimerTask>&& task) {
+  void add_task_impl(std::unique_ptr<timer_task>&& task) {
     if (_num_entries == 0) {
       _start = std::chrono::steady_clock::now();
       _root_wheel = std::monostate{};
@@ -277,11 +277,11 @@ class Timer {
    */
   void ensure_capacity(std::size_t interval_ms) {
     if (std::holds_alternative<std::monostate>(_root_wheel)) {
-      if (interval_ms < TimerWheel<0uz>::SPAN_MS) {
-        _root_wheel = std::make_unique<TimerWheel<0uz>>();
+      if (interval_ms < timer_wheel<0uz>::SPAN_MS) {
+        _root_wheel = std::make_unique<timer_wheel<0uz>>();
         return;
       }
-      _root_wheel = std::make_unique<TimerWheel<0uz>>();
+      _root_wheel = std::make_unique<timer_wheel<0uz>>();
     }
 
     ensure_capacity_visit(interval_ms);
@@ -294,8 +294,8 @@ class Timer {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
-              using WheelType = std::remove_reference_t<decltype(*wheel_ptr)>;
-              if (interval_ms >= WheelType::SPAN_MS) {
+              using wheel_type = std::remove_reference_t<decltype(*wheel_ptr)>;
+              if (interval_ms >= wheel_type::SPAN_MS) {
                 level_up_variant(interval_ms);
               }
             }
@@ -398,15 +398,15 @@ class Timer {
           using T = std::decay_t<decltype(wheel_ptr)>;
           if constexpr (!std::is_same_v<T, std::monostate>) {
             if (wheel_ptr) {
-              using WheelType = std::remove_reference_t<decltype(*wheel_ptr)>;
-              if constexpr (std::is_same_v<WheelType, TimerWheel<0uz>>) {
+              using wheel_type = std::remove_reference_t<decltype(*wheel_ptr)>;
+              if constexpr (std::is_same_v<wheel_type, timer_wheel<0uz>>) {
                 wheel_ptr->rotate(ms);
                 _start += std::chrono::milliseconds(ms);
               } else {
-                auto slots_to_rotate = ms >> WheelType::CHILD_SHIFT;
+                auto slots_to_rotate = ms >> wheel_type::CHILD_SHIFT;
                 if (slots_to_rotate > 0) {
                   wheel_ptr->rotate(slots_to_rotate);
-                  _start += std::chrono::milliseconds(slots_to_rotate << WheelType::CHILD_SHIFT);
+                  _start += std::chrono::milliseconds(slots_to_rotate << wheel_type::CHILD_SHIFT);
                 }
               }
             }
@@ -436,7 +436,7 @@ class Timer {
   std::size_t _num_entries{0}; /**< 当前活跃的定时器任务数 */
   std::atomic<std::size_t> _cancel_requests{
       0}; /**< 跨线程取消请求计数，所属线程据此按需清理时间轮。 */
-  VariantWheelBuilder<MAX_LEVEL + 1uz>::Type
+  variant_wheel_builder<MAX_LEVEL + 1uz>::type
       _root_wheel{}; /**< 根时间轮（variant 存储，支持不同层级） */
 };
 }  // namespace faio::runtime::detail::timer

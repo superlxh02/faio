@@ -24,27 +24,34 @@
 #include <vector>
 
 namespace {
-using Clock = std::chrono::steady_clock;
+using clock = std::chrono::steady_clock;
 
 /** @brief 短连接负载的独占套接字描述符。 */
-class Socket {
+class socket {
  public:
   /** @brief 接管短连接套接字描述符。 */
-  explicit Socket(int descriptor) noexcept : descriptor_{descriptor} {}
+  explicit socket(int descriptor) noexcept : descriptor_{descriptor} {}
+
   /** @brief 禁止复制套接字描述符的所有权。 */
-  Socket(const Socket&) = delete;
+  socket(const socket&) = delete;
   /** @brief 禁止复制套接字描述符的所有权。 */
-  Socket& operator=(const Socket&) = delete;
+  socket& operator=(const socket&) = delete;
+
   /** @brief 关闭短连接负载拥有的描述符。 */
-  ~Socket() { if (descriptor_ >= 0) (void)::close(descriptor_); }
+  ~socket() {
+    if (descriptor_ >= 0)
+      (void)::close(descriptor_);
+  }
+
   /** @brief 借用当前套接字的原生描述符。 */
   int get() const noexcept { return descriptor_; }
+
  private:
   int descriptor_;
 };
 
 /** @brief 负载线程独占的连接延迟、请求延迟与错误统计。 */
-struct Result {
+struct result_type {
   std::size_t errors{};
   std::size_t timeouts{};
   std::size_t completed_in_window{};
@@ -62,15 +69,19 @@ bool transfer(int descriptor, std::span<const char> sent, std::span<char> receiv
     constexpr int flags = 0;
 #endif
     const auto count = ::send(descriptor, sent.data() + done, sent.size() - done, flags);
-    if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) return false;
+    if (count < 0 && errno == EINTR)
+      continue;
+    if (count <= 0)
+      return false;
     done += static_cast<std::size_t>(count);
   }
   done = 0;
   while (done < received.size()) {
     const auto count = ::recv(descriptor, received.data() + done, received.size() - done, 0);
-    if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) return false;
+    if (count < 0 && errno == EINTR)
+      continue;
+    if (count <= 0)
+      return false;
     done += static_cast<std::size_t>(count);
   }
   return std::equal(sent.begin(), sent.end(), received.begin());
@@ -84,19 +95,20 @@ void run_client(const sockaddr_storage& address,
                 double seconds,
                 double warmup,
                 Gate& gate,
-                Clock::time_point& epoch,
-                Result& result) {
+                clock::time_point& epoch,
+                result_type& result) {
   std::vector<char> received(payload.size());
   result.connect_ns.reserve(100'000);
   result.request_ns.reserve(100'000);
   gate.arrive_and_wait();
   const auto begin = epoch + std::chrono::duration<double>(warmup);
   const auto end = begin + std::chrono::duration<double>(seconds);
-  while (Clock::now() < end) {
-    const auto start = Clock::now();
-    Socket socket{::socket(address.ss_family, SOCK_STREAM, 0)};
+  while (clock::now() < end) {
+    const auto start = clock::now();
+    socket socket{::socket(address.ss_family, SOCK_STREAM, 0)};
     if (socket.get() < 0) {
-      if (start >= begin) ++result.errors;
+      if (start >= begin)
+        ++result.errors;
       continue;
     }
     const int enabled = 1;
@@ -104,22 +116,26 @@ void run_client(const sockaddr_storage& address,
     if (::setsockopt(socket.get(), IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled)) < 0
         || ::setsockopt(socket.get(), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0
         || ::setsockopt(socket.get(), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0
-        || ::connect(socket.get(), reinterpret_cast<const sockaddr*>(&address), address_length) < 0) {
+        || ::connect(socket.get(), reinterpret_cast<const sockaddr*>(&address), address_length)
+               < 0) {
       if (start >= begin) {
         ++result.errors;
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) ++result.timeouts;
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT)
+          ++result.timeouts;
       }
       continue;
     }
-    const auto connected = Clock::now();
+    const auto connected = clock::now();
     const auto complete = transfer(socket.get(), payload, received);
-    const auto finished = Clock::now();
+    const auto finished = clock::now();
     if (start >= begin && start < end) {
       if (!complete) {
         ++result.errors;
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) ++result.timeouts;
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT)
+          ++result.timeouts;
       } else {
-        if (finished <= end) ++result.completed_in_window;
+        if (finished <= end)
+          ++result.completed_in_window;
         result.connect_ns.push_back(
             std::chrono::duration_cast<std::chrono::nanoseconds>(connected - start).count());
         result.request_ns.push_back(
@@ -128,19 +144,20 @@ void run_client(const sockaddr_storage& address,
     }
   }
 }
-}
+}  // namespace
 
 /** @brief 生成 TCP 短连接负载并汇总连接与请求延迟。 */
 int main(int argc, char** argv) {
   try {
     if (argc != 7)
-      throw std::invalid_argument("usage: tcp_connect_load host port concurrent_clients payload_bytes seconds warmup_seconds");
+      throw std::invalid_argument(
+          "usage: tcp_connect_load host port concurrent_clients payload_bytes seconds warmup_seconds");
     const auto clients = std::stoul(argv[3]);
     const auto bytes = std::stoul(argv[4]);
     const auto seconds = std::stod(argv[5]);
     const auto warmup = std::stod(argv[6]);
-    if (!clients || clients > 256 || !bytes || bytes > 1'048'576 || seconds <= 0
-        || seconds > 60 || warmup < 0 || warmup > 60)
+    if (!clients || clients > 256 || !bytes || bytes > 1'048'576 || seconds <= 0 || seconds > 60
+        || warmup < 0 || warmup > 60)
       throw std::invalid_argument("invalid load configuration");
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -153,11 +170,12 @@ int main(int argc, char** argv) {
     const auto address_length = static_cast<socklen_t>(resolved->ai_addrlen);
     std::memcpy(&address, resolved->ai_addr, address_length);
     std::vector<char> payload(bytes);
-    for (std::size_t i = 0; i < payload.size(); ++i) payload[i] = static_cast<char>(i % 251);
-    Clock::time_point epoch;
+    for (std::size_t i = 0; i < payload.size(); ++i)
+      payload[i] = static_cast<char>(i % 251);
+    clock::time_point epoch;
     std::barrier gate{static_cast<std::ptrdiff_t>(clients + 1),
-                      [&]() noexcept { epoch = Clock::now(); }};
-    std::vector<Result> results(clients);
+                      [&]() noexcept { epoch = clock::now(); }};
+    std::vector<result_type> results(clients);
     std::vector<std::jthread> workers;
     workers.reserve(clients);
     for (std::size_t i = 0; i < clients; ++i)
@@ -172,10 +190,13 @@ int main(int argc, char** argv) {
       errors += result.errors;
       timeouts += result.timeouts;
       completed_in_window += result.completed_in_window;
-      connect_samples.insert(connect_samples.end(), result.connect_ns.begin(), result.connect_ns.end());
-      request_samples.insert(request_samples.end(), result.request_ns.begin(), result.request_ns.end());
+      connect_samples.insert(
+          connect_samples.end(), result.connect_ns.begin(), result.connect_ns.end());
+      request_samples.insert(
+          request_samples.end(), result.request_ns.begin(), result.request_ns.end());
     }
-    if (connect_samples.empty()) throw std::runtime_error("no complete verified connections");
+    if (connect_samples.empty())
+      throw std::runtime_error("no complete verified connections");
     std::sort(connect_samples.begin(), connect_samples.end());
     std::sort(request_samples.begin(), request_samples.end());
     const auto percentile = [](const auto& samples, double p) {
@@ -184,13 +205,14 @@ int main(int argc, char** argv) {
     const auto mean = [](const auto& samples) {
       return std::accumulate(samples.begin(), samples.end(), 0.0) / samples.size();
     };
-    std::cout << "connections,connections_per_sec,concurrent_clients,payload_bytes,connect_p50_ns,connect_p99_ns,request_p50_ns,request_p99_ns,errors,timeouts,connect_avg_ns,request_avg_ns,completed_in_window\n"
-              << connect_samples.size() << ',' << completed_in_window / seconds << ','
-              << clients << ',' << bytes << ',' << percentile(connect_samples, .50) << ','
-              << percentile(connect_samples, .99) << ',' << percentile(request_samples, .50) << ','
-              << percentile(request_samples, .99) << ',' << errors << ',' << timeouts << ','
-              << mean(connect_samples) << ',' << mean(request_samples) << ','
-              << completed_in_window << '\n';
+    std::cout
+        << "connections,connections_per_sec,concurrent_clients,payload_bytes,connect_p50_ns,connect_p99_ns,request_p50_ns,request_p99_ns,errors,timeouts,connect_avg_ns,request_avg_ns,completed_in_window\n"
+        << connect_samples.size() << ',' << completed_in_window / seconds << ',' << clients << ','
+        << bytes << ',' << percentile(connect_samples, .50) << ','
+        << percentile(connect_samples, .99) << ',' << percentile(request_samples, .50) << ','
+        << percentile(request_samples, .99) << ',' << errors << ',' << timeouts << ','
+        << mean(connect_samples) << ',' << mean(request_samples) << ',' << completed_in_window
+        << '\n';
     return errors ? 1 : 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

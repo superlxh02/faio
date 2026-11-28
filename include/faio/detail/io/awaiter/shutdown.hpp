@@ -14,22 +14,24 @@ namespace faio::io::detail {
  *  @brief Shutdown 请求；参数保存在地址稳定的 operation_state 中，
  * 挂起前不执行内核操作。
  */
-class Shutdown : public IORegistrantAwaiter<Shutdown> {
-  using Base = IORegistrantAwaiter<Shutdown>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class shutdown_awaiter : public io_registrant_awaiter<shutdown_awaiter> {
+  using base_type =
+      io_registrant_awaiter<shutdown_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造 I/O 方向关闭等待器。 */
-  Shutdown(native_descriptor fd, int how)
-      : Base{[&] {
+  shutdown_awaiter(native_descriptor fd, int how)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::shutdown;
+          r.kind = operation_kind::SHUTDOWN;
           r.fd = fd;
           r.argument = how;
           return r;
         }()} {}
 
   /** @brief 构造 I/O 方向关闭等待器。 */
-  Shutdown(resource_ptr resource, int how) : Shutdown{resource ? resource->fd() : -1, how} {
+  shutdown_awaiter(resource_ptr resource, int how)
+      : shutdown_awaiter{resource ? resource->fd() : -1, how} {
     this->request_.resource = std::move(resource);
   }
 
@@ -47,6 +49,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto shutdown(F fd, int how) {
-  return detail::Shutdown{std::move(fd), how};
+  return detail::shutdown_awaiter{std::move(fd), how};
 }
 }  // namespace faio::io

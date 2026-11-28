@@ -21,35 +21,35 @@ namespace faio::net::detail {
  * 归属。
  */
 template <class Listener, class Stream, class Addr>
-class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, Addr> {
+class base_listener : public impl_local_addr<base_listener<Listener, Stream, Addr>, Addr> {
  protected:
   /** @brief 接管源对象的状态和资源租约。 */
-  explicit BaseListener(Socket&& socket) : socket_{std::move(socket)} {}
+  explicit base_listener(socket&& socket) : socket_{std::move(socket)} {}
 
  public:
   /** @brief 接管源对象的状态和资源租约。 */
-  BaseListener(BaseListener&&) noexcept = default;
+  base_listener(base_listener&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  auto operator=(BaseListener&&) noexcept -> BaseListener& = default;
+  auto operator=(base_listener&&) noexcept -> base_listener& = default;
 
   /** @brief 禁止复制此对象。 */
-  BaseListener(const BaseListener&) = delete;
+  base_listener(const base_listener&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const BaseListener&) -> BaseListener& = delete;
+  auto operator=(const base_listener&) -> base_listener& = delete;
 
   /** @brief 释放监听 socket 的资源租约。 */
-  ~BaseListener() = default;
+  ~base_listener() = default;
 
   /**  @brief 一次 accept 不创建 task 帧，地址及长度由最终 awaiter 自身持有。 */
-  class Accept : public AwaiterOptions<Accept> {
+  class accept_awaiter : public awaiter_options<accept_awaiter> {
    public:
     /** @brief 构造保存对端地址及接纳请求的等待器。 */
-    Accept(std::shared_ptr<io::detail::resource_state> resource,
-           io::io_context context,
-           accept_options options = {},
-           bool native_no_wait = false)
+    accept_awaiter(std::shared_ptr<io::detail::resource_state> resource,
+                   io::io_context context,
+                   accept_options options = {},
+                   bool native_no_wait = false)
         : resource_{std::move(resource)},
           context_{std::move(context)},
           options_{std::move(options)},
@@ -60,14 +60,14 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
     }
 
     /** @brief 禁止复制此对象。 */
-    Accept(const Accept&) = delete;
+    accept_awaiter(const accept_awaiter&) = delete;
 
     /**
      *  @brief 提交前移动会重建 sockaddr/长度指针，保障 task await_transform
      * 的移动安全。
      */
-    Accept(Accept&& other) noexcept
-        : AwaiterOptions<Accept>{std::move(other)},
+    accept_awaiter(accept_awaiter&& other) noexcept
+        : awaiter_options<accept_awaiter>{std::move(other)},
           resource_{std::move(other.resource_)},
           context_{std::move(other.context_)},
           options_{std::move(other.options_)},
@@ -80,13 +80,13 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
     }
 
     /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
-    auto reservation(void* owner) & noexcept -> Accept& {
+    auto reservation(void* owner) & noexcept -> accept_awaiter& {
       owner_ = owner;
       return *this;
     }
 
     /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
-    auto reservation(void* owner) && noexcept -> Accept&& {
+    auto reservation(void* owner) && noexcept -> accept_awaiter&& {
       owner_ = owner;
       return std::move(*this);
     }
@@ -133,12 +133,12 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
 
   /**  @brief 接受一个连接，默认在同一 runtime 的活跃 IO domain 中均衡首次归属。 */
   auto accept(accept_options options = {}) const noexcept {
-    return Accept{resource(), context(), std::move(options)};
+    return accept_awaiter{resource(), context(), std::move(options)};
   }
 
   /**  @brief 显式指定新连接归属；已发布 fd 不发生 domain 迁移。 */
   auto accept(io::io_context target) const noexcept {
-    return accept(accept_options{accept_placement::explicit_context, std::move(target)});
+    return accept(accept_options{accept_placement::EXPLICIT_CONTEXT, std::move(target)});
   }
 
   /**  @brief 同步接受一个已经完成握手的连接；EAGAIN 不挂起。 */
@@ -149,7 +149,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
 
   /** @brief 即时尝试接纳一个连接，不等待监听 socket 就绪。 */
   [[nodiscard]] auto try_accept(io::io_context target) const -> expected<std::pair<Stream, Addr>> {
-    return try_accept(accept_options{accept_placement::explicit_context, std::move(target)});
+    return try_accept(accept_options{accept_placement::EXPLICIT_CONTEXT, std::move(target)});
   }
 
   /**
@@ -169,7 +169,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
   auto accept_many(std::size_t maximum, io::io_context target) const
       -> task<expected<std::vector<std::pair<Stream, Addr>>>> {
     return accept_many(maximum,
-                       accept_options{accept_placement::explicit_context, std::move(target)});
+                       accept_options{accept_placement::EXPLICIT_CONTEXT, std::move(target)});
   }
 
   /** @brief 异步关闭共享套接字，等待在途操作安全结束。 */
@@ -188,7 +188,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
   [[nodiscard]] auto context() const noexcept { return socket_.context(); }
 
   /** @brief 等待给定的 socket 就绪条件。 */
-  auto ready(io::Interest interest = io::Interest::readable) const noexcept {
+  auto ready(io::interest interest = io::interest::READABLE) const noexcept {
     return io::ready(resource(), interest);
   }
 
@@ -210,15 +210,15 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
     if (socket_getsockopt(native.get(), SOL_SOCKET, SO_ACCEPTCONN, &accepting, &length) < 0)
       return std::unexpected{socket_error()};
     if (!accepting)
-      return std::unexpected{make_error(Error::InvalidSocketType)};
-    if (auto valid = Socket::validate_family<Addr>(native.get()); !valid)
+      return std::unexpected{make_error(::faio::error::INVALID_SOCKET_TYPE)};
+    if (auto valid = socket::validate_family<Addr>(native.get()); !valid)
       return std::unexpected{valid.error()};
-    if (auto result = Socket::prepare(native.get()); !result)
+    if (auto result = socket::prepare(native.get()); !result)
       return std::unexpected{result.error()};
-    auto socket = Socket::adopt_checked(native.get(), std::move(context));
+    auto socket = socket::adopt_checked(native.get(), std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
-    Socket::release_imported(native);
+    socket::release_imported(native);
     return Listener{std::move(*socket)};
   }
 
@@ -226,7 +226,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
   [[nodiscard]] static auto bind(const Addr& address,
                                  io::io_context context = io::io_context::current(),
                                  int backlog = SOMAXCONN) -> expected<Listener> {
-    auto socket = Socket::create(address.family(), SOCK_STREAM, 0, std::move(context));
+    auto socket = socket::create(address.family(), SOCK_STREAM, 0, std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
     if (auto result = socket->bind(address); !result)
@@ -247,7 +247,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
   [[nodiscard]] static auto bind(std::span<const Addr> addresses,
                                  io::io_context context = io::io_context::current())
       -> expected<Listener> {
-    Error last{Error::InvalidAddresses};
+    error last{::faio::error::INVALID_ADDRESSES};
     for (const auto& address : addresses) {
       auto result = bind(address, context);
       if (result)
@@ -273,9 +273,9 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
                              const accept_options& options) -> expected<io::io_context> {
     const auto source = resource && resource->owner ? io::io_context{resource->owner} : context;
     switch (options.placement) {
-      case accept_placement::listener_local:
+      case accept_placement::LISTENER_LOCAL:
         return source;
-      case accept_placement::balanced: {
+      case accept_placement::BALANCED: {
         if (!source)
           return source;
         auto target = source.balanced_context();
@@ -283,7 +283,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
           return std::unexpected{make_error(ECANCELED)};
         return target;
       }
-      case accept_placement::explicit_context:
+      case accept_placement::EXPLICIT_CONTEXT:
         if (!options.target)
           return std::unexpected{make_error(EINVAL)};
         return options.target;
@@ -302,7 +302,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
     auto target = select_context(resource, context, options);
     if (!target)
       return std::unexpected{target.error()};
-    auto socket = Socket::adopt_checked(native.get(), std::move(*target));
+    auto socket = socket::adopt_checked(native.get(), std::move(*target));
     if (!socket)
       return std::unexpected{socket.error()};
     (void)native.release();
@@ -316,7 +316,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
                               void* owner = nullptr) -> expected<std::pair<Stream, Addr>> {
     auto accepted = io::detail::with_resource(
         resource,
-        io::Interest::readable,
+        io::interest::READABLE,
         [&]() -> expected<std::pair<owned_native_socket, Addr>> {
           Addr address{};
           socklen_t length = Addr::capacity();
@@ -344,23 +344,23 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
       co_return std::unexpected{make_error(EINVAL)};
     char owner_identity{};
     auto reservation =
-        io::detail::reserve_direction(resource, io::Interest::readable, &owner_identity);
+        io::detail::reserve_direction(resource, io::interest::READABLE, &owner_identity);
     if (!reservation)
       co_return std::unexpected{reservation.error()};
     std::vector<std::pair<Stream, Addr>> accepted;
     accepted.reserve(maximum);
-    auto first = co_await Accept{resource, context, options}.reservation(&owner_identity);
+    auto first = co_await accept_awaiter{resource, context, options}.reservation(&owner_identity);
     if (!first)
       co_return std::unexpected{first.error()};
     accepted.push_back(std::move(*first));
-    const bool native = resource->owner->supports_native(io::detail::operation_kind::accept);
+    const bool native = resource->owner->supports_native(io::detail::operation_kind::ACCEPT);
     const bool native_no_wait = resource->owner->capabilities().native_accept_nowait;
     while (accepted.size() < maximum) {
       if (native && !native_no_wait)
         break;
-      auto next =
-          native ? co_await Accept{resource, context, options, true}.reservation(&owner_identity)
-                 : try_accept_impl(resource, context, options, &owner_identity);
+      auto next = native ? co_await accept_awaiter{resource, context, options, true}.reservation(
+                               &owner_identity)
+                         : try_accept_impl(resource, context, options, &owner_identity);
       if (!next) {
         if (socket_would_block(next.error()))
           break;
@@ -371,7 +371,7 @@ class BaseListener : public ImplLocalAddr<BaseListener<Listener, Stream, Addr>, 
     co_return accepted;
   }
 
-  Socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
+  socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
 };
 }  // namespace faio::net::detail
 #endif

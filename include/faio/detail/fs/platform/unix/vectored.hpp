@@ -31,7 +31,7 @@ struct vectored_file_operation {
 
   /** @brief 返回当前文件请求的操作类型。 */
   io::detail::operation_kind kind() const noexcept {
-    return write ? io::detail::operation_kind::writev : io::detail::operation_kind::readv;
+    return write ? io::detail::operation_kind::WRITEV : io::detail::operation_kind::READV;
   }
 
   /** @brief 将紧凑请求展开为完整请求，固定地址、移交资源租约并初始化低频字段。 */

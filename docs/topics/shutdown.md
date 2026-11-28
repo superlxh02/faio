@@ -84,8 +84,8 @@ co_await faio::scope([&](faio::scope_context& owner) -> faio::task<void> {
 所有任务收尾之后，才轮到关闭运行时。faio 提供两个策略：
 
 ```cpp
-faio::runtime::shutdown(faio::io::shutdown_policy::drain);      // 排空
-faio::runtime::shutdown(faio::io::shutdown_policy::cancel_all); // 取消全部
+faio::runtime::shutdown(faio::io::shutdown_policy::DRAIN);      // 排空
+faio::runtime::shutdown(faio::io::shutdown_policy::CANCEL_ALL); // 取消全部
 ```
 
 | 策略 | 行为 |

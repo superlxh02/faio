@@ -11,15 +11,16 @@
 
 namespace faio::io::detail {
 /**  @brief Accept 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class Accept : public IORegistrantAwaiter<Accept> {
-  using Base = IORegistrantAwaiter<Accept>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class accept_awaiter : public io_registrant_awaiter<accept_awaiter> {
+  using base_type =
+      io_registrant_awaiter<accept_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造接受连接的等待器。 */
-  Accept(native_descriptor fd, sockaddr* address, socklen_t* length, int flags)
-      : Base{[&] {
+  accept_awaiter(native_descriptor fd, sockaddr* address, socklen_t* length, int flags)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::accept;
+          r.kind = operation_kind::ACCEPT;
           r.fd = fd;
           r.output_address = address;
           r.output_address_length = length;
@@ -28,8 +29,8 @@ class Accept : public IORegistrantAwaiter<Accept> {
         }()} {}
 
   /** @brief 构造接受连接的等待器。 */
-  Accept(resource_ptr resource, sockaddr* address, socklen_t* length, int flags)
-      : Accept{resource ? resource->fd() : -1, address, length, flags} {
+  accept_awaiter(resource_ptr resource, sockaddr* address, socklen_t* length, int flags)
+      : accept_awaiter{resource ? resource->fd() : -1, address, length, flags} {
     this->request_.resource = std::move(resource);
   }
 
@@ -42,14 +43,14 @@ class Accept : public IORegistrantAwaiter<Accept> {
   }
 
   /**  @brief 将请求设为立即接受连接；没有待接连接时，CQE 返回 EAGAIN，不等待下一条连接。 */
-  auto no_wait() & noexcept -> Accept& {
-    this->request_.kind = operation_kind::accept_nowait;
+  auto no_wait() & noexcept -> accept_awaiter& {
+    this->request_.kind = operation_kind::ACCEPT_NOWAIT;
     return *this;
   }
 
   /** @brief 将请求设为立即接受连接，不等待后续连接到达。 */
-  auto no_wait() && noexcept -> Accept {
-    this->request_.kind = operation_kind::accept_nowait;
+  auto no_wait() && noexcept -> accept_awaiter {
+    this->request_.kind = operation_kind::ACCEPT_NOWAIT;
     return std::move(*this);
   }
 };
@@ -59,6 +60,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto accept(F fd, sockaddr* address, socklen_t* length, int flags = 0) {
-  return detail::Accept{std::move(fd), address, length, flags};
+  return detail::accept_awaiter{std::move(fd), address, length, flags};
 }
 }  // namespace faio::io

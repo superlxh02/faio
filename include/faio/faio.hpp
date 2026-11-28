@@ -6,6 +6,7 @@
 #define FAIO_FAIO_HPP
 
 #include "faio/common/error.hpp"          /* IWYU pragma: export */
+#include "faio/common/match.hpp"          /* IWYU pragma: export */
 #include "faio/coroutine/awaiter.hpp"     /* IWYU pragma: export */
 #include "faio/coroutine/composition.hpp" /* IWYU pragma: export */
 #include "faio/coroutine/lifecycle.hpp"   /* IWYU pragma: export */
@@ -23,6 +24,8 @@
 #include "faio/net/udp.hpp"               /* IWYU pragma: export */
 #include "faio/runtime/default.hpp"       /* IWYU pragma: export */
 #include "faio/runtime/instance.hpp"      /* IWYU pragma: export */
+#include "faio/stdio/print.hpp"           /* IWYU pragma: export */
+#include "faio/stdio/stream.hpp"          /* IWYU pragma: export */
 #include "faio/sync/channel.hpp"          /* IWYU pragma: export */
 #include "faio/sync/coordination.hpp"     /* IWYU pragma: export */
 #include "faio/sync/mutex.hpp"            /* IWYU pragma: export */

@@ -18,7 +18,7 @@
 namespace faio::net::detail {
 /**  @brief 单条数据报的接收结果；零字节也是合法消息，truncated 表示负载被截断。 */
 template <class Addr>
-struct DatagramMessage {
+struct datagram_message {
   std::size_t copied_bytes{};  /**< 实际复制到调用方缓冲区的字节数，不超过提交容量。 */
   Addr peer{};                 /**< 按值保存的数据报来源地址，提交期间不借用临时对象。 */
   bool truncated{};            /**< 数据报负载是否因接收缓冲区不足被截断。 */
@@ -29,13 +29,13 @@ struct DatagramMessage {
 
 /**  @brief recvmsg 包装，在最终 awaiter 内保存消息头与 peer 存储。 */
 template <class Addr, int Detailed>
-class ReceiveDatagram : public AwaiterOptions<ReceiveDatagram<Addr, Detailed>> {
+class receive_datagram : public awaiter_options<receive_datagram<Addr, Detailed>> {
  public:
   /** @brief 构造单包接收请求并固定消息头与地址存储。 */
-  ReceiveDatagram(std::shared_ptr<io::detail::resource_state> resource,
-                  std::span<char> buffer,
-                  int flags = 0,
-                  std::span<std::byte> control = {})
+  receive_datagram(std::shared_ptr<io::detail::resource_state> resource,
+                   std::span<char> buffer,
+                   int flags = 0,
+                   std::span<std::byte> control = {})
       : resource_{std::move(resource)},
         flags_{flags},
         control_{control},
@@ -62,28 +62,28 @@ class ReceiveDatagram : public AwaiterOptions<ReceiveDatagram<Addr, Detailed>> {
   }
 
   /** @brief 禁止复制此对象。 */
-  ReceiveDatagram(const ReceiveDatagram&) = delete;
+  receive_datagram(const receive_datagram&) = delete;
 
   /**  @brief 仅在登记前移动，重建最终帧中的 msghdr、peer 和 iovec 指针。 */
-  ReceiveDatagram(ReceiveDatagram&& other) noexcept
-      : ReceiveDatagram{
+  receive_datagram(receive_datagram&& other) noexcept
+      : receive_datagram{
             std::move(other.resource_),
             std::span<char>{static_cast<char*>(other.vector_.iov_base), other.capacity_},
             other.flags_,
             other.control_} {
-    static_cast<AwaiterOptions<ReceiveDatagram>&>(*this) =
-        std::move(static_cast<AwaiterOptions<ReceiveDatagram>&>(other));
+    static_cast<awaiter_options<receive_datagram>&>(*this) =
+        std::move(static_cast<awaiter_options<receive_datagram>&>(other));
     owner_ = other.owner_;
   }
 
   /**  @brief 组合操作内部复用所属方向租约，其 token 必须位于稳定协程帧。 */
-  auto reservation(void* owner) & noexcept -> ReceiveDatagram& {
+  auto reservation(void* owner) & noexcept -> receive_datagram& {
     owner_ = owner;
     return *this;
   }
 
   /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
-  auto reservation(void* owner) && noexcept -> ReceiveDatagram&& {
+  auto reservation(void* owner) && noexcept -> receive_datagram&& {
     owner_ = owner;
     return std::move(*this);
   }
@@ -102,7 +102,7 @@ class ReceiveDatagram : public AwaiterOptions<ReceiveDatagram<Addr, Detailed>> {
   /** @brief 完成交接后领取结果，并按接口约定传播失败或取消。 */
   auto await_resume() -> expected<std::conditional_t<
       Detailed == 1,
-      DatagramMessage<Addr>,
+      datagram_message<Addr>,
       std::conditional_t<Detailed == 2, std::size_t, std::pair<std::size_t, Addr>>
 
       >> {
@@ -115,12 +115,12 @@ class ReceiveDatagram : public AwaiterOptions<ReceiveDatagram<Addr, Detailed>> {
     if constexpr (Detailed == 2)
       return copied;
     else if constexpr (Detailed == 1)
-      return DatagramMessage<Addr>{copied,
-                                   address_,
-                                   (message_.msg_flags & MSG_TRUNC) != 0 || *result > capacity_,
-                                   (message_.msg_flags & MSG_CTRUNC) != 0,
-                                   message_.msg_controllen,
-                                   message_.msg_flags};
+      return datagram_message<Addr>{copied,
+                                    address_,
+                                    (message_.msg_flags & MSG_TRUNC) != 0 || *result > capacity_,
+                                    (message_.msg_flags & MSG_CTRUNC) != 0,
+                                    message_.msg_controllen,
+                                    message_.msg_flags};
     else
       return std::pair{copied, address_};
   }
@@ -145,17 +145,17 @@ class ReceiveDatagram : public AwaiterOptions<ReceiveDatagram<Addr, Detailed>> {
 
 /**  @brief 拥有型数据报接收结果，一并返回实际初始化的数据与来源地址。 */
 template <class Addr>
-struct OwnedDatagram {
-  io::io_buffer buffer;          /**< 对象持有的字节缓冲区，在挂起期间保持所需内容和地址有效。 */
-  DatagramMessage<Addr> message; /**< 接收结果，包含来源地址、截断状态及控制消息信息。 */
+struct owned_datagram {
+  io::io_buffer buffer;           /**< 对象持有的字节缓冲区，在挂起期间保持所需内容和地址有效。 */
+  datagram_message<Addr> message; /**< 接收结果，包含来源地址、截断状态及控制消息信息。 */
 };
 
 /**  @brief 消息型收包接口，peek 保留消息队列中的原始数据报。 */
 template <class T, class Addr>
-struct ImplRecv {
+struct impl_recv {
   /** @brief 接收单条数据报，零字节也是有效消息。 */
   auto recv(std::span<char> buffer, int flags = 0) const noexcept {
-    return ReceiveDatagram<Addr, 2>{static_cast<const T*>(this)->resource(), buffer, flags};
+    return receive_datagram<Addr, 2>{static_cast<const T*>(this)->resource(), buffer, flags};
   }
 
   /** @brief 接收单条数据报，零字节也是有效消息。 */
@@ -173,7 +173,7 @@ struct ImplRecv {
 
   /** @brief 接收一条数据报并返回来源地址。 */
   auto recv_from(std::span<char> buffer, int flags = 0) const noexcept {
-    return ReceiveDatagram<Addr, false>{static_cast<const T*>(this)->resource(), buffer, flags};
+    return receive_datagram<Addr, false>{static_cast<const T*>(this)->resource(), buffer, flags};
   }
 
   /** @brief 接收一条数据报并返回来源地址。 */
@@ -182,7 +182,8 @@ struct ImplRecv {
   }
 
   /** @brief 接收一条数据报并返回来源地址。 */
-  auto recv_from(io::io_buffer buffer, int flags = 0) const -> task<expected<OwnedDatagram<Addr>>> {
+  auto recv_from(io::io_buffer buffer, int flags = 0) const
+      -> task<expected<owned_datagram<Addr>>> {
     return recv_from_owned_impl(static_cast<const T*>(this)->resource(), std::move(buffer), flags);
   }
 
@@ -193,7 +194,7 @@ struct ImplRecv {
   auto recv_message(std::span<char> buffer,
                     std::span<std::byte> control = {},
                     int flags = 0) const noexcept {
-    return ReceiveDatagram<Addr, true>{
+    return receive_datagram<Addr, true>{
         static_cast<const T*>(this)->resource(), buffer, flags, control};
   }
 
@@ -205,7 +206,7 @@ struct ImplRecv {
    * 仍然消费一条合法数据报。
    */
   auto recv_many(std::span<std::span<char>> buffers) const
-      -> task<expected<std::vector<DatagramMessage<Addr>>>> {
+      -> task<expected<std::vector<datagram_message<Addr>>>> {
     return recv_many_impl(static_cast<const T*>(this)->resource(), buffers);
   }
 
@@ -278,7 +279,7 @@ struct ImplRecv {
   /** @brief 即时接收单条数据报及控制消息信息。 */
   [[nodiscard]] auto try_recv_message(std::span<char> buffer,
                                       std::span<std::byte> control = {},
-                                      int flags = 0) const -> expected<DatagramMessage<Addr>> {
+                                      int flags = 0) const -> expected<datagram_message<Addr>> {
     return try_recv_message_impl(static_cast<const T*>(this)->resource(), buffer, control, flags);
   }
 
@@ -342,7 +343,7 @@ struct ImplRecv {
     if (count > buffer.max_size() - initial)
       co_return std::unexpected{make_error(EOVERFLOW)};
     buffer.resize(initial + count);
-    auto result = co_await ReceiveDatagram<Addr, Detailed>{
+    auto result = co_await receive_datagram<Addr, Detailed>{
         std::move(resource), std::span<char>{buffer}.subspan(initial)};
     buffer.resize(initial + (result ? copied_count<Detailed>(*result) : 0));
     co_return result;
@@ -352,7 +353,7 @@ struct ImplRecv {
   template <int Detailed>
   static auto recv_initialized(std::shared_ptr<io::detail::resource_state> resource,
                                io::read_buf& buffer) -> task<expected<buffer_result<Detailed>>> {
-    auto result = co_await ReceiveDatagram<Addr, Detailed>{std::move(resource), buffer.unfilled()};
+    auto result = co_await receive_datagram<Addr, Detailed>{std::move(resource), buffer.unfilled()};
     if (result)
       buffer.advance(copied_count<Detailed>(*result));
     co_return result;
@@ -363,11 +364,11 @@ struct ImplRecv {
                                     std::span<char> buffer,
                                     std::span<std::byte> control = {},
                                     int flags = 0,
-                                    void* owner = nullptr) -> expected<DatagramMessage<Addr>> {
+                                    void* owner = nullptr) -> expected<datagram_message<Addr>> {
     return io::detail::with_resource(
         resource,
-        io::Interest::readable,
-        [&]() -> expected<DatagramMessage<Addr>> {
+        io::interest::READABLE,
+        [&]() -> expected<datagram_message<Addr>> {
           Addr address{};
           char discard_byte{};
           iovec vector{buffer.empty() ? &discard_byte : buffer.data(),
@@ -384,13 +385,13 @@ struct ImplRecv {
             return std::unexpected{socket_error()};
           if constexpr (requires { address.set_length(message.msg_namelen); })
             address.set_length(message.msg_namelen);
-          return DatagramMessage<Addr>{std::min(static_cast<std::size_t>(result), buffer.size()),
-                                       address,
-                                       (message.msg_flags & MSG_TRUNC) != 0
-                                           || static_cast<std::size_t>(result) > buffer.size(),
-                                       (message.msg_flags & MSG_CTRUNC) != 0,
-                                       message.msg_controllen,
-                                       message.msg_flags};
+          return datagram_message<Addr>{std::min(static_cast<std::size_t>(result), buffer.size()),
+                                        address,
+                                        (message.msg_flags & MSG_TRUNC) != 0
+                                            || static_cast<std::size_t>(result) > buffer.size(),
+                                        (message.msg_flags & MSG_CTRUNC) != 0,
+                                        message.msg_controllen,
+                                        message.msg_flags};
         },
         owner);
   }
@@ -398,25 +399,25 @@ struct ImplRecv {
   /** @brief 等待首包后即时收取后续数据报，保存已接收数量。 */
   static auto recv_many_impl(std::shared_ptr<io::detail::resource_state> resource,
                              std::span<std::span<char>> buffers)
-      -> task<expected<std::vector<DatagramMessage<Addr>>>> {
+      -> task<expected<std::vector<datagram_message<Addr>>>> {
     if (buffers.empty())
       co_return std::unexpected{make_error(EINVAL)};
     char owner_identity{};
 
     auto reservation =
-        io::detail::reserve_direction(resource, io::Interest::readable, &owner_identity);
+        io::detail::reserve_direction(resource, io::interest::READABLE, &owner_identity);
     if (!reservation)
       co_return std::unexpected{reservation.error()};
-    std::vector<DatagramMessage<Addr>> results;
+    std::vector<datagram_message<Addr>> results;
     results.reserve(buffers.size());
     auto first =
-        co_await ReceiveDatagram<Addr, 1>{resource, buffers.front()}.reservation(&owner_identity);
+        co_await receive_datagram<Addr, 1>{resource, buffers.front()}.reservation(&owner_identity);
     if (!first)
       co_return std::unexpected{first.error()};
     results.push_back(*first);
     for (std::size_t index = 1; index < buffers.size(); ++index) {
-      auto next = resource->owner->supports_native(io::detail::operation_kind::recvmsg)
-                      ? co_await ReceiveDatagram<Addr, 1>{resource, buffers[index], MSG_DONTWAIT}
+      auto next = resource->owner->supports_native(io::detail::operation_kind::RECVMSG)
+                      ? co_await receive_datagram<Addr, 1>{resource, buffers[index], MSG_DONTWAIT}
                             .reservation(&owner_identity)
                       : try_recv_message_impl(resource, buffers[index], {}, 0, &owner_identity);
       if (!next) {
@@ -434,7 +435,7 @@ struct ImplRecv {
                               io::io_buffer buffer,
                               int flags) -> task<expected<io::io_transfer>> {
     auto result =
-        co_await ReceiveDatagram<Addr, 2>{std::move(resource), buffer.writable_bytes(), flags};
+        co_await receive_datagram<Addr, 2>{std::move(resource), buffer.writable_bytes(), flags};
     if (!result)
       co_return std::unexpected{result.error()};
     buffer.set_size(*result);
@@ -444,13 +445,13 @@ struct ImplRecv {
   /** @brief 持有接收缓冲区并同时交付数据报来源。 */
   static auto recv_from_owned_impl(std::shared_ptr<io::detail::resource_state> resource,
                                    io::io_buffer buffer,
-                                   int flags) -> task<expected<OwnedDatagram<Addr>>> {
+                                   int flags) -> task<expected<owned_datagram<Addr>>> {
     auto result =
-        co_await ReceiveDatagram<Addr, 1>{std::move(resource), buffer.writable_bytes(), flags};
+        co_await receive_datagram<Addr, 1>{std::move(resource), buffer.writable_bytes(), flags};
     if (!result)
       co_return std::unexpected{result.error()};
     buffer.set_size(result->copied_bytes);
-    co_return OwnedDatagram<Addr>{std::move(buffer), *result};
+    co_return owned_datagram<Addr>{std::move(buffer), *result};
   }
 };
 }  // namespace faio::net::detail

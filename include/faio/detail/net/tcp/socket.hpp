@@ -11,27 +11,27 @@
 
 namespace faio::net::detail {
 /**  @brief 可先配置选项、绑定本地地址再 connect/listen 的独占 TCP socket。 */
-class TcpSocket : public ImplSocketOptions<TcpSocket>,
-                  public ImplLocalAddr<TcpSocket, SocketAddr>,
-                  public ImplPeerAddr<TcpSocket, SocketAddr> {
+class tcp_socket : public impl_socket_options<tcp_socket>,
+                   public impl_local_addr<tcp_socket, socket_addr>,
+                   public impl_peer_addr<tcp_socket, socket_addr> {
  public:
   /** @brief 接管源对象的状态和资源租约。 */
-  explicit TcpSocket(Socket&& socket) : socket_{std::move(socket)} {}
+  explicit tcp_socket(socket&& socket) : socket_{std::move(socket)} {}
 
   /** @brief 接管源对象的状态和资源租约。 */
-  TcpSocket(TcpSocket&&) noexcept = default;
+  tcp_socket(tcp_socket&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  auto operator=(TcpSocket&&) noexcept -> TcpSocket& = default;
+  auto operator=(tcp_socket&&) noexcept -> tcp_socket& = default;
 
   /** @brief 禁止复制此对象。 */
-  TcpSocket(const TcpSocket&) = delete;
+  tcp_socket(const tcp_socket&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const TcpSocket&) -> TcpSocket& = delete;
+  auto operator=(const tcp_socket&) -> tcp_socket& = delete;
 
   /** @brief 释放 TCP socket 的资源租约。 */
-  ~TcpSocket() = default;
+  ~tcp_socket() = default;
 
   /**
    *  @brief 同步创建 IPv4 配置 socket，返回 expected；后续 connect
@@ -40,14 +40,14 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
    * syscall，保留调用方先配置选项与本地地址的约定。
    */
   [[nodiscard]] static auto new_v4(io::io_context context = io::io_context::current())
-      -> expected<TcpSocket> {
-    return Socket::create<TcpSocket>(AF_INET, SOCK_STREAM, IPPROTO_TCP, std::move(context));
+      -> expected<tcp_socket> {
+    return socket::create<tcp_socket>(AF_INET, SOCK_STREAM, IPPROTO_TCP, std::move(context));
   }
 
   /**  @brief 同步创建 IPv6 配置 socket，返回 expected，设置非阻塞及 CLOEXEC。 */
   [[nodiscard]] static auto new_v6(io::io_context context = io::io_context::current())
-      -> expected<TcpSocket> {
-    return Socket::create<TcpSocket>(AF_INET6, SOCK_STREAM, IPPROTO_TCP, std::move(context));
+      -> expected<tcp_socket> {
+    return socket::create<tcp_socket>(AF_INET6, SOCK_STREAM, IPPROTO_TCP, std::move(context));
   }
 
   /** @brief 读取原生句柄值，不转移关闭责任。 */
@@ -63,15 +63,15 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
   [[nodiscard]] auto resource() const noexcept { return socket_.resource(); }
 
   /** @brief 将 socket 绑定到给定本地地址。 */
-  [[nodiscard]] auto bind(const SocketAddr& address) -> expected<void> {
+  [[nodiscard]] auto bind(const socket_addr& address) -> expected<void> {
     return socket_.bind(address);
   }
 
   /**  @brief listen 消费 socket 状态；失败仍保持原 socket 可配置。 */
-  [[nodiscard]] auto listen(int backlog = SOMAXCONN) && -> expected<TcpListener> {
+  [[nodiscard]] auto listen(int backlog = SOMAXCONN) && -> expected<tcp_listener> {
     if (auto result = socket_.listen(backlog); !result)
       return std::unexpected{result.error()};
-    return TcpListener{std::move(socket_)};
+    return tcp_listener{std::move(socket_)};
   }
 
   /**
@@ -80,7 +80,7 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
    * @details 父对象销毁不影响在途连接；io_uring 对已有 fd 提交 CONNECT，
    *          不重新创建 socket。静态 TcpStream::connect 另负责异步创建句柄。
    */
-  auto connect(SocketAddr address) && -> task<expected<TcpStream>> {
+  auto connect(socket_addr address) && -> task<expected<tcp_stream>> {
     return connect_owned(std::move(socket_), std::move(address));
   }
 
@@ -94,7 +94,7 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
 
   /** @brief 接管显式传入的原生句柄，按平台规则建立资源包装。 */
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_socket native)
-      -> expected<TcpSocket> {
+      -> expected<tcp_socket> {
     if (auto placement = native.validate_import(context); !placement)
       return std::unexpected{placement.error()};
     int type{};
@@ -102,28 +102,28 @@ class TcpSocket : public ImplSocketOptions<TcpSocket>,
     if (socket_getsockopt(native.get(), SOL_SOCKET, SO_TYPE, &type, &length) < 0)
       return std::unexpected{socket_error()};
     if (type != SOCK_STREAM)
-      return std::unexpected{make_error(Error::InvalidSocketType)};
-    if (auto valid = Socket::validate_family<SocketAddr>(native.get()); !valid)
+      return std::unexpected{make_error(::faio::error::INVALID_SOCKET_TYPE)};
+    if (auto valid = socket::validate_family<socket_addr>(native.get()); !valid)
       return std::unexpected{valid.error()};
-    if (auto result = Socket::prepare(native.get()); !result)
+    if (auto result = socket::prepare(native.get()); !result)
       return std::unexpected{result.error()};
-    auto socket = Socket::adopt_checked(native.get(), std::move(context));
+    auto socket = socket::adopt_checked(native.get(), std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
-    Socket::release_imported(native);
-    return TcpSocket{std::move(*socket)};
+    socket::release_imported(native);
+    return tcp_socket{std::move(*socket)};
   }
 
  private:
   /** @brief 持有 socket 直至连接完成，再交付连接流或错误。 */
-  static auto connect_owned(Socket socket, SocketAddr address) -> task<expected<TcpStream>> {
+  static auto connect_owned(socket socket, socket_addr address) -> task<expected<tcp_stream>> {
     auto result = co_await io::connect(socket.resource(), address.sockaddr(), address.length());
     if (!result)
       co_return std::unexpected{result.error()};
-    co_return TcpStream{std::move(socket)};
+    co_return tcp_stream{std::move(socket)};
   }
 
-  Socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
+  socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
 };
 }  // namespace faio::net::detail
 #endif

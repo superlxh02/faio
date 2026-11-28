@@ -106,14 +106,14 @@ struct large_frame_pool_statistics {
 };
 
 /** @brief 大型协程帧分配池。 */
-template <large_frame_page_source PageSource>
+template <large_frame_page_source page_source_type>
 class basic_large_frame_pool;
 /** @brief 大型帧分配池的共享状态。 */
-template <large_frame_page_source PageSource>
+template <large_frame_page_source page_source_type>
 struct large_frame_pool_state;
 
 /**  @brief 活动期间由单一所有者持有的具体 extent，不借用 runtime、cache 或 TLS 的地址。 */
-template <large_frame_page_source PageSource>
+template <large_frame_page_source page_source_type>
 class basic_large_frame_extent {
  public:
   /** @brief 禁止复制构造大型协程帧内存区。 */
@@ -140,17 +140,17 @@ class basic_large_frame_extent {
   std::size_t alignment() const noexcept { return alignment_; }
 
  private:
-  friend class basic_large_frame_pool<PageSource>;
-  friend struct large_frame_pool_state<PageSource>;
+  friend class basic_large_frame_pool<page_source_type>;
+  friend struct large_frame_pool_state<page_source_type>;
 
   /** @brief 构造大型协程帧内存区。 */
-  explicit basic_large_frame_extent(large_frame_pool_state<PageSource>* owner) noexcept
+  explicit basic_large_frame_extent(large_frame_pool_state<page_source_type>* owner) noexcept
       : owner_(owner) {}
 
   /** @brief 销毁大型协程帧内存区。 */
   ~basic_large_frame_extent() = default;
 
-  large_frame_pool_state<PageSource>* owner_;
+  large_frame_pool_state<page_source_type>* owner_;
   basic_large_frame_extent* next_{};
   void* mapping_{};
   void* frame_{};
@@ -177,9 +177,9 @@ inline void unpoison_large_frame_mapping([[maybe_unused]] void* memory,
 }
 
 /**  @brief 地址稳定的接收端，由 runtime anchor、各 extent 的引用和临时 publisher guard 共同持有。 */
-template <large_frame_page_source PageSource>
+template <large_frame_page_source page_source_type>
 struct large_frame_pool_state {
-  using extent = basic_large_frame_extent<PageSource>;
+  using extent = basic_large_frame_extent<page_source_type>;
 
   /** @brief 构造大型帧分配池的共享状态。 */
   explicit large_frame_pool_state(std::size_t limit) noexcept : idle_limit(limit) {}
@@ -263,9 +263,9 @@ struct large_frame_pool_state {
       release_reference();
       return nullptr;
     }
-    current->mapping_ = PageSource::map(mapped);
+    current->mapping_ = page_source_type::map(mapped);
     if (!current->mapping_) {
-      failure = PageSource::last_error();
+      failure = page_source_type::last_error();
       if (!failure)
         failure = static_cast<int>(std::errc::not_enough_memory);
       delete current;
@@ -288,7 +288,7 @@ struct large_frame_pool_state {
       }
     }
     if (!accepted) {
-      PageSource::unmap(current->mapping_, mapped);
+      page_source_type::unmap(current->mapping_, mapped);
       delete current;
       release_reference();
       return nullptr;
@@ -303,9 +303,9 @@ struct large_frame_pool_state {
     const auto bytes = current->mapping_bytes_;
     poison_large_frame_mapping(current->mapping_, bytes);
     if constexpr (requires {
-                    { PageSource::before_publish_lock() } noexcept -> std::same_as<void>;
+                    { page_source_type::before_publish_lock() } noexcept -> std::same_as<void>;
                   })
-      PageSource::before_publish_lock();
+      page_source_type::before_publish_lock();
     bool cached{};
     {
       std::lock_guard lock{home->mutex};
@@ -325,12 +325,12 @@ struct large_frame_pool_state {
       }
     }
     if constexpr (requires {
-                    { PageSource::after_publish_unlock() } noexcept -> std::same_as<void>;
+                    { page_source_type::after_publish_unlock() } noexcept -> std::same_as<void>;
                   })
-      PageSource::after_publish_unlock();
+      page_source_type::after_publish_unlock();
     if (!cached) {
       unpoison_large_frame_mapping(current->mapping_, bytes);
-      PageSource::unmap(current->mapping_, bytes);
+      page_source_type::unmap(current->mapping_, bytes);
       delete current;
       home->release_reference();
     }
@@ -354,7 +354,7 @@ struct large_frame_pool_state {
       auto* current = detached;
       detached = current->next_;
       unpoison_large_frame_mapping(current->mapping_, current->mapping_bytes_);
-      PageSource::unmap(current->mapping_, current->mapping_bytes_);
+      page_source_type::unmap(current->mapping_, current->mapping_bytes_);
       delete current;
       release_reference();
     }
@@ -393,11 +393,11 @@ struct large_frame_pool_state {
 };
 
 /**  @brief 运行时持有的可选页池；默认预算为零，表示关闭，仅在接纳分配请求时按需创建地址稳定的 state。 */
-template <large_frame_page_source PageSource = native_large_frame_page_source>
+template <large_frame_page_source page_source_type = native_large_frame_page_source>
 class basic_large_frame_pool {
  public:
-  using extent = basic_large_frame_extent<PageSource>;
-  using state = large_frame_pool_state<PageSource>;
+  using extent = basic_large_frame_extent<page_source_type>;
+  using state = large_frame_pool_state<page_source_type>;
   static constexpr auto minimum_frame_bytes = large_frame_pool_min_frame_bytes;
 
   /** @brief 构造大型协程帧分配池。 */
@@ -485,16 +485,16 @@ class basic_large_frame_pool {
       }
       current = nullptr;
       if constexpr (requires {
-                      { PageSource::before_state_publish() } noexcept -> std::same_as<void>;
+                      { page_source_type::before_state_publish() } noexcept -> std::same_as<void>;
                     })
-        PageSource::before_state_publish();
+        page_source_type::before_state_publish();
       if (state_.compare_exchange_strong(
               current, candidate.get(), std::memory_order_seq_cst, std::memory_order_seq_cst))
         current = candidate.release();
       if constexpr (requires {
-                      { PageSource::after_state_publish() } noexcept -> std::same_as<void>;
+                      { page_source_type::after_state_publish() } noexcept -> std::same_as<void>;
                     })
-        PageSource::after_state_publish();
+        page_source_type::after_state_publish();
     }
     if (retired_.load(std::memory_order_seq_cst))
       current->detach_idle(true);
@@ -508,9 +508,9 @@ class basic_large_frame_pool {
                           std::size_t alignment) {
     if (retired_.load(std::memory_order_acquire))
       return nullptr;
-    const auto page = PageSource::page_size();
+    const auto page = page_source_type::page_size();
     if (page == 0) {
-      record_fallback(PageSource::last_error());
+      record_fallback(page_source_type::last_error());
       return nullptr;
     }
     constexpr auto maximum = std::numeric_limits<std::size_t>::max();

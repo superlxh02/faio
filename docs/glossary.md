@@ -26,7 +26,7 @@ faio 的 `task`、I/O 操作、定时器和同步原语等待都是可等待对�
 
 ## expected
 
-`faio::expected<T>` 是 `std::expected<T, faio::Error>` 的别名。faio 的 I/O 操作用它把失败作为值返回，调用方必须先检查成功状态再解引用。它不会自动变成异常。
+`faio::expected<T>` 是 `std::expected<T, faio::error>` 的别名。faio 的 I/O 操作用它把失败作为值返回，调用方必须先检查成功状态再解引用。它不会自动变成异常。
 
 ## Future
 

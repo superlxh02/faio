@@ -10,16 +10,16 @@
 
 namespace faio::io {
 /**  @brief 内存字节流，读写共享逻辑位置，适合协议测试和通用算法。 */
-class MemoryStream {
+class memory_stream {
  public:
   /** @brief 构造内存字节流。 */
-  MemoryStream() = default;
+  memory_stream() = default;
 
   /** @brief 构造内存字节流。 */
-  explicit MemoryStream(std::vector<char> bytes) : bytes_(std::move(bytes)) {}
+  explicit memory_stream(std::vector<char> bytes) : bytes_(std::move(bytes)) {}
 
   /** @brief 构造内存字节流。 */
-  explicit MemoryStream(std::string_view bytes) : bytes_(bytes.begin(), bytes.end()) {}
+  explicit memory_stream(std::string_view bytes) : bytes_(bytes.begin(), bytes.end()) {}
 
   /** @brief 从当前游标读取字节，返回实际读取量；非空请求在末尾返回零。 */
   task<expected<std::size_t>> read(std::span<char> bytes) {
@@ -82,13 +82,13 @@ class MemoryStream {
 };
 
 /**  @brief EOF 读取源。 */
-struct Empty {
+struct empty_reader {
   /** @brief 直接返回零，表示 EOF。 */
   task<expected<std::size_t>> read(std::span<char>) { co_return std::size_t{0}; }
 };
 
 /**  @brief 无限重复单字节源；组合算法的上限和协作预算控制读取量。 */
-struct Repeat {
+struct repeat_reader {
   char value; /**< 每次读取时重复填充的字节值。 */
 
   /** @brief 用 value 填满输出缓冲区，返回填充字节数。 */
@@ -99,7 +99,7 @@ struct Repeat {
 };
 
 /**  @brief 接受并丢弃全部字节的写入端。 */
-struct Sink {
+struct sink_writer {
   /** @brief 丢弃输入字节，并报告全部写入完成。 */
   task<expected<std::size_t>> write(std::span<const char> bytes) { co_return bytes.size(); }
 
@@ -111,17 +111,17 @@ struct Sink {
 };
 
 /** @brief 创建始终返回 EOF 的读取源。 */
-inline Empty empty() noexcept {
+inline empty_reader empty() noexcept {
   return {};
 }
 
 /** @brief 创建重复返回指定字节的输入流。 */
-inline Repeat repeat(char byte) noexcept {
+inline repeat_reader repeat(char byte) noexcept {
   return {byte};
 }
 
 /** @brief 创建接收并丢弃字节的输出流。 */
-inline Sink sink() noexcept {
+inline sink_writer sink() noexcept {
   return {};
 }
 
@@ -141,7 +141,7 @@ struct duplex_lane {
 
 /** @brief 从内存双工通道读取字节。 */
 inline task<expected<std::size_t>> duplex_read(std::shared_ptr<duplex_lane> lane,
-                                            std::span<char> bytes) {
+                                               std::span<char> bytes) {
   if (!lane)
     co_return std::unexpected{make_error(EBADF)};
   if (bytes.empty())
@@ -149,7 +149,7 @@ inline task<expected<std::size_t>> duplex_read(std::shared_ptr<duplex_lane> lane
   try {
     auto guard = co_await lane->mutex.scoped_lock();
     co_await lane->changed.wait(lane->mutex,
-                              [&] { return lane->size || lane->writer_closed.load(); });
+                                [&] { return lane->size || lane->writer_closed.load(); });
     const auto count = std::min(bytes.size(), lane->size);
     for (std::size_t i = 0; i < count; ++i)
       bytes[i] = lane->buffer[(lane->head + i) % lane->buffer.size()];
@@ -164,7 +164,7 @@ inline task<expected<std::size_t>> duplex_read(std::shared_ptr<duplex_lane> lane
 
 /** @brief 向内存双工通道写入字节。 */
 inline task<expected<std::size_t>> duplex_write(std::shared_ptr<duplex_lane> lane,
-                                             std::span<const char> bytes) {
+                                                std::span<const char> bytes) {
   if (!lane)
     co_return std::unexpected{make_error(EBADF)};
   if (bytes.empty())
@@ -190,24 +190,24 @@ inline task<expected<std::size_t>> duplex_write(std::shared_ptr<duplex_lane> lan
 }  // namespace detail
 
 /**  @brief 有界内存全双工端；写满时挂起，写半关闭后对端排空并读取 EOF。 */
-class DuplexStream {
+class duplex_stream {
  public:
   /** @brief 构造内存双工流。 */
-  DuplexStream(std::shared_ptr<detail::duplex_lane> input,
-               std::shared_ptr<detail::duplex_lane> output)
+  duplex_stream(std::shared_ptr<detail::duplex_lane> input,
+                std::shared_ptr<detail::duplex_lane> output)
       : input_(std::move(input)), output_(std::move(output)) {}
 
   /** @brief 禁止复制构造内存双工流。 */
-  DuplexStream(const DuplexStream&) = delete;
+  duplex_stream(const duplex_stream&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  DuplexStream& operator=(const DuplexStream&) = delete;
+  duplex_stream& operator=(const duplex_stream&) = delete;
 
   /** @brief 移动构造内存双工流。 */
-  DuplexStream(DuplexStream&&) noexcept = default;
+  duplex_stream(duplex_stream&&) noexcept = default;
 
   /** @brief 移动赋值。 */
-  DuplexStream& operator=(DuplexStream&& other) noexcept {
+  duplex_stream& operator=(duplex_stream&& other) noexcept {
     if (this != &other) {
       close_lanes();
       input_ = std::move(other.input_);
@@ -217,7 +217,7 @@ class DuplexStream {
   }
 
   /** @brief 销毁内存双工流。 */
-  ~DuplexStream() { close_lanes(); }
+  ~duplex_stream() { close_lanes(); }
 
   /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   auto read(std::span<char> bytes) { return detail::duplex_read(input_, bytes); }
@@ -257,11 +257,11 @@ class DuplexStream {
 };
 
 /** @brief 创建配对的内存双工流端点。 */
-inline std::pair<DuplexStream, DuplexStream> duplex(std::size_t capacity = 65536) {
+inline std::pair<duplex_stream, duplex_stream> duplex(std::size_t capacity = 65536) {
   if (!capacity)
     throw std::invalid_argument("duplex容量必须大于零");
   auto first = std::make_shared<detail::duplex_lane>(capacity);
   auto second = std::make_shared<detail::duplex_lane>(capacity);
-  return {DuplexStream{first, second}, DuplexStream{second, first}};
+  return {duplex_stream{first, second}, duplex_stream{second, first}};
 }
 }  // namespace faio::io

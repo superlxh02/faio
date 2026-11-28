@@ -14,16 +14,16 @@
 namespace faio::tls {
 /** @brief TLS 错误域的稳定错误码，不以 OpenSSL 原生 reason 代替公共分类。 */
 enum class errc : int {
-  invalid_config = 1,            /**< 配置内容或安全选项无效。 */
-  invalid_server_name = 2,       /**< 服务端 DNS/IP 名称无效。 */
-  certificate_verify_failed = 3, /**< 证书链验证失败。 */
-  hostname_mismatch = 4,         /**< 证书 SAN 与目标名称不匹配。 */
-  handshake_failed = 5,          /**< TLS 握手失败。 */
-  protocol_error = 6,            /**< TLS 协议推进失败。 */
-  unexpected_eof = 7,            /**< 缺少 close_notify 的底层截断。 */
-  unread_application_data = 8,   /**< 关闭时仍有未交付应用明文。 */
-  closed = 9,                    /**< 连接已关闭或不能再写入。 */
-  unsupported_backend = 10       /**< 底层能力不满足 TLS 驱动约定。 */
+  INVALID_CONFIG = 1,            /**< 配置内容或安全选项无效。 */
+  INVALID_SERVER_NAME = 2,       /**< 服务端 DNS/IP 名称无效。 */
+  CERTIFICATE_VERIFY_FAILED = 3, /**< 证书链验证失败。 */
+  HOSTNAME_MISMATCH = 4,         /**< 证书 SAN 与目标名称不匹配。 */
+  HANDSHAKE_FAILED = 5,          /**< TLS 握手失败。 */
+  PROTOCOL_ERROR = 6,            /**< TLS 协议推进失败。 */
+  UNEXPECTED_EOF = 7,            /**< 缺少 close_notify 的底层截断。 */
+  UNREAD_APPLICATION_DATA = 8,   /**< 关闭时仍有未交付应用明文。 */
+  CLOSED = 9,                    /**< 连接已关闭或不能再写入。 */
+  UNSUPPORTED_BACKEND = 10       /**< 底层能力不满足 TLS 驱动约定。 */
 };
 
 namespace detail {
@@ -49,12 +49,12 @@ inline auto take_openssl_reasons() -> std::vector<std::uint64_t> {
 inline auto tls_error_with_reasons(errc code,
                                    std::string message,
                                    std::optional<std::int64_t> verify,
-                                   std::vector<std::uint64_t> reasons) -> Error {
+                                   std::vector<std::uint64_t> reasons) -> error {
   auto context = std::make_shared<error_context>();
   context->message = message.empty() ? "TLS error" : std::move(message);
   context->verify_code = verify;
   context->native_reasons = std::move(reasons);
-  return Error{static_cast<int>(code), 0, error_domain::tls}.with_context(std::move(context));
+  return error{static_cast<int>(code), 0, error_domain::TLS}.with_context(std::move(context));
 }
 
 /**
@@ -64,7 +64,7 @@ inline auto tls_error_with_reasons(errc code,
  * @param verify 可选的证书验证返回码。
  * @return 保留错误域和诊断上下文的新错误值。
  */
-inline Error tls_error(errc code,
+inline error tls_error(errc code,
                        std::string message = {},
                        std::optional<std::int64_t> verify = {}) {
   return tls_error_with_reasons(code, std::move(message), verify, take_openssl_reasons());

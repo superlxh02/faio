@@ -12,9 +12,9 @@ namespace {
 /** @brief 写入一段消息，再从流的开头完整读回并检查结尾。 */
 faio::task<int> demonstrate() {
   constexpr std::string_view message{"hello faio"};
-  faio::io::MemoryStream stream;
+  faio::io::memory_stream stream;
   {
-    faio::io::BufWriter writer{stream, 32};
+    faio::io::buf_writer writer{stream, 32};
     const auto written = co_await faio::io::write_all(writer, message);
     if (!written) {
       faio::log::logger()->error("写入失败：{}", written.error().message());
@@ -33,7 +33,7 @@ faio::task<int> demonstrate() {
     co_return 1;
   }
 
-  faio::io::BufReader reader{stream, 4};
+  faio::io::buf_reader reader{stream, 4};
   std::array<char, message.size()> received{};
   const auto got = co_await faio::io::read_exact(reader, received);
   if (!got) {

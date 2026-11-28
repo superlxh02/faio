@@ -14,7 +14,7 @@
 #endif
 namespace faio::process::detail {
 /** @brief 撤销运行时关闭回调并释放仍由记录持有的平台监视资源。 */
-inline ProcessState::~ProcessState() {
+inline process_state::~process_state() {
   if (auto domain = runtime_.lock(); domain && shutdown_token_)
     io::io_context{domain}.unregister_shutdown_cleanup(shutdown_token_);
 #if defined(_WIN32)
@@ -27,7 +27,7 @@ inline ProcessState::~ProcessState() {
 }
 
 /** @brief 通过弱引用登记运行时关闭回调，空闲子进程不会延长运行时的生命周期。 */
-inline void ProcessState::attach_runtime(const io::io_context& context) {
+inline void process_state::attach_runtime(const io::io_context& context) {
   runtime_ = context.domain();
   shutdown_token_ = context.register_shutdown_cleanup([weak = weak_from_this()] {
     if (auto state = weak.lock())
@@ -36,30 +36,30 @@ inline void ProcessState::attach_runtime(const io::io_context& context) {
 }
 
 /** @brief 在退出记录上安装一个弱等待者；已终止时无需挂起。 */
-inline auto ProcessState::attach_waiter(const std::shared_ptr<ExitWaitOperation>& operation)
+inline auto process_state::attach_waiter(const std::shared_ptr<exit_wait_operation>& operation)
     -> expected<bool> {
   std::lock_guard lock(mutex_);
   if (runtime_stopped())
-    return std::unexpected{process_error(errc::runtime_shutdown)};
+    return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
   if (terminal_)
     return false;
   if (!waiter_.expired())
-    return std::unexpected{process_error(errc::operation_in_progress)};
+    return std::unexpected{process_error(errc::OPERATION_IN_PROGRESS)};
   waiter_ = operation;
   return true;
 }
 
 /** @brief 仅移除仍与本次操作相同的等待者，避免误删后续等待。 */
-inline void ProcessState::detach_waiter(
-    const std::shared_ptr<ExitWaitOperation>& operation) noexcept {
+inline void process_state::detach_waiter(
+    const std::shared_ptr<exit_wait_operation>& operation) noexcept {
   std::lock_guard lock(mutex_);
   if (waiter_.lock() == operation)
     waiter_.reset();
 }
 
 /** @brief 从等待者的弱引用取得强引用后，在记录锁外发布完成。 */
-inline void ProcessState::notify_waiter() {
-  std::shared_ptr<ExitWaitOperation> waiter;
+inline void process_state::notify_waiter() {
+  std::shared_ptr<exit_wait_operation> waiter;
   {
     std::lock_guard lock(mutex_);
     waiter = waiter_.lock();
@@ -69,7 +69,7 @@ inline void ProcessState::notify_waiter() {
 }
 
 /** @brief 在结果锁内发布首个终态，再在锁外唤醒等待者。 */
-inline auto ProcessState::commit_exit(expected<ExitStatus> value) -> bool {
+inline auto process_state::commit_exit(expected<exit_status> value) -> bool {
   {
     std::lock_guard lock(mutex_);
     if (terminal_)
@@ -85,29 +85,29 @@ inline auto ProcessState::commit_exit(expected<ExitStatus> value) -> bool {
 }
 
 /** @brief 停止本运行时上的等待，不阻止独立服务继续回收子进程。 */
-inline void ProcessState::release_runtime_attachment() noexcept {
+inline void process_state::release_runtime_attachment() noexcept {
   runtime_stopped_.store(true);
-  std::shared_ptr<ExitWaitOperation> waiter;
+  std::shared_ptr<exit_wait_operation> waiter;
   {
     std::lock_guard lock(mutex_);
     waiter = waiter_.lock();
   }
   if (waiter)
-    waiter->request_stop(process_error(errc::runtime_shutdown));
+    waiter->request_stop(process_error(errc::RUNTIME_SHUTDOWN));
 }
 
 /** @brief 持有记录锁时，以非阻塞方式查询该记录对应的进程，并缓存首个终态。 */
-inline auto ProcessState::poll_locked() -> expected<std::optional<ExitStatus>> {
+inline auto process_state::poll_locked() -> expected<std::optional<exit_status>> {
   if (error_)
     return std::unexpected{*error_};
   if (status_)
     return status_;
   if (!pid_)
-    return std::optional<ExitStatus>{};
+    return std::optional<exit_status>{};
 #if defined(_WIN32)
   const DWORD ready = ::WaitForSingleObject(process_, 0);
   if (ready == WAIT_TIMEOUT)
-    return std::optional<ExitStatus>{};
+    return std::optional<exit_status>{};
   if (ready != WAIT_OBJECT_0) {
     error_ = io::windows::make_windows_error(::GetLastError());
     terminal_ = true;
@@ -119,7 +119,7 @@ inline auto ProcessState::poll_locked() -> expected<std::optional<ExitStatus>> {
     terminal_ = true;
     return std::unexpected{*error_};
   }
-  status_ = ExitStatus::from_raw_windows(code);
+  status_ = exit_status::from_raw_windows(code);
   terminal_ = true;
 #else
   int status{};
@@ -128,13 +128,13 @@ inline auto ProcessState::poll_locked() -> expected<std::optional<ExitStatus>> {
     result = ::waitpid(static_cast<pid_t>(pid_), &status, WNOHANG);
   } while (result < 0 && errno == EINTR);
   if (result == 0)
-    return std::optional<ExitStatus>{};
+    return std::optional<exit_status>{};
   if (result < 0) {
-    error_ = errno == ECHILD ? process_error(errc::child_not_waitable) : make_error(errno);
+    error_ = errno == ECHILD ? process_error(errc::CHILD_NOT_WAITABLE) : make_error(errno);
     terminal_ = true;
     return std::unexpected{*error_};
   }
-  auto parsed = ExitStatus::from_raw_unix(status);
+  auto parsed = exit_status::from_raw_unix(status);
   if (!parsed) {
     error_ = parsed.error();
     terminal_ = true;
@@ -147,8 +147,8 @@ inline auto ProcessState::poll_locked() -> expected<std::optional<ExitStatus>> {
 }
 
 /** @brief 查询记录对应进程的缓存状态，发现终态后通知等待者和回收服务。 */
-inline auto poll_exit(const std::shared_ptr<ProcessState>& state)
-    -> expected<std::optional<ExitStatus>> {
+inline auto poll_exit(const std::shared_ptr<process_state>& state)
+    -> expected<std::optional<exit_status>> {
   if (!state)
     return std::unexpected{make_error(EBADF)};
   auto result = [&] {
@@ -157,14 +157,14 @@ inline auto poll_exit(const std::shared_ptr<ProcessState>& state)
   }();
   if (!result || *result) {
     state->notify_waiter();
-    if (auto service = ProcessService::instance())
+    if (auto service = process_service::instance())
       (*service)->notify_control_change();
   }
   return result;
 }
 
 /** @brief 持有记录锁以避免 PID 复用窗口，只对该记录对应且尚未退出的进程请求终止。 */
-inline auto request_termination(const std::shared_ptr<ProcessState>& state) -> expected<void> {
+inline auto request_termination(const std::shared_ptr<process_state>& state) -> expected<void> {
   if (!state)
     return std::unexpected{make_error(EBADF)};
   expected<void> result;
@@ -186,13 +186,13 @@ inline auto request_termination(const std::shared_ptr<ProcessState>& state) -> e
 #endif
     state->kill_requested_ = true;
   }
-  if (auto service = ProcessService::instance())
+  if (auto service = process_service::instance())
     (*service)->notify_control_change();
   return result;
 }
 
 /** @brief 建立平台控制通知源并启动固定数量的服务线程。 */
-inline ProcessService::ProcessService() {
+inline process_service::process_service() {
 #if defined(__linux__)
   poller_ = ::epoll_create1(EPOLL_CLOEXEC);
   if (poller_ < 0)
@@ -248,9 +248,9 @@ inline ProcessService::ProcessService() {
 }
 
 /** @brief 按需取得程序共享服务，资源创建失败时转换为 expected 错误。 */
-inline auto ProcessService::instance() -> expected<ProcessService*> {
+inline auto process_service::instance() -> expected<process_service*> {
   try {
-    static ProcessService service;
+    static process_service service;
     return &service;
   } catch (const std::bad_alloc&) {
     return std::unexpected{make_error(ENOMEM)};
@@ -260,30 +260,31 @@ inline auto ProcessService::instance() -> expected<ProcessService*> {
 }
 
 /** @brief 从固定容量记录表预留空槽，并分配新的代际令牌。 */
-inline auto ProcessService::reserve_record() -> expected<std::shared_ptr<ProcessState>> {
+inline auto process_service::reserve_record() -> expected<std::shared_ptr<process_state>> {
   try {
     std::lock_guard lock(mutex_);
     if (stopping_)
-      return std::unexpected{process_error(errc::runtime_shutdown)};
+      return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
     for (auto& slot : records_)
       if (!slot) {
-        struct factory final : ProcessState {
+        struct factory final : process_state {
           /** @brief 原样转发构造参数，通过 make_shared 在一次分配中创建地址固定的状态。 */
-          explicit factory(std::uint64_t token) : ProcessState(token) {}
+          explicit factory(std::uint64_t token) : process_state(token) {}
         };
 
         slot = std::make_shared<factory>(++next_token_);
         slot->launching_ = true;
         return slot;
       }
-    return std::unexpected{process_error(errc::process_limit_reached)};
+    return std::unexpected{process_error(errc::PROCESS_LIMIT_REACHED)};
   } catch (const std::bad_alloc&) {
     return std::unexpected{make_error(ENOMEM)};
   }
 }
 
 /** @brief 移除指定记录所占槽位，释放预留失败或已回收的服务容量。 */
-inline void ProcessService::abandon_reserved(const std::shared_ptr<ProcessState>& state) noexcept {
+inline void process_service::abandon_reserved(
+    const std::shared_ptr<process_state>& state) noexcept {
   if (!state)
     return;
   std::lock_guard lock(mutex_);
@@ -295,12 +296,12 @@ inline void ProcessService::abandon_reserved(const std::shared_ptr<ProcessState>
 }
 
 /** @brief 归还尚未使用的预留记录，未交付的原生资源由成员通过 RAII 释放。 */
-inline PreparedLaunch::~PreparedLaunch() {
+inline prepared_launch::~prepared_launch() {
   release_record();
 }
 
 /** @brief 只归还尚未创建原生进程的预留记录，已启动记录留给服务回收。 */
-inline void PreparedLaunch::release_record() noexcept {
+inline void prepared_launch::release_record() noexcept {
   if (record_) {
     bool launched;
     {
@@ -308,17 +309,17 @@ inline void PreparedLaunch::release_record() noexcept {
       launched = record_->pid_ != 0;
     }
     if (!launched)
-      if (auto service = ProcessService::instance())
+      if (auto service = process_service::instance())
         (*service)->abandon_reserved(record_);
   }
 }
 
 /** @brief 对未完成服务交接的进程请求终止，并恢复服务的回收路径。 */
-inline void NativeProcess::cleanup() noexcept {
+inline void native_process::cleanup() noexcept {
   if (!pid_ || !record_)
     return;
   (void)request_termination(record_);
-  if (auto service = ProcessService::instance()) {
+  if (auto service = process_service::instance()) {
     std::lock_guard lock(record_->mutex_);
     record_->watch_ready_ = true;
 #if !defined(_WIN32)
@@ -331,8 +332,8 @@ inline void NativeProcess::cleanup() noexcept {
 }
 
 /** @brief 注册平台退出通知并接管原生进程的后续回收责任。 */
-inline auto ProcessService::watch(const std::shared_ptr<ProcessState>& state, NativeProcess native)
-    -> expected<void> {
+inline auto process_service::watch(const std::shared_ptr<process_state>& state,
+                                   native_process native) -> expected<void> {
   expected<void> watch_result;
   (void)poll_exit(state);
   {
@@ -390,7 +391,7 @@ inline auto ProcessService::watch(const std::shared_ptr<ProcessState>& state, Na
 }
 
 /** @brief 增加控制版本并唤醒服务线程重新计算工作与等待期限。 */
-inline void ProcessService::notify_control_change() noexcept {
+inline void process_service::notify_control_change() noexcept {
   revision_.fetch_add(1);
   cv_.notify_one();
 #if defined(__linux__)
@@ -404,9 +405,9 @@ inline void ProcessService::notify_control_change() noexcept {
 }
 
 /** @brief 根据等待截止时间及必要的轮询回退，选择最近的唤醒时间。 */
-inline auto ProcessService::next_deadline()
+inline auto process_service::next_deadline()
     -> std::optional<std::chrono::steady_clock::time_point> {
-  std::array<std::shared_ptr<ProcessState>, 4096> snapshot;
+  std::array<std::shared_ptr<process_state>, 4096> snapshot;
   {
     std::lock_guard lock(mutex_);
     snapshot = records_;
@@ -418,7 +419,7 @@ inline auto ProcessService::next_deadline()
   };
   for (const auto& state : snapshot)
     if (state) {
-      std::shared_ptr<ExitWaitOperation> waiter;
+      std::shared_ptr<exit_wait_operation> waiter;
       {
         std::lock_guard lock(state->mutex_);
         if (!state->watch_ready_)
@@ -439,8 +440,8 @@ inline auto ProcessService::next_deadline()
 }
 
 /** @brief 查询已注册记录，结束已到期的等待，并在终态后释放平台监视资源。 */
-inline void ProcessService::sweep() noexcept {
-  std::array<std::shared_ptr<ProcessState>, 4096> snapshot;
+inline void process_service::sweep() noexcept {
+  std::array<std::shared_ptr<process_state>, 4096> snapshot;
   {
     std::lock_guard lock(mutex_);
     snapshot = records_;
@@ -455,7 +456,7 @@ inline void ProcessService::sweep() noexcept {
       if (!ready)
         continue;
       (void)poll_exit(state);
-      std::shared_ptr<ExitWaitOperation> waiter;
+      std::shared_ptr<exit_wait_operation> waiter;
       bool terminal;
       {
         std::lock_guard lock(state->mutex_);
@@ -493,7 +494,7 @@ inline void ProcessService::sweep() noexcept {
 }
 #if !defined(_WIN32)
 /** @brief 由 Unix 固定监视线程等待退出通知、超时和控制变更。 */
-inline void ProcessService::monitor_loop() noexcept {
+inline void process_service::monitor_loop() noexcept {
   while (!stopping_) {
     const auto deadline = next_deadline();
     int timeout = -1;
@@ -526,11 +527,11 @@ inline void ProcessService::monitor_loop() noexcept {
 }
 #else
 /** @brief 在 Windows 等待回调中缓存退出并唤醒服务，回调自身不做排空等待。 */
-inline void CALLBACK ProcessService::native_callback(PTP_CALLBACK_INSTANCE,
-                                                     void* context,
-                                                     PTP_WAIT,
-                                                     TP_WAIT_RESULT) noexcept {
-  auto* state = static_cast<ProcessState*>(context);
+inline void CALLBACK process_service::native_callback(PTP_CALLBACK_INSTANCE,
+                                                      void* context,
+                                                      PTP_WAIT,
+                                                      TP_WAIT_RESULT) noexcept {
+  auto* state = static_cast<process_state*>(context);
   {
     std::lock_guard lock(state->mutex_);
     (void)state->poll_locked();
@@ -541,8 +542,8 @@ inline void CALLBACK ProcessService::native_callback(PTP_CALLBACK_INSTANCE,
 }
 #endif
 /** @brief 记录公共控制器已释放，并按策略请求终止子进程。 */
-inline void ProcessService::release_public_control(const std::shared_ptr<ProcessState>& state,
-                                                   bool kill) noexcept {
+inline void process_service::release_public_control(const std::shared_ptr<process_state>& state,
+                                                    bool kill) noexcept {
   if (kill)
     (void)request_termination(state);
   {
@@ -552,14 +553,14 @@ inline void ProcessService::release_public_control(const std::shared_ptr<Process
 }
 
 /** @brief 将公共 Child 的析构策略交给共享回收服务。 */
-inline void release_control(const std::shared_ptr<ProcessState>& state, bool kill) noexcept {
-  if (auto service = ProcessService::instance())
+inline void release_control(const std::shared_ptr<process_state>& state, bool kill) noexcept {
+  if (auto service = process_service::instance())
     (*service)->release_public_control(state, kill);
 }
 
 /** @brief 取消指定 IO 域上的活动等待，保留原生进程回收责任。 */
-inline void ProcessService::detach_runtime(const io::io_context& context) noexcept {
-  std::array<std::shared_ptr<ProcessState>, 4096> snapshot;
+inline void process_service::detach_runtime(const io::io_context& context) noexcept {
+  std::array<std::shared_ptr<process_state>, 4096> snapshot;
   {
     std::lock_guard lock(mutex_);
     snapshot = records_;

@@ -42,19 +42,18 @@ inline void resume_reservation::submit(scheduler_ref scheduler,
     return;
   }
   switch (submission) {
-    case ::faio::detail::resume_submission::normal:
+    case ::faio::detail::resume_submission::NORMAL:
       target.enqueue(handle);
       break;
-    case ::faio::detail::resume_submission::io:
+    case ::faio::detail::resume_submission::IO:
       target.enqueue_io(handle);
       break;
-    case ::faio::detail::resume_submission::yield:
+    case ::faio::detail::resume_submission::YIELD:
       target.enqueue_yield(handle);
       break;
-    case ::faio::detail::resume_submission::cooperative_yield:
+    case ::faio::detail::resume_submission::COOPERATIVE_YIELD:
       target.enqueue_cooperative_yield(handle);
       break;
   }
 }
-}
-
+}  // namespace faio::runtime::detail

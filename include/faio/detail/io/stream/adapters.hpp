@@ -9,10 +9,10 @@
 namespace faio::io {
 /**  @brief 最多读取底层流的前 limit 字节；达到上限即返回 EOF，不再消费底层数据。 */
 template <borrowed_async_reader Reader>
-class Take {
+class limited_reader {
  public:
   /** @brief 构造限量读取适配器。 */
-  Take(Reader& reader, std::uint64_t limit) : reader_(reader), limit_(limit) {}
+  limited_reader(Reader& reader, std::uint64_t limit) : reader_(reader), limit_(limit) {}
 
   /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   task<expected<std::size_t>> read(std::span<char> bytes) {
@@ -42,15 +42,15 @@ class Take {
 /** @brief 创建最多读取 limit 字节的适配器。 */
 template <borrowed_async_reader Reader>
 auto take(Reader& reader, std::uint64_t limit) {
-  return Take<Reader>{reader, limit};
+  return limited_reader<Reader>{reader, limit};
 }
 
 /**  @brief 第一个流到达 EOF 后继续读取第二个流；零长度读取不触发切换。 */
 template <borrowed_async_reader A, borrowed_async_reader B>
-class Chain {
+class chained_reader {
  public:
   /** @brief 构造串联输入流。 */
-  Chain(A& first, B& second) : first_(first), second_(second) {}
+  chained_reader(A& first, B& second) : first_(first), second_(second) {}
 
   /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
   task<expected<std::size_t>> read(std::span<char> bytes) {
@@ -74,7 +74,7 @@ class Chain {
 /** @brief 依次读取两个输入流。 */
 template <borrowed_async_reader A, borrowed_async_reader B>
 auto chain(A& first, B& second) {
-  return Chain<A, B>{first, second};
+  return chained_reader<A, B>{first, second};
 }
 
 namespace detail {
@@ -91,10 +91,10 @@ struct split_state {
 
 /** @brief 拆分流的读取半部。 */
 template <class Stream>
-class ReadHalf {
+class read_half {
  public:
   /** @brief 构造拆分流的读取半部。 */
-  explicit ReadHalf(std::shared_ptr<detail::split_state<Stream>> state)
+  explicit read_half(std::shared_ptr<detail::split_state<Stream>> state)
       : state_(std::move(state)) {}
 
   /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
@@ -114,10 +114,10 @@ class ReadHalf {
 
 /** @brief 拆分流的写入半部。 */
 template <class Stream>
-class WriteHalf {
+class write_half {
  public:
   /** @brief 构造拆分流的写入半部。 */
-  explicit WriteHalf(std::shared_ptr<detail::split_state<Stream>> state)
+  explicit write_half(std::shared_ptr<detail::split_state<Stream>> state)
       : state_(std::move(state)) {}
 
   /** @brief 发起一次写入或发送，可能只完成部分字节，调用方须按返回进度继续。 */
@@ -152,6 +152,6 @@ template <class Stream>
   requires borrowed_async_reader<Stream> && borrowed_async_writer<Stream>
 auto split(Stream stream) {
   auto state = std::make_shared<detail::split_state<Stream>>(std::move(stream));
-  return std::pair{ReadHalf<Stream>{state}, WriteHalf<Stream>{state}};
+  return std::pair{read_half<Stream>{state}, write_half<Stream>{state}};
 }
 }  // namespace faio::io

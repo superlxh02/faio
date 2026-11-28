@@ -12,24 +12,25 @@
 
 namespace faio::process::detail {
 /** @brief 独占持有 Windows 句柄，并通过 CloseHandle 释放。 */
-class NativeHandle {
+class native_handle_type {
  public:
   /** @brief 接管 Windows 句柄；默认值表示尚无待关闭资源。 */
-  NativeHandle() = default;
+  native_handle_type() = default;
 
   /** @brief 接管 Windows 句柄；默认值表示尚无待关闭资源。 */
-  explicit NativeHandle(HANDLE handle) : handle_(handle) {}
+  explicit native_handle_type(HANDLE handle) : handle_(handle) {}
 
   /** @brief 禁止复制 Windows 句柄，避免重复持有关闭责任。 */
-  NativeHandle(const NativeHandle&) = delete;
+  native_handle_type(const native_handle_type&) = delete;
   /** @brief Windows 句柄不支持复制赋值，以免破坏已有所有权或关联。 */
-  auto operator=(const NativeHandle&) -> NativeHandle& = delete;
+  auto operator=(const native_handle_type&) -> native_handle_type& = delete;
 
   /** @brief 接管句柄并清空移动源。 */
-  NativeHandle(NativeHandle&& other) noexcept : handle_(std::exchange(other.handle_, nullptr)) {}
+  native_handle_type(native_handle_type&& other) noexcept
+      : handle_(std::exchange(other.handle_, nullptr)) {}
 
   /** @brief 先关闭原句柄，再接管新句柄；移动源恢复为空。 */
-  auto operator=(NativeHandle&& other) noexcept -> NativeHandle& {
+  auto operator=(native_handle_type&& other) noexcept -> native_handle_type& {
     if (this != &other) {
       reset();
       handle_ = std::exchange(other.handle_, nullptr);
@@ -38,7 +39,7 @@ class NativeHandle {
   }
 
   /** @brief 关闭仍拥有的 Windows 句柄。 */
-  ~NativeHandle() { reset(); }
+  ~native_handle_type() { reset(); }
 
   /** @brief 借用当前原生资源，不移交关闭责任。 */
   auto get() const noexcept -> HANDLE { return handle_; }
@@ -58,17 +59,17 @@ class NativeHandle {
 };
 
 /** @brief 拥有仅允许当前用户和 SYSTEM 访问的命名管道安全描述符。 */
-class PipeSecurity {
+class pipe_security {
  public:
   /** @brief 建立尚未分配安全描述符的所有者。 */
-  PipeSecurity() = default;
+  pipe_security() = default;
   /** @brief 禁止复制管道安全描述符，避免重复持有所有权或复制运行状态。 */
-  PipeSecurity(const PipeSecurity&) = delete;
+  pipe_security(const pipe_security&) = delete;
   /** @brief 管道安全描述符不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  PipeSecurity& operator=(const PipeSecurity&) = delete;
+  pipe_security& operator=(const pipe_security&) = delete;
 
   /** @brief 释放 LocalAlloc 返回的安全描述符。 */
-  ~PipeSecurity() {
+  ~pipe_security() {
     if (descriptor_)
       ::LocalFree(descriptor_);
   }
@@ -78,7 +79,7 @@ class PipeSecurity {
     HANDLE token{};
     if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token))
       return std::unexpected{io::windows::make_windows_error(::GetLastError())};
-    NativeHandle owner{token};
+    native_handle_type owner{token};
     DWORD size{};
     ::GetTokenInformation(token, TokenUser, nullptr, 0, &size);
     std::vector<std::byte> data(size);
@@ -111,25 +112,25 @@ class PipeSecurity {
 };
 
 /** @brief 同时拥有父端异步句柄和子端阻塞句柄的管道对。 */
-class NativePipePair {
+class native_pipe_pair {
  public:
   /** @brief 禁止复制父子两端管道，避免重复持有所有权或复制运行状态。 */
-  NativePipePair(const NativePipePair&) = delete;
+  native_pipe_pair(const native_pipe_pair&) = delete;
   /** @brief 父子两端管道不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(const NativePipePair&) -> NativePipePair& = delete;
+  auto operator=(const native_pipe_pair&) -> native_pipe_pair& = delete;
   /** @brief 移交父端、子端和方向，两端资源的关闭责任一并转移。 */
-  NativePipePair(NativePipePair&&) noexcept = default;
+  native_pipe_pair(native_pipe_pair&&) noexcept = default;
   /** @brief 关闭本对象原有管道端，再接管父端、子端及方向。 */
-  auto operator=(NativePipePair&&) noexcept -> NativePipePair& = default;
+  auto operator=(native_pipe_pair&&) noexcept -> native_pipe_pair& = default;
   /** @brief 由两端资源的所有者关闭尚未移交的父端和子端。 */
-  ~NativePipePair() = default;
+  ~native_pipe_pair() = default;
 
   /** @brief 创建方向固定的父子管道对，父端异步、子端阻塞且仅子端可继承。 */
-  static auto create(bool writer) -> expected<NativePipePair> {
-    PipeSecurity security;
+  static auto create(bool writer) -> expected<native_pipe_pair> {
+    pipe_security security;
     if (auto checked = security.initialize(); !checked)
       return std::unexpected{checked.error()};
-    NativePipePair result{writer};
+    native_pipe_pair result{writer};
     for (int attempt{}; attempt < 8; ++attempt) {
       std::array<unsigned char, 16> random{};
       const auto status = ::BCryptGenRandom(nullptr,
@@ -162,7 +163,7 @@ class NativePipePair {
         return std::unexpected{io::windows::make_windows_error(e)};
       }
       result.parent_.reset(parent);
-      NativeHandle event{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+      native_handle_type event{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
       if (!event.get())
         return std::unexpected{io::windows::make_windows_error(::GetLastError())};
       OVERLAPPED overlapped{};
@@ -205,10 +206,10 @@ class NativePipePair {
   }
 
   /** @brief 将父端交给指定 IO 域，仅在成功时移交关闭责任。 */
-  auto take_parent(io::io_context context) -> expected<std::shared_ptr<PipeState>> {
-    auto result = PipeState::adopt(std::move(context),
-                                   reinterpret_cast<io::detail::native_descriptor>(parent_.get()),
-                                   writer_);
+  auto take_parent(io::io_context context) -> expected<std::shared_ptr<pipe_state>> {
+    auto result = pipe_state::adopt(std::move(context),
+                                    reinterpret_cast<io::detail::native_descriptor>(parent_.get()),
+                                    writer_);
     if (result)
       (void)parent_.release();
     return result;
@@ -222,11 +223,11 @@ class NativePipePair {
 
  private:
   /** @brief 保存父端方向，管道资源由创建步骤逐项填入。 */
-  explicit NativePipePair(bool writer) : writer_(writer) {}
+  explicit native_pipe_pair(bool writer) : writer_(writer) {}
 
-  NativeHandle parent_; /**< 不允许子进程继承的 OVERLAPPED 父端句柄。 */
-  NativeHandle child_;  /**< 可继承且使用同步读写的子端句柄。 */
-  bool writer_;         /**< 父端是否为命名管道写端。 */
+  native_handle_type parent_; /**< 不允许子进程继承的 OVERLAPPED 父端句柄。 */
+  native_handle_type child_;  /**< 可继承且使用同步读写的子端句柄。 */
+  bool writer_;               /**< 父端是否为命名管道写端。 */
 };
 }  // namespace faio::process::detail
 #endif

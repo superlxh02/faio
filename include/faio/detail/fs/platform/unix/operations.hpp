@@ -18,18 +18,20 @@
 namespace faio::fs {
 namespace detail {
 /**  @brief 查询路径属性时直接提交 STATX；仅在原生操作码不可用时使用 stat/lstat 服务。 */
-inline task<expected<Metadata>> metadata_path(io::io_context context, path filename, bool follow) {
+inline task<expected<file_metadata>> metadata_path(io::io_context context,
+                                                   path filename,
+                                                   bool follow) {
 #if defined(__linux__)
-  if (io::supports_native(context, io::detail::operation_kind::statx))
+  if (io::supports_native(context, io::detail::operation_kind::STATX))
     co_return co_await native_metadata_awaiter{
         std::move(context), AT_FDCWD, filename.native(), follow ? 0 : AT_SYMLINK_NOFOLLOW};
 #endif
   co_return co_await blocking::call(
-      std::move(context), [filename = std::move(filename), follow]() -> expected<Metadata> {
+      std::move(context), [filename = std::move(filename), follow]() -> expected<file_metadata> {
         struct stat value{};
         if (follow ? ::stat(filename.c_str(), &value) : ::lstat(filename.c_str(), &value))
           return std::unexpected{make_error(errno)};
-        return Metadata{value};
+        return file_metadata{value};
       });
 }
 
@@ -51,14 +53,14 @@ struct path_operation {
     request.fd = AT_FDCWD;
     request.path = source.native();
     request.flags = flags;
-    if constexpr (Kind == io::detail::operation_kind::renameat
-                  || Kind == io::detail::operation_kind::linkat
-                  || Kind == io::detail::operation_kind::symlinkat)
+    if constexpr (Kind == io::detail::operation_kind::RENAMEAT
+                  || Kind == io::detail::operation_kind::LINKAT
+                  || Kind == io::detail::operation_kind::SYMLINKAT)
       request.path2 = destination.native();
-    if constexpr (Kind == io::detail::operation_kind::renameat
-                  || Kind == io::detail::operation_kind::linkat)
+    if constexpr (Kind == io::detail::operation_kind::RENAMEAT
+                  || Kind == io::detail::operation_kind::LINKAT)
       request.argument2 = AT_FDCWD;
-    if constexpr (Kind == io::detail::operation_kind::mkdirat)
+    if constexpr (Kind == io::detail::operation_kind::MKDIRAT)
       request.argument = argument;
     return request;
   }
@@ -66,16 +68,16 @@ struct path_operation {
   /** @brief 执行当前文件请求的同步回退调用。 */
   expected<void> operator()() const noexcept {
     int result;
-    if constexpr (Kind == io::detail::operation_kind::renameat)
+    if constexpr (Kind == io::detail::operation_kind::RENAMEAT)
       result = ::rename(source.c_str(), destination.c_str());
-    else if constexpr (Kind == io::detail::operation_kind::linkat)
+    else if constexpr (Kind == io::detail::operation_kind::LINKAT)
       result = ::link(source.c_str(), destination.c_str());
-    else if constexpr (Kind == io::detail::operation_kind::symlinkat)
+    else if constexpr (Kind == io::detail::operation_kind::SYMLINKAT)
       result = ::symlink(source.c_str(), destination.c_str());
-    else if constexpr (Kind == io::detail::operation_kind::mkdirat)
+    else if constexpr (Kind == io::detail::operation_kind::MKDIRAT)
       result = ::mkdir(source.c_str(), static_cast<mode_t>(argument));
     else {
-      static_assert(Kind == io::detail::operation_kind::unlinkat);
+      static_assert(Kind == io::detail::operation_kind::UNLINKAT);
       result = flags & AT_REMOVEDIR ? ::rmdir(source.c_str()) : ::unlink(source.c_str());
     }
     if (result)
@@ -96,7 +98,9 @@ inline auto symlink_metadata(io::io_context context, path filename) {
 }
 
 /** @brief 设置目标文件的权限。 */
-inline auto set_permissions(io::io_context context, path filename, Permissions permissions) {
+inline auto set_permissions(io::io_context context,
+                            path filename,
+                            ::faio::fs::permissions permissions) {
   return blocking::call(std::move(context),
                         [filename = std::move(filename), permissions]() -> expected<void> {
                           if (::chmod(filename.c_str(), static_cast<mode_t>(permissions.bits())))
@@ -119,7 +123,7 @@ inline auto canonicalize(io::io_context context, path filename) {
 /** @brief 将路径重命名或移动到目标位置。 */
 inline auto rename(io::io_context context, path source, path destination) {
   return detail::void_file_request(std::move(context),
-                                   detail::path_operation<io::detail::operation_kind::renameat>{
+                                   detail::path_operation<io::detail::operation_kind::RENAMEAT>{
                                        std::move(source), std::move(destination)});
 }
 
@@ -127,38 +131,39 @@ inline auto rename(io::io_context context, path source, path destination) {
 inline auto remove_file(io::io_context context, path filename) {
   return detail::void_file_request(
       std::move(context),
-      detail::path_operation<io::detail::operation_kind::unlinkat>{std::move(filename), {}});
+      detail::path_operation<io::detail::operation_kind::UNLINKAT>{std::move(filename), {}});
 }
 
 /** @brief 为已有文件创建硬链接。 */
 inline auto hard_link(io::io_context context, path source, path destination) {
   return detail::void_file_request(std::move(context),
-                                   detail::path_operation<io::detail::operation_kind::linkat>{
+                                   detail::path_operation<io::detail::operation_kind::LINKAT>{
                                        std::move(source), std::move(destination)});
 }
 
 /** @brief 创建指向指定目标的符号链接。 */
 inline auto symlink(io::io_context context, path source, path destination) {
   return detail::void_file_request(std::move(context),
-                                   detail::path_operation<io::detail::operation_kind::symlinkat>{
+                                   detail::path_operation<io::detail::operation_kind::SYMLINKAT>{
                                        std::move(source), std::move(destination)});
 }
 
 /** @brief 创建单个目录。 */
 inline auto create_dir(io::io_context context,
                        path filename,
-                       Permissions permissions = Permissions{std::filesystem::perms::all}) {
+                       ::faio::fs::permissions permissions = ::faio::fs::permissions{
+                           std::filesystem::perms::all}) {
   return detail::void_file_request(
       std::move(context),
-      detail::path_operation<io::detail::operation_kind::mkdirat>{
+      detail::path_operation<io::detail::operation_kind::MKDIRAT>{
           std::move(filename), {}, static_cast<int>(permissions.bits())});
 }
 
 /**  @brief 使用原生 MKDIRAT 逐级创建目录；通过 STATX 验证已有目录，不修改其权限。 */
-inline task<expected<void>> create_dir_all(io::io_context context,
-                                           path filename,
-                                           Permissions permissions = Permissions{
-                                               std::filesystem::perms::all}) {
+inline task<expected<void>> create_dir_all(
+    io::io_context context,
+    path filename,
+    ::faio::fs::permissions permissions = ::faio::fs::permissions{std::filesystem::perms::all}) {
   if (filename.empty())
     co_return std::unexpected{make_error(ENOENT)};
   path prefix;
@@ -187,7 +192,7 @@ inline task<expected<void>> create_dir_all(io::io_context context,
 /** @brief 删除一个空目录。 */
 inline auto remove_dir(io::io_context context, path filename) {
   return detail::void_file_request(std::move(context),
-                                   detail::path_operation<io::detail::operation_kind::unlinkat>{
+                                   detail::path_operation<io::detail::operation_kind::UNLINKAT>{
                                        std::move(filename), {}, 0, AT_REMOVEDIR});
 }
 
@@ -232,7 +237,7 @@ struct remove_tree_state {
   expected<std::uint64_t> advance(std::stop_token parent_stop) {
     std::uint64_t removed = 0;
     auto failure = [&](int error) -> expected<std::uint64_t> {
-      return std::unexpected{Error{error, static_cast<std::size_t>(removed)}};
+      return std::unexpected{::faio::error{error, static_cast<std::size_t>(removed)}};
     };
     for (std::size_t step = 0; step < options.batch_size && !done; ++step) {
       if (parent_stop.stop_requested() || context.stopped())
@@ -347,8 +352,8 @@ inline task<expected<std::uint64_t>> remove_dir_all(io::io_context context,
       || filename.native().size() > options.max_state_bytes)
     co_return std::unexpected{make_error(EINVAL)};
 #if defined(__linux__)
-  if (io::supports_native(context, io::detail::operation_kind::open)
-      && io::supports_native(context, io::detail::operation_kind::statx))
+  if (io::supports_native(context, io::detail::operation_kind::OPEN)
+      && io::supports_native(context, io::detail::operation_kind::STATX))
     co_return co_await detail::remove_native_tree(context, std::move(filename), options);
 #endif
   auto state = std::make_shared<detail::remove_tree_state>(context, std::move(filename), options);
@@ -367,7 +372,7 @@ inline task<expected<std::uint64_t>> remove_dir_all(io::io_context context,
 
 /**  @brief 按有界数据块复制，每块交还协作预算；失败时保留已写入的字节数。 */
 inline task<expected<std::uint64_t>> copy(io::io_context context, path source, path destination) {
-  auto input = co_await File::open(context, std::move(source));
+  auto input = co_await file::open(context, std::move(source));
   if (!input)
     co_return std::unexpected{input.error()};
   auto source_metadata = co_await input->metadata();
@@ -376,7 +381,7 @@ inline task<expected<std::uint64_t>> copy(io::io_context context, path source, p
   if (!source_metadata->is_file())
     co_return std::unexpected{make_error(EINVAL)};
   auto output =
-      co_await File::open(context, std::move(destination), OpenOptions{}.write().create());
+      co_await file::open(context, std::move(destination), open_options{}.write().create());
   if (!output)
     co_return std::unexpected{output.error()};
   auto destination_metadata = co_await output->metadata();
@@ -406,7 +411,7 @@ inline task<expected<std::uint64_t>> copy(io::io_context context, path source, p
 inline task<expected<std::vector<char>>> read(io::io_context context,
                                               path filename,
                                               std::size_t max_bytes = 256 * 1024 * 1024) {
-  auto input = co_await File::open(std::move(context), std::move(filename));
+  auto input = co_await file::open(std::move(context), std::move(filename));
   if (!input)
     co_return std::unexpected{input.error()};
   std::vector<char> result;
@@ -419,7 +424,7 @@ inline task<expected<std::vector<char>>> read(io::io_context context,
     if (!tail)
       co_return std::unexpected{tail.error()};
     if (*tail)
-      co_return std::unexpected{Error{EFBIG, *count}};
+      co_return std::unexpected{::faio::error{EFBIG, *count}};
   }
   co_return result;
 }
@@ -438,7 +443,7 @@ inline task<expected<std::string>> read_to_string(io::io_context context,
 inline task<expected<void>> write(io::io_context context,
                                   path filename,
                                   std::span<const char> contents) {
-  auto output = co_await File::create(std::move(context), std::move(filename));
+  auto output = co_await file::create(std::move(context), std::move(filename));
   if (!output)
     co_return std::unexpected{output.error()};
   auto written = co_await output->write_all(contents);
@@ -463,7 +468,7 @@ inline auto symlink_metadata(path name) {
 }
 
 /** @brief 设置目标文件的权限。 */
-inline auto set_permissions(path name, Permissions value) {
+inline auto set_permissions(path name, ::faio::fs::permissions value) {
   return set_permissions(io::io_context::current(), std::move(name), value);
 }
 
@@ -493,7 +498,9 @@ inline auto symlink(path from, path to) {
 }
 
 /** @brief 创建单个目录。 */
-inline auto create_dir(path name, Permissions value = Permissions{std::filesystem::perms::all}) {
+inline auto create_dir(path name,
+                       ::faio::fs::permissions value = ::faio::fs::permissions{
+                           std::filesystem::perms::all}) {
   return create_dir(io::io_context::current(), std::move(name), value);
 }
 
@@ -545,16 +552,16 @@ inline auto write(path name, std::string_view contents) {
 }
 
 /**  @brief 可复用的目录创建配置，权限只影响本次新建目录。 */
-class DirBuilder {
+class dir_builder {
  public:
   /** @brief 设置目录构建器是否递归创建父目录。 */
-  DirBuilder& recursive(bool enabled = true) noexcept {
+  dir_builder& recursive(bool enabled = true) noexcept {
     recursive_ = enabled;
     return *this;
   }
 
   /** @brief 设置新目录的权限选项。 */
-  DirBuilder& permissions(Permissions value) noexcept {
+  dir_builder& permissions(::faio::fs::permissions value) noexcept {
     permissions_ = value;
     return *this;
   }
@@ -569,7 +576,8 @@ class DirBuilder {
   auto create(path name) const { return create(io::io_context::current(), std::move(name)); }
 
  private:
-  bool recursive_{};                                     /**< 是否递归处理目标目录及其子目录。 */
-  Permissions permissions_{std::filesystem::perms::all}; /**< 创建文件或目录时使用的权限配置。 */
+  bool recursive_{}; /**< 是否递归处理目标目录及其子目录。 */
+  ::faio::fs::permissions permissions_{
+      std::filesystem::perms::all}; /**< 创建文件或目录时使用的权限配置。 */
 };
 }  // namespace faio::fs

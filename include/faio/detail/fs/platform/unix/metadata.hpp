@@ -17,10 +17,10 @@ namespace faio::fs {
 using path = std::filesystem::path;
 
 /**  @brief 保存 POSIX 权限位的可移植文件权限值。 */
-class Permissions {
+class permissions {
  public:
   /** @brief 保存平台无关的文件权限值。 */
-  explicit Permissions(std::filesystem::perms bits = std::filesystem::perms::unknown) noexcept
+  explicit permissions(std::filesystem::perms bits = std::filesystem::perms::unknown) noexcept
       : bits_(bits) {}
 
   /** @brief 返回保存的文件权限位。 */
@@ -50,17 +50,18 @@ class Permissions {
 };
 
 /**  @brief 持有一次原生 STATX 或 stat/lstat/fstat 查询得到的属性快照。 */
-class Metadata {
+class file_metadata {
  public:
   /** @brief 保存独立持有的原生文件属性快照。 */
-  explicit Metadata(struct stat value) noexcept : value_(value) {}
+  explicit file_metadata(struct stat value) noexcept : value_(value) {}
 #if defined(__linux__)
   /**
    *  @brief 将原生 STATX_BASIC_STATS 结果转换为统一属性，无需再次调用 stat。
    * @details 保留设备/inode 身份、权限、长度与纳秒时间；转换只读取 CQE 已经完成的
    *          输出内存。设备号使用系统 makedev 编码，与 fstat 的 same_file 兼容。
    */
-  explicit Metadata(const struct statx& value) noexcept : value_(detail::stat_from_statx(value)) {}
+  explicit file_metadata(const struct statx& value) noexcept
+      : value_(detail::stat_from_statx(value)) {}
 #endif
   /** @brief 返回文件属性记录的字节长度。 */
   [[nodiscard]] std::uint64_t len() const noexcept {
@@ -77,15 +78,15 @@ class Metadata {
   [[nodiscard]] bool is_symlink() const noexcept { return S_ISLNK(value_.st_mode); }
 
   /** @brief 返回元数据快照保存的文件权限。 */
-  [[nodiscard]] Permissions permissions() const noexcept {
-    return Permissions{static_cast<std::filesystem::perms>(value_.st_mode & 07777)};
+  [[nodiscard]] ::faio::fs::permissions permissions() const noexcept {
+    return ::faio::fs::permissions{static_cast<std::filesystem::perms>(value_.st_mode & 07777)};
   }
 
   /**
    *  @brief
    * 检查两份 POSIX 属性快照是否指向同一设备上的同一 inode，防止复制到自身时截断文件。
    */
-  [[nodiscard]] bool same_file(const Metadata& other) const noexcept {
+  [[nodiscard]] bool same_file(const file_metadata& other) const noexcept {
     return value_.st_dev == other.value_.st_dev && value_.st_ino == other.value_.st_ino;
   }
 

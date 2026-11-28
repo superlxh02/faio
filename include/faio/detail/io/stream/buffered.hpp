@@ -14,13 +14,13 @@ namespace faio::io {
  * 视图在 consume 或下一次读取后失效。仅用于读方向，和底层一样禁止并发读取。
  */
 template <borrowed_async_reader Reader>
-class BufReader {
+class buf_reader {
  public:
   /** @brief 构造缓冲读取适配器。 */
-  explicit BufReader(Reader& reader, std::size_t capacity = 8192)
+  explicit buf_reader(Reader& reader, std::size_t capacity = 8192)
       : reader_(reader), buffer_(capacity) {
     if (!capacity)
-      throw std::invalid_argument("BufReader容量必须大于零");
+      throw std::invalid_argument("buf_reader容量必须大于零");
   }
 
   /** @brief 提供尚未消费的读缓冲区视图，必要时先推进底层读取。 */
@@ -40,7 +40,7 @@ class BufReader {
   /** @brief 确认已消费缓冲区前缀，并推进读取位置。 */
   void consume(std::size_t count) {
     if (count > end_ - position_)
-      throw std::out_of_range("BufReader消费超过已填充范围");
+      throw std::out_of_range("buf_reader消费超过已填充范围");
     position_ += count;
   }
 
@@ -89,13 +89,13 @@ class BufReader {
  * pending_bytes/take_pending 可恢复未提交内容，析构不代表 flush 成功。
  */
 template <borrowed_async_writer Writer>
-class BufWriter {
+class buf_writer {
  public:
   /** @brief 构造缓冲写入适配器。 */
-  explicit BufWriter(Writer& writer, std::size_t capacity = 8192)
+  explicit buf_writer(Writer& writer, std::size_t capacity = 8192)
       : writer_(writer), capacity_(capacity) {
     if (!capacity)
-      throw std::invalid_argument("BufWriter容量必须大于零");
+      throw std::invalid_argument("buf_writer容量必须大于零");
     buffer_.reserve(capacity);
   }
 
@@ -105,7 +105,8 @@ class BufWriter {
     while (total != buffer_.size()) {
       auto count = co_await writer_.write(std::span<const char>{buffer_}.subspan(total));
       if (!count || !*count || *count > buffer_.size() - total) {
-        const auto error = !count ? count.error() : Error{!*count ? Error::WriteZero : EIO};
+        const auto error =
+            !count ? count.error() : ::faio::error{!*count ? ::faio::error::WRITE_ZERO : EIO};
         const auto committed =
             total + std::min<std::size_t>(error.progress(), buffer_.size() - total);
         buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(committed));
@@ -178,12 +179,12 @@ class BufWriter {
 /** @brief 组合缓冲读写流。 */
 template <class Stream>
   requires borrowed_async_reader<Stream> && borrowed_async_writer<Stream>
-class BufStream {
+class buf_stream {
  public:
   /** @brief 构造组合缓冲读写流。 */
-  explicit BufStream(Stream& stream,
-                     std::size_t read_capacity = 8192,
-                     std::size_t write_capacity = 8192)
+  explicit buf_stream(Stream& stream,
+                      std::size_t read_capacity = 8192,
+                      std::size_t write_capacity = 8192)
       : reader_(stream, read_capacity), writer_(stream, write_capacity) {}
 
   /** @brief 发起一次读取或接收，返回值保留短读、EOF 与错误的区别。 */
@@ -211,8 +212,8 @@ class BufStream {
   auto shutdown() { return writer_.shutdown(); }
 
  private:
-  BufReader<Stream> reader_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
-  BufWriter<Stream> writer_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  buf_reader<Stream> reader_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
+  buf_writer<Stream> writer_; /**< 关联的底层读取或写入对象，所有权由成员声明的值或引用类型决定。 */
 };
 
 /**  @brief 读取到分隔字节（含分隔符）；max_bytes 明确约束单条记录的内存。 */
@@ -252,7 +253,7 @@ task<expected<std::size_t>> read_until(Reader& reader,
       if (!*count)
         co_return total;
       if (*count != 1)
-        co_return std::unexpected{Error{EIO, total}};
+        co_return std::unexpected{::faio::error{EIO, total}};
       output.push_back(byte[0]);
       ++total;
       if (byte[0] == delimiter)
@@ -260,7 +261,7 @@ task<expected<std::size_t>> read_until(Reader& reader,
     }
     co_await this_coro::yield_if_needed();
   }
-  co_return std::unexpected{Error{EMSGSIZE, total}};
+  co_return std::unexpected{::faio::error{EMSGSIZE, total}};
 }
 
 /** @brief 读取一行文本。 */
@@ -276,10 +277,10 @@ task<expected<std::size_t>> read_line(Reader& reader,
 
 /** @brief 按行读取的流适配器。 */
 template <borrowed_async_reader Reader>
-class Lines {
+class line_reader {
  public:
   /** @brief 构造按行读取的流适配器。 */
-  explicit Lines(Reader& reader, std::size_t max_bytes = 1024 * 1024)
+  explicit line_reader(Reader& reader, std::size_t max_bytes = 1024 * 1024)
       : reader_(reader), max_bytes_(max_bytes) {}
 
   /** @brief 读取下一行。 */
@@ -306,15 +307,15 @@ class Lines {
 /** @brief 创建按行读取适配器。 */
 template <borrowed_async_reader Reader>
 auto lines(Reader& reader, std::size_t max_bytes = 1024 * 1024) {
-  return Lines<Reader>{reader, max_bytes};
+  return line_reader<Reader>{reader, max_bytes};
 }
 
 /** @brief 按分隔字节读取的流适配器。 */
 template <borrowed_async_reader Reader>
-class SplitByDelimiter {
+class delimiter_reader {
  public:
   /** @brief 构造按分隔字节读取的流适配器。 */
-  SplitByDelimiter(Reader& reader, char delimiter) : reader_(reader), delimiter_(delimiter) {}
+  delimiter_reader(Reader& reader, char delimiter) : reader_(reader), delimiter_(delimiter) {}
 
   /** @brief 读取下一个分隔片段。 */
   task<expected<std::optional<std::vector<char>>>> next_segment() {
@@ -337,6 +338,6 @@ class SplitByDelimiter {
 /** @brief 创建按分隔字节读取的适配器。 */
 template <borrowed_async_reader Reader>
 auto split_by_delimiter(Reader& reader, char delimiter) {
-  return SplitByDelimiter<Reader>{reader, delimiter};
+  return delimiter_reader<Reader>{reader, delimiter};
 }
 }  // namespace faio::io

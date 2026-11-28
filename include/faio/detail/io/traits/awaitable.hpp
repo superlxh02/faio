@@ -23,11 +23,11 @@ decltype(auto) get_awaiter(T&& value) {
 template <class T>
 using awaitable_result_t = decltype(detail::get_awaiter(std::declval<T>()).await_resume());
 /**  @brief IO awaitable 必须通过 expected 明确返回结果或错误。 */
-template <class A, class Result>
+template <class A, class result_type>
 concept io_awaitable_of = requires(A&& operation) {
   { detail::get_awaiter(std::forward<A>(operation)).await_ready() } -> std::convertible_to<bool>;
   {
     detail::get_awaiter(std::forward<A>(operation)).await_resume()
-  } -> std::same_as<expected<Result>>;
+  } -> std::same_as<expected<result_type>>;
 };
 }  // namespace faio::io

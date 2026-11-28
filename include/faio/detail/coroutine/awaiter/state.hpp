@@ -72,7 +72,7 @@ class custom_awaiter_lifetime
 /** @brief 状态不依赖调度器类型；重绑定只转交所有权，既不移动 Operation，也不创建通知帧。 */
 template <class Operation>
 struct custom_awaiter_state {
-  enum phase : unsigned char { idle, registering, suspended, completed };
+  enum phase : unsigned char { IDLE, REGISTERING, SUSPENDED, COMPLETED };
 
   /** @brief 构造自定义等待器的结果与生命周期状态。 */
   template <class O>
@@ -81,7 +81,7 @@ struct custom_awaiter_state {
   custom_awaiter_lifetime lifetime; /**< 最后析构，确保 operation 清理期间仍然有效。 */
   Operation operation;
   std::stop_token stop;
-  std::atomic<unsigned char> gate{idle};
+  std::atomic<unsigned char> gate{IDLE};
 };
 
 }  // namespace faio::detail

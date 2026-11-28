@@ -23,21 +23,25 @@ namespace {
 using clock_type = std::chrono::steady_clock;
 
 /** @brief 输出每次操作的耗时、吞吐量与工作量校验和。 */
-void report(std::string_view scenario, clock_type::time_point start,
-            std::size_t operations, std::size_t bytes, std::uint64_t checksum = 0) {
+void report(std::string_view scenario,
+            clock_type::time_point start,
+            std::size_t operations,
+            std::size_t bytes,
+            std::uint64_t checksum = 0) {
   const double elapsed = std::chrono::duration<double>(clock_type::now() - start).count();
   std::cout << scenario << ',' << std::fixed << std::setprecision(3)
             << elapsed * 1e9 / static_cast<double>(operations) << ','
             << static_cast<double>(operations) / elapsed << ','
-            << static_cast<double>(bytes) / elapsed / 1048576.0 << ','
-            << operations << ',' << bytes << ',' << checksum << '\n';
+            << static_cast<double>(bytes) / elapsed / 1048576.0 << ',' << operations << ',' << bytes
+            << ',' << checksum << '\n';
 }
 
 /** @brief 预热普通文件后测量指定块大小的完整读写。 */
-faio::task<void> file_case(const std::filesystem::path& path, std::size_t block_size,
+faio::task<void> file_case(const std::filesystem::path& path,
+                           std::size_t block_size,
                            std::size_t operations) {
-  auto file = co_await faio::fs::File::open(
-      path, faio::fs::OpenOptions{}.read().write().create().truncate());
+  auto file = co_await faio::fs::file::open(
+      path, faio::fs::open_options{}.read().write().create().truncate());
   if (!file)
     throw std::runtime_error(std::string{file.error().message()});
 
@@ -64,7 +68,9 @@ faio::task<void> file_case(const std::filesystem::path& path, std::size_t block_
   const auto flushed = co_await file->flush();
   if (!flushed)
     throw std::runtime_error(std::string{flushed.error().message()});
-  report("file_write_all_" + std::to_string(block_size), start_write, operations,
+  report("file_write_all_" + std::to_string(block_size),
+         start_write,
+         operations,
          block_size * operations);
 
   const auto synced = co_await file->sync_data();
@@ -85,8 +91,11 @@ faio::task<void> file_case(const std::filesystem::path& path, std::size_t block_
       throw std::runtime_error("file data mismatch");
     checksum += static_cast<unsigned char>(buffer.front());
   }
-  report("file_read_exact_" + std::to_string(block_size), start_read, operations,
-         block_size * operations, checksum);
+  report("file_read_exact_" + std::to_string(block_size),
+         start_read,
+         operations,
+         block_size * operations,
+         checksum);
 
   const auto closed = co_await file->close();
   if (!closed)
@@ -123,12 +132,16 @@ faio::task<void> cpu_case(std::size_t jobs, std::size_t rounds, bool blocking) {
   std::uint64_t checksum = 0;
   for (auto& handle : handles)
     checksum ^= co_await handle;
-  report(std::string{blocking ? "cpu_spawn_blocking_" : "cpu_spawn_"}
-             + std::to_string(rounds), start, jobs, 0, checksum);
+  report(std::string{blocking ? "cpu_spawn_blocking_" : "cpu_spawn_"} + std::to_string(rounds),
+         start,
+         jobs,
+         0,
+         checksum);
 }
 
 /** @brief 运行选定的文件 I/O 和 CPU 负载场景。 */
-faio::task<void> suite(const std::filesystem::path& directory, std::size_t n,
+faio::task<void> suite(const std::filesystem::path& directory,
+                       std::size_t n,
                        std::string_view selection) {
   if (selection != "cpu") {
     for (const auto block : {4096uz, 65536uz, 8388608uz}) {
@@ -145,13 +158,14 @@ faio::task<void> suite(const std::filesystem::path& directory, std::size_t n,
     co_await cpu_case(128, 200000, true);
   }
 }
-}
+}  // namespace
 
 /** @brief 解析参数并运行文件 I/O 及 CPU 负载基准。 */
 int main(int argc, char** argv) {
   try {
     if (argc < 2)
-      throw std::invalid_argument("usage: io_cpu_benchmark DIRECTORY [4k-operations=2048] [workers=4] [all|io|cpu]");
+      throw std::invalid_argument(
+          "usage: io_cpu_benchmark DIRECTORY [4k-operations=2048] [workers=4] [all|io|cpu]");
     const std::filesystem::path directory{argv[1]};
     if (!std::filesystem::is_directory(directory))
       throw std::invalid_argument("directory must already exist");
@@ -161,8 +175,11 @@ int main(int argc, char** argv) {
     if (!n || !workers || (selection != "all" && selection != "io" && selection != "cpu"))
       throw std::invalid_argument("invalid count, workers or suite");
     faio::log::logger()->set_level(spdlog::level::off);
-    auto config = faio::config_builder{}.set_num_workers(workers)
-                      .set_max_blocking_threads(workers).set_filesystem_threads(workers).build();
+    auto config = faio::config_builder{}
+                      .set_num_workers(workers)
+                      .set_max_blocking_threads(workers)
+                      .set_filesystem_threads(workers)
+                      .build();
     faio::runtime::detail::runtime_context context{config};
     std::cout << "scenario,ns_per_op,ops_per_sec,mib_per_sec,operations,bytes,checksum\n";
     context.block_on(suite(directory, n, selection));

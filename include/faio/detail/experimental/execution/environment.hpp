@@ -8,12 +8,12 @@
 
 namespace faio::experimental::detail {
 /** @brief 组合运行时调度器、停止令牌和原 receiver 环境。 */
-template <faio::runtime::mode Mode, class Base = stdexec::env<>>
+template <faio::runtime::mode Mode, class base_type = stdexec::env<>>
 struct root_environment {
   execution_scheduler<Mode>
       scheduler;    /**< 保存目标调度器，跨线程完成时用它将续体投递回所属运行时。 */
   root_handle root; /**< 持有任务图的根状态租约，维持接纳、取消及排空的归属。 */
-  Base base{};      /**< 底层接收器环境，保留原环境的查询行为。 */
+  base_type base{}; /**< 底层接收器环境，保留原环境的查询行为。 */
 
   /** @brief 返回任务图的启动调度器。 */
   auto query(stdexec::get_start_scheduler_t) const noexcept -> execution_scheduler<Mode> {
@@ -39,7 +39,7 @@ struct root_environment {
              && !std::same_as<Query, stdexec::get_scheduler_t>
              && !std::same_as<Query, stdexec::get_stop_token_t>
              && !std::same_as<Query, get_external_root_t>
-             && requires(Query q, const Base& b) { q(b); })
+             && requires(Query q, const base_type& b) { q(b); })
   decltype(auto) query(Query q) const noexcept(noexcept(q(base))) {
     return q(base);
   }

@@ -7,17 +7,17 @@
 #include <fcntl.h>
 
 namespace faio::io::detail {
-class Open : public IORegistrantAwaiter<Open> {
-  using Base = IORegistrantAwaiter<Open>;
+class open_awaiter : public io_registrant_awaiter<open_awaiter> {
+  using base_type = io_registrant_awaiter<open_awaiter>;
 
  public:
   /** @brief 构造文件打开请求。 */
-  Open(native_descriptor directory, const char* path, int flags, mode_t mode)
-      : Base{[&] {
+  open_awaiter(native_descriptor directory, const char* path, int flags, mode_t mode)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::open;
+          r.kind = operation_kind::OPEN;
 #if defined(_WIN32)
-          r.native_kind = native_handle_kind::windows_handle;
+          r.native_kind = native_handle_kind::WINDOWS_HANDLE;
           r.bypass_resource_registration = true;
 #endif
           r.fd = directory;
@@ -29,7 +29,8 @@ class Open : public IORegistrantAwaiter<Open> {
   }
 
   /** @brief 构造文件打开请求。 */
-  Open(const char* path, int flags, mode_t mode) : Open{AT_FDCWD, path, flags, mode} {}
+  open_awaiter(const char* path, int flags, mode_t mode)
+      : open_awaiter{AT_FDCWD, path, flags, mode} {}
 
 #if defined(_WIN32)
   /** @brief 取得异步操作结果。 */
@@ -56,13 +57,13 @@ class Open : public IORegistrantAwaiter<Open> {
 
 namespace faio::io {
 inline auto open(const char* path, int flags, mode_t mode = 0666) {
-  return detail::Open{path, flags, mode};
+  return detail::open_awaiter{path, flags, mode};
 }
 
 inline auto openat(detail::native_descriptor directory,
                    const char* path,
                    int flags,
                    mode_t mode = 0666) {
-  return detail::Open{directory, path, flags, mode};
+  return detail::open_awaiter{directory, path, flags, mode};
 }
 }  // namespace faio::io

@@ -95,10 +95,13 @@ task<void, S> for_each_concurrent(std::size_t limit,
 /**
  * @brief 持有流工厂，启动后拉取并处理元素，并在本次调用结束前完成关停。
  */
-template <class T, class S = default_scheduler, class StreamFactory, class OperationFactory>
+template <class T,
+          class S = default_scheduler,
+          class stream_factory_type,
+          class operation_factory_type>
 task<void, S> for_each_concurrent(std::size_t limit,
-                                  StreamFactory factory,
-                                  OperationFactory operation) {
+                                  stream_factory_type factory,
+                                  operation_factory_type operation) {
   co_await with_stream<T, S>(
       std::move(factory),
       [limit, operation = std::move(operation)](stream_reader<T, S>& input) mutable {

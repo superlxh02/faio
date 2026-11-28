@@ -10,31 +10,31 @@
 
 namespace faio::time {
 /** @brief 错过定时触发时的处理方式。 */
-enum class MissedTickBehavior {
-  Burst,
-  Delay,
-  Skip,
+enum class missed_tick_behavior {
+  BURST,
+  DELAY,
+  SKIP,
 };
 }  // namespace faio::time
 
 namespace faio::time::detail {
 /** @brief 周期定时器。 */
-class Interval {
+class interval_timer {
  public:
   /** @brief 构造周期定时器。 */
-  Interval(std::chrono::steady_clock::time_point first_expired_time,
-           std::chrono::nanoseconds period,
-           MissedTickBehavior behavior = MissedTickBehavior::Burst)
+  interval_timer(std::chrono::steady_clock::time_point first_expired_time,
+                 std::chrono::nanoseconds period,
+                 missed_tick_behavior behavior = missed_tick_behavior::BURST)
       : _deadline{first_expired_time + period}, _period{period}, _behavior{behavior} {}
 
   /**
    * @brief 等待下一次定时触发。
-   * 返回 Sleep 等待器，co_await 后在 deadline 到期时恢复。
+   * 返回 sleep_awaiter 等待器，co_await 后在 deadline 到期时恢复。
    */
-  auto tick() noexcept -> Sleep {
+  auto tick() noexcept -> sleep_awaiter {
     auto expired_time = _deadline;
     _deadline = next_timeout();
-    return Sleep{expired_time};
+    return sleep_awaiter{expired_time};
   }
 
   /** @brief 取得当前周期。 */
@@ -59,23 +59,25 @@ class Interval {
 
   /** @brief 读取错过周期的处理策略。 */
   [[nodiscard]]
-  auto missed_tick_behavior() const noexcept -> MissedTickBehavior {
+  auto missed_tick_behavior() const noexcept -> ::faio::time::missed_tick_behavior {
     return _behavior;
   }
 
   /** @brief 设置错过周期的处理策略。 */
-  void set_missed_tick_behavior(MissedTickBehavior behavior) noexcept { _behavior = behavior; }
+  void set_missed_tick_behavior(::faio::time::missed_tick_behavior behavior) noexcept {
+    _behavior = behavior;
+  }
 
  private:
   /** @brief 计算下一次触发的时间点。 */
   auto next_timeout() -> std::chrono::steady_clock::time_point {
     auto now = std::chrono::steady_clock::now();
     switch (_behavior) {
-      case MissedTickBehavior::Burst:
+      case missed_tick_behavior::BURST:
         return _deadline + _period;
-      case MissedTickBehavior::Delay:
+      case missed_tick_behavior::DELAY:
         return now + _period;
-      case MissedTickBehavior::Skip: {
+      case missed_tick_behavior::SKIP: {
         if (_deadline >= now) {
           return _deadline + _period;
         }
@@ -91,7 +93,7 @@ class Interval {
  private:
   std::chrono::steady_clock::time_point _deadline; /**< 下一次触发的单调时钟绝对时间点。 */
   std::chrono::nanoseconds _period;                /**< 周期定时器的固定触发间隔。 */
-  MissedTickBehavior _behavior;                    /**< 错过触发时采用的策略：追赶、延迟或跳过。 */
+  ::faio::time::missed_tick_behavior _behavior;    /**< 错过触发时采用的策略：追赶、延迟或跳过。 */
 };
 }  // namespace faio::time::detail
 #endif

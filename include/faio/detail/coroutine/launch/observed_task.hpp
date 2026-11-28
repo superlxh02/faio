@@ -54,13 +54,13 @@ std::shared_ptr<join_handle_state<T, S>> schedule_observed_task(
   const bool inherit =
       !has_current_scheduler() || (current_scheduler_matches(scheduler) && matching_stop);
   if (!inherit) {
-    state->cancellation_policy = cancellation_error_policy::fatal_if_unobserved;
+    state->cancellation_policy = cancellation_error_policy::FATAL_IF_UNOBSERVED;
     parent_owner.reset();
   }
   if (parent_owner && parent_stop != parent_owner->source.get_token()
       && parent_stop != current_task_context().stop_token)
     parent_owner.reset();
-  if (state->cancellation_policy == cancellation_error_policy::normal_if_stop_requested
+  if (state->cancellation_policy == cancellation_error_policy::NORMAL_IF_STOP_REQUESTED
       || parent_owner) {
     state->cancellation_owner =
         std::make_shared<cancellation_state>(parent_stop, std::move(parent_owner));

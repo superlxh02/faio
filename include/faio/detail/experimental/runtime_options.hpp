@@ -20,7 +20,7 @@ using config = detail::runtime_config;
 }
 
 namespace faio::experimental {
-enum class entry_exit_policy { cancel_and_drain, drain };
+enum class entry_exit_policy { CANCEL_AND_DRAIN, DRAIN };
 
 /** @brief GCC 反射注解要求结构化值，而 std::optional 含有私有状态；这里使用成员公开的字面量类型保留可选值语义。 */
 struct io_backend_option {
@@ -82,7 +82,7 @@ struct io_backend_option {
 /** @brief 用于配置转换和反射注解的结构化运行时选项。 */
 struct runtime_options {
   faio::runtime::mode mode{
-      faio::runtime::mode::multi_thread};  /**< 运行时调度模式，选择当前线程或多工作线程驱动。 */
+      faio::runtime::mode::MULTI_THREAD};  /**< 运行时调度模式，选择当前线程或多工作线程驱动。 */
   std::size_t workers{};                   /**< 工作线程数量，零值由配置校验解析为默认数量。 */
   std::uint32_t io_interval{61};           /**< 两次周期 IO 驱动之间的调度轮数，必须非零。 */
   std::uint32_t global_queue_interval{61}; /**< 全局队列公平性检查间隔，单位为调度轮数。 */
@@ -102,27 +102,27 @@ struct runtime_options {
   std::size_t resolver_queue_limit{1024};     /**< 地址解析服务允许排队的任务数上限。 */
   io_backend_option io_backend{std::nullopt}; /**< 显式后端选择；未指定时采用编译期默认后端。 */
   entry_exit_policy exit_policy{
-      entry_exit_policy::cancel_and_drain}; /**< 入口任务返回后对派生任务采用的取消或排空策略。 */
+      entry_exit_policy::CANCEL_AND_DRAIN}; /**< 入口任务返回后对派生任务采用的取消或排空策略。 */
 };
 
 enum class options_error {
-  none,
-  mode,
-  workers,
-  io_interval,
-  global_queue_interval,
-  num_events,
-  max_io_delay_ns,
-  max_blocking_threads,
-  blocking_keep_alive_ms,
-  blocking_queue_limit,
-  filesystem_threads,
-  resolver_threads,
-  filesystem_queue_limit,
-  resolver_queue_limit,
-  io_backend,
-  io_uring_unavailable,
-  exit_policy
+  NONE,
+  MODE,
+  WORKERS,
+  IO_INTERVAL,
+  GLOBAL_QUEUE_INTERVAL,
+  NUM_EVENTS,
+  MAX_IO_DELAY_NS,
+  MAX_BLOCKING_THREADS,
+  BLOCKING_KEEP_ALIVE_MS,
+  BLOCKING_QUEUE_LIMIT,
+  FILESYSTEM_THREADS,
+  RESOLVER_THREADS,
+  FILESYSTEM_QUEUE_LIMIT,
+  RESOLVER_QUEUE_LIMIT,
+  IO_BACKEND,
+  IO_URING_UNAVAILABLE,
+  EXIT_POLICY
 };
 
 namespace detail {
@@ -135,39 +135,39 @@ constexpr bool duration_representable(std::uint64_t value) noexcept {
 /** @brief 返回运行时选项校验错误的说明。 */
 constexpr const char* options_error_message(options_error error) noexcept {
   switch (error) {
-    case options_error::none:
+    case options_error::NONE:
       return "faio experimental: valid runtime_options";
-    case options_error::mode:
+    case options_error::MODE:
       return "faio experimental: invalid mode";
-    case options_error::workers:
+    case options_error::WORKERS:
       return "faio experimental: invalid workers";
-    case options_error::io_interval:
+    case options_error::IO_INTERVAL:
       return "faio experimental: invalid io_interval";
-    case options_error::global_queue_interval:
+    case options_error::GLOBAL_QUEUE_INTERVAL:
       return "faio experimental: invalid global_queue_interval";
-    case options_error::num_events:
+    case options_error::NUM_EVENTS:
       return "faio experimental: invalid num_events";
-    case options_error::max_io_delay_ns:
+    case options_error::MAX_IO_DELAY_NS:
       return "faio experimental: invalid max_io_delay_ns";
-    case options_error::max_blocking_threads:
+    case options_error::MAX_BLOCKING_THREADS:
       return "faio experimental: invalid max_blocking_threads";
-    case options_error::blocking_keep_alive_ms:
+    case options_error::BLOCKING_KEEP_ALIVE_MS:
       return "faio experimental: invalid blocking_keep_alive_ms";
-    case options_error::blocking_queue_limit:
+    case options_error::BLOCKING_QUEUE_LIMIT:
       return "faio experimental: invalid blocking_queue_limit";
-    case options_error::filesystem_threads:
+    case options_error::FILESYSTEM_THREADS:
       return "faio experimental: invalid filesystem_threads";
-    case options_error::resolver_threads:
+    case options_error::RESOLVER_THREADS:
       return "faio experimental: invalid resolver_threads";
-    case options_error::filesystem_queue_limit:
+    case options_error::FILESYSTEM_QUEUE_LIMIT:
       return "faio experimental: invalid filesystem_queue_limit";
-    case options_error::resolver_queue_limit:
+    case options_error::RESOLVER_QUEUE_LIMIT:
       return "faio experimental: invalid resolver_queue_limit";
-    case options_error::io_backend:
+    case options_error::IO_BACKEND:
       return "faio experimental: invalid io_backend";
-    case options_error::io_uring_unavailable:
+    case options_error::IO_URING_UNAVAILABLE:
       return "faio experimental: io_uring not compiled";
-    case options_error::exit_policy:
+    case options_error::EXIT_POLICY:
       return "faio experimental: invalid exit_policy";
   }
   return "faio experimental: invalid runtime_options";
@@ -176,59 +176,59 @@ constexpr const char* options_error_message(options_error error) noexcept {
 
 /** @brief 校验运行时选项并返回首个错误类别。 */
 constexpr options_error validate_options(const runtime_options& options) noexcept {
-  if (options.mode != faio::runtime::mode::multi_thread
-      && options.mode != faio::runtime::mode::current_thread)
-    return options_error::mode;
-  if (options.exit_policy != entry_exit_policy::cancel_and_drain
-      && options.exit_policy != entry_exit_policy::drain)
-    return options_error::exit_policy;
-  if (options.mode == faio::runtime::mode::current_thread && options.workers > 1)
-    return options_error::workers;
+  if (options.mode != faio::runtime::mode::MULTI_THREAD
+      && options.mode != faio::runtime::mode::CURRENT_THREAD)
+    return options_error::MODE;
+  if (options.exit_policy != entry_exit_policy::CANCEL_AND_DRAIN
+      && options.exit_policy != entry_exit_policy::DRAIN)
+    return options_error::EXIT_POLICY;
+  if (options.mode == faio::runtime::mode::CURRENT_THREAD && options.workers > 1)
+    return options_error::WORKERS;
   if (!options.io_interval)
-    return options_error::io_interval;
+    return options_error::IO_INTERVAL;
   if (!options.global_queue_interval)
-    return options_error::global_queue_interval;
+    return options_error::GLOBAL_QUEUE_INTERVAL;
   if (!options.num_events)
-    return options_error::num_events;
+    return options_error::NUM_EVENTS;
   if (!options.max_io_delay_ns
       || !detail::duration_representable<std::chrono::nanoseconds::rep>(options.max_io_delay_ns))
-    return options_error::max_io_delay_ns;
+    return options_error::MAX_IO_DELAY_NS;
   if (!options.max_blocking_threads)
-    return options_error::max_blocking_threads;
+    return options_error::MAX_BLOCKING_THREADS;
   if (!options.blocking_keep_alive_ms
       || !detail::duration_representable<std::chrono::milliseconds::rep>(
           options.blocking_keep_alive_ms))
-    return options_error::blocking_keep_alive_ms;
+    return options_error::BLOCKING_KEEP_ALIVE_MS;
   if (!options.blocking_queue_limit)
-    return options_error::blocking_queue_limit;
+    return options_error::BLOCKING_QUEUE_LIMIT;
   if (!options.filesystem_threads)
-    return options_error::filesystem_threads;
+    return options_error::FILESYSTEM_THREADS;
   if (!options.resolver_threads)
-    return options_error::resolver_threads;
+    return options_error::RESOLVER_THREADS;
   if (!options.filesystem_queue_limit)
-    return options_error::filesystem_queue_limit;
+    return options_error::FILESYSTEM_QUEUE_LIMIT;
   if (!options.resolver_queue_limit)
-    return options_error::resolver_queue_limit;
+    return options_error::RESOLVER_QUEUE_LIMIT;
   if (options.io_backend) {
     if (*options.io_backend != faio::runtime::io_backend::IO_EPOLL
         && *options.io_backend != faio::runtime::io_backend::IO_URING)
-      return options_error::io_backend;
+      return options_error::IO_BACKEND;
 #if !defined(FAIO_HAS_IO_URING) || !FAIO_HAS_IO_URING
     if (*options.io_backend == faio::runtime::io_backend::IO_URING)
-      return options_error::io_uring_unavailable;
+      return options_error::IO_URING_UNAVAILABLE;
 #endif
   }
-  return options_error::none;
+  return options_error::NONE;
 }
 
 /** @brief 校验选项并转换成稳定运行时配置。 */
 inline faio::runtime::config to_runtime_config(runtime_options options) {
-  if (const auto error = validate_options(options); error != options_error::none)
+  if (const auto error = validate_options(options); error != options_error::NONE)
     throw std::invalid_argument(detail::options_error_message(error));
   faio::runtime::config config{};
   config._mode = options.mode;
-  config._num_workers = options.mode == faio::runtime::mode::current_thread ? 1
-                        : options.workers                                   ? options.workers
+  config._num_workers = options.mode == faio::runtime::mode::CURRENT_THREAD ? 1
+                        : options.workers ? options.workers
                                           : std::max(1u, std::thread::hardware_concurrency());
   config._io_interval = options.io_interval;
   config._global_queue_interval = options.global_queue_interval;
@@ -251,7 +251,7 @@ inline faio::runtime::config to_runtime_config(runtime_options options) {
 
 /** @brief 生成当前线程模式的默认选项。 */
 constexpr runtime_options current_thread_defaults() noexcept {
-  return runtime_options{.mode = faio::runtime::mode::current_thread};
+  return runtime_options{.mode = faio::runtime::mode::CURRENT_THREAD};
 }
 
 /** @brief 生成多工作线程模式的默认选项。 */

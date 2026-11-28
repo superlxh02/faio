@@ -14,10 +14,10 @@ using path = std::filesystem::path;
  *  @brief 可移植的权限值；Windows 通过 FILE_ATTRIBUTE_READONLY 表示只读属性。
  * @details 不把 POSIX 模式位映射成 ACL；设置权限只修改只读属性。
  */
-class Permissions {
+class permissions {
  public:
   /** @brief 保存平台无关的文件权限值。 */
-  explicit Permissions(std::filesystem::perms bits = std::filesystem::perms::unknown) noexcept
+  explicit permissions(std::filesystem::perms bits = std::filesystem::perms::unknown) noexcept
       : bits_(bits) {}
 
   /** @brief 返回保存的文件权限位。 */
@@ -42,10 +42,10 @@ class Permissions {
 };
 
 /**  @brief 原生快照；保存完整文件长度、卷序列号和 64 位文件标识。 */
-class Metadata {
+class file_metadata {
  public:
   /** @brief 保存独立持有的原生文件属性快照。 */
-  explicit Metadata(BY_HANDLE_FILE_INFORMATION value, DWORD tag = 0) noexcept
+  explicit file_metadata(BY_HANDLE_FILE_INFORMATION value, DWORD tag = 0) noexcept
       : value_(value), tag_(tag), volume_(value.dwVolumeSerialNumber) {
     const std::uint64_t index =
         (static_cast<std::uint64_t>(value.nFileIndexHigh) << 32) | value.nFileIndexLow;
@@ -53,7 +53,7 @@ class Metadata {
   }
 
   /**  @brief FILE_ID_INFO 保留 ReFS 等文件系统的完整 128 位标识。 */
-  Metadata(BY_HANDLE_FILE_INFORMATION value, DWORD tag, const FILE_ID_INFO& identity) noexcept
+  file_metadata(BY_HANDLE_FILE_INFORMATION value, DWORD tag, const FILE_ID_INFO& identity) noexcept
       : value_(value), tag_(tag), volume_(identity.VolumeSerialNumber), identity_full_(true) {
     std::memcpy(identity_.data(), identity.FileId.Identifier, identity_.size());
   }
@@ -80,17 +80,17 @@ class Metadata {
   }
 
   /** @brief 返回元数据快照保存的文件权限。 */
-  Permissions permissions() const noexcept {
+  ::faio::fs::permissions permissions() const noexcept {
     auto bits = std::filesystem::perms::owner_read | std::filesystem::perms::group_read
                 | std::filesystem::perms::others_read;
     if (!(value_.dwFileAttributes & FILE_ATTRIBUTE_READONLY))
       bits |= std::filesystem::perms::owner_write | std::filesystem::perms::group_write
               | std::filesystem::perms::others_write;
-    return Permissions{bits};
+    return ::faio::fs::permissions{bits};
   }
 
   /** @brief 判断两份元数据是否标识同一个文件对象。 */
-  bool same_file(const Metadata& other) const noexcept {
+  bool same_file(const file_metadata& other) const noexcept {
     if (identity_full_ && other.identity_full_)
       return volume_ == other.volume_ && identity_ == other.identity_;
     return value_.dwVolumeSerialNumber == other.value_.dwVolumeSerialNumber
@@ -146,7 +146,7 @@ class Metadata {
 
 namespace detail {
 /**  @brief 通过已持有的句柄查询属性；使用不跟随链接的句柄时，保留重解析点的原始类型。 */
-inline expected<Metadata> metadata_handle(HANDLE handle) noexcept {
+inline expected<file_metadata> metadata_handle(HANDLE handle) noexcept {
   BY_HANDLE_FILE_INFORMATION value{};
   if (!::GetFileInformationByHandle(handle, &value))
     return std::unexpected{io::windows::make_windows_error(::GetLastError())};
@@ -160,16 +160,17 @@ inline expected<Metadata> metadata_handle(HANDLE handle) noexcept {
   }
   FILE_ID_INFO identity{};
   if (::GetFileInformationByHandleEx(handle, FileIdInfo, &identity, sizeof(identity)))
-    return Metadata{value, tag, identity};
+    return file_metadata{value, tag, identity};
   const DWORD error = ::GetLastError();
   if (error != ERROR_INVALID_PARAMETER && error != ERROR_NOT_SUPPORTED
       && error != ERROR_INVALID_FUNCTION)
     return std::unexpected{io::windows::make_windows_error(error)};
-  return Metadata{value, tag};
+  return file_metadata{value, tag};
 }
 
 /**  @brief 设置句柄只读位，保留其他属性和所有时间戳。 */
-inline expected<void> set_handle_permissions(HANDLE handle, Permissions permissions) noexcept {
+inline expected<void> set_handle_permissions(HANDLE handle,
+                                             ::faio::fs::permissions permissions) noexcept {
   FILE_BASIC_INFO attributes{};
   if (!::GetFileInformationByHandleEx(handle, FileBasicInfo, &attributes, sizeof(attributes)))
     return std::unexpected{io::windows::make_windows_error(::GetLastError())};

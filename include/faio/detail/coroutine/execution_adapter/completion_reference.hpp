@@ -10,8 +10,8 @@
 #include <memory>
 
 namespace faio::detail {
-template <class Service>
-concept task_completion = requires(Service& service) {
+template <class service_type>
+concept task_completion = requires(service_type& service) {
   { service.begin_publisher() } noexcept -> std::same_as<void>;
   { service.end_publisher() } noexcept -> std::same_as<void>;
   { service.mark_tracker_zero() } noexcept -> std::same_as<void>;
@@ -47,24 +47,25 @@ class task_completion_api {
 };
 
 /** @brief 任务完成服务的静态借用引用。 */
-template <task_completion Service>
-class basic_task_completion_ref : public task_completion_api<basic_task_completion_ref<Service>> {
+template <task_completion service_type>
+class basic_task_completion_ref
+    : public task_completion_api<basic_task_completion_ref<service_type>> {
  public:
   /** @brief 构造任务完成服务的静态借用引用。 */
   basic_task_completion_ref() noexcept = default;
 
   /** @brief 构造任务完成服务的静态借用引用。 */
-  explicit basic_task_completion_ref(Service& service) noexcept
+  explicit basic_task_completion_ref(service_type& service) noexcept
       : service_(std::addressof(service)) {}
 
   /** @brief 判断是否持有有效状态。 */
   explicit operator bool() const noexcept { return service_ != nullptr; }
 
   /** @brief 借用底层原生句柄。 */
-  Service* native_handle() const noexcept { return service_; }
+  service_type* native_handle() const noexcept { return service_; }
 
  private:
-  Service* service_{};
+  service_type* service_{};
 };
 
 using task_completion_ref = basic_task_completion_ref<task_completion_service>;

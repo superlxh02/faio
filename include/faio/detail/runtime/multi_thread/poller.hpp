@@ -43,19 +43,19 @@ class runtime_poller {
   runtime_poller& operator=(const runtime_poller&) = delete;
 
   /** @brief 根帧全部销毁后关闭调度器；join 保证 shared 比任何本地调度状态活得更久。 */
-  ~runtime_poller() { shutdown(io::shutdown_policy::drain); }
+  ~runtime_poller() { shutdown(io::shutdown_policy::DRAIN); }
 
   /**  @brief 保持工作线程和调度器可运行，直到取消、文件结果发布及关闭流程全部排空。 */
-  void shutdown(io::shutdown_policy policy = io::shutdown_policy::cancel_all) {
+  void shutdown(io::shutdown_policy policy = io::shutdown_policy::CANCEL_ALL) {
     if (stopped_)
       return;
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
     shared_.external_host().begin_quiescing();
     shared_.external_host().begin_draining();
-    if (policy == io::shutdown_policy::cancel_all)
+    if (policy == io::shutdown_policy::CANCEL_ALL)
       shared_.external_host().request_stop();
 #endif
-    if (policy == io::shutdown_policy::cancel_all)
+    if (policy == io::shutdown_policy::CANCEL_ALL)
       shared_.begin_io_shutdown(policy);
     shared_.wait_for_tasks();
     shared_.blocking().close();

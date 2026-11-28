@@ -11,30 +11,30 @@ namespace faio::io::detail {
 struct io_request;
 /**  @brief 原生注册值不截断 HANDLE/SOCKET；只有 POSIX adapter 转为 int。 */
 enum class native_handle_kind : std::uint8_t {
-  posix_descriptor,
-  windows_handle,
-  windows_socket,
-  windows_pipe
+  POSIX_DESCRIPTOR,
+  WINDOWS_HANDLE,
+  WINDOWS_SOCKET,
+  WINDOWS_PIPE
 };
 
 /** @brief 原生请求的登记凭证。 */
 struct native_registration {
   std::uintptr_t value{}; /**< 保存完整原生值；不得把 HANDLE 或 Win64 SOCKET 缩窄为 int。 */
-  native_handle_kind kind{native_handle_kind::posix_descriptor}; /**< 拒绝平台种类不匹配的注册。 */
+  native_handle_kind kind{native_handle_kind::POSIX_DESCRIPTOR}; /**< 拒绝平台种类不匹配的注册。 */
 };
 
 /**  @brief 全部后端共用的接受协议；would_queue 尚未保存内核引用。 */
-enum class backend_submit_status : std::uint8_t { accepted, would_queue, rejected };
+enum class backend_submit_status : std::uint8_t { ACCEPTED, WOULD_QUEUE, REJECTED };
 
 /** @brief 原生后端的请求提交结果。 */
 struct backend_submit_result {
   backend_submit_status status{
-      backend_submit_status::rejected}; /**< 后端提交结果：已接受、暂满或明确拒绝。 */
+      backend_submit_status::REJECTED}; /**< 后端提交结果：已接受、暂满或明确拒绝。 */
   int error{};                          /**< 正 errno；仅 rejected 使用。 */
 };
 
 /**  @brief 原生完成、取消确认和缓冲区释放是不同事件，不能合并为一次协程恢复。 */
-enum class backend_event_kind : std::uint8_t { readiness, result, cancel_ack, buffer_release };
+enum class backend_event_kind : std::uint8_t { READINESS, RESULT, CANCEL_ACK, BUFFER_RELEASE };
 
 /**
  *  @details poll 只完整填写返回 count 内的记录；默认构造输出槽不清零。

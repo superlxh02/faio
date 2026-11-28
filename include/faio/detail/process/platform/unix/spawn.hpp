@@ -10,19 +10,19 @@
 
 namespace faio::process::detail {
 /** @brief 预留服务容量并打开三路标准流资源，任一步失败均由 RAII 回滚。 */
-inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch> {
-  auto service = ProcessService::instance();
+inline auto prepare_launch(command_snapshot snapshot) -> expected<prepared_launch> {
+  auto service = process_service::instance();
   if (!service)
     return std::unexpected{service.error()};
   auto record = (*service)->reserve_record();
   if (!record)
     return std::unexpected{record.error()};
-  PreparedLaunch result{std::move(snapshot), std::move(*record)};
+  prepared_launch result{std::move(snapshot), std::move(*record)};
   const auto& command = result.snapshot_.command();
-  const Stdio* slots[] = {&command.get_stdin(), &command.get_stdout(), &command.get_stderr()};
+  const stdio* slots[] = {&command.get_stdin(), &command.get_stdout(), &command.get_stderr()};
   std::lock_guard creation{spawn_creation_mutex()};
   for (int i{}; i < 3; ++i) {
-    if (slots[i]->kind() == StdioKind::inherit) {
+    if (slots[i]->kind() == stdio_kind::INHERIT) {
       if (::fcntl(i, F_GETFD) < 0) {
         if (errno != EBADF)
           return std::unexpected{make_error(errno)};
@@ -35,8 +35,8 @@ inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch>
       result.child_fds_[i] = result.files_[i].get();
       continue;
     }
-    if (slots[i]->kind() == StdioKind::piped) {
-      auto pipe = NativePipePair::create(i == 0);
+    if (slots[i]->kind() == stdio_kind::PIPED) {
+      auto pipe = native_pipe_pair::create(i == 0);
       if (!pipe)
         return std::unexpected{pipe.error()};
       result.pipes_[i] = std::move(*pipe);
@@ -45,22 +45,22 @@ inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch>
     }
     int flags = i == 0 ? O_RDONLY : O_WRONLY;
     auto path = std::filesystem::path{"/dev/null"};
-    if (slots[i]->kind() == StdioKind::file) {
+    if (slots[i]->kind() == stdio_kind::FILE) {
       path = slots[i]->file_path();
       if (path.is_relative())
         path = result.snapshot_.cwd() / path;
       if (i != 0)
-        flags |= O_CREAT | (*slots[i]->file_mode() == StdioFileMode::append ? O_APPEND : O_TRUNC);
+        flags |= O_CREAT | (*slots[i]->file_mode() == stdio_file_mode::APPEND ? O_APPEND : O_TRUNC);
     }
     auto opened = lift_fd(::open(path.c_str(), flags | O_CLOEXEC | O_NONBLOCK, 0666));
     if (!opened)
       return std::unexpected{opened.error()};
-    if (slots[i]->kind() == StdioKind::file) {
+    if (slots[i]->kind() == stdio_kind::FILE) {
       struct stat st{};
       if (::fstat(opened->get(), &st) < 0)
         return std::unexpected{make_error(errno)};
       if (!S_ISREG(st.st_mode))
-        return std::unexpected{process_error(errc::unsupported_stdio)};
+        return std::unexpected{process_error(errc::UNSUPPORTED_STDIO)};
     }
     const int old = ::fcntl(opened->get(), F_GETFL);
     if (old < 0 || ::fcntl(opened->get(), F_SETFL, old & ~O_NONBLOCK) < 0)
@@ -72,7 +72,7 @@ inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch>
 }
 
 /** @brief 用固定快照执行原生创建，并将进程标识写入预留记录。 */
-inline auto launch_native(PreparedLaunch& prepared) -> expected<NativeProcess> {
+inline auto launch_native(prepared_launch& prepared) -> expected<native_process> {
   struct actions_owner {
     posix_spawn_file_actions_t value; /**< 按顺序记录子进程 chdir、dup2 与关闭动作。 */
     bool initialized{};               /**< 仅在初始化成功后，才在析构时调用对应的销毁函数。 */
@@ -171,7 +171,7 @@ inline auto launch_native(PreparedLaunch& prepared) -> expected<NativeProcess> {
     prepared.record_->launching_ = false;
   }
   prepared.close_child_ends();
-  return NativeProcess{prepared.record_, static_cast<process_id>(pid)};
+  return native_process{prepared.record_, static_cast<process_id>(pid)};
 }
 }  // namespace faio::process::detail
 #endif

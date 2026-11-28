@@ -11,19 +11,19 @@
 
 namespace faio::process::detail {
 /** @brief 持有尚未交给监视服务的原生进程责任，析构时清理启动失败留下的资源。 */
-class NativeProcess {
+class native_process {
  public:
   /** @brief 禁止复制尚未交接的进程清理责任，避免重复持有所有权或复制运行状态。 */
-  NativeProcess(const NativeProcess&) = delete;
+  native_process(const native_process&) = delete;
   /** @brief 尚未交接的进程清理责任不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(const NativeProcess&) -> NativeProcess& = delete;
+  auto operator=(const native_process&) -> native_process& = delete;
 
   /** @brief 转交尚未交接的进程记录和清理责任，将移动源 ID 归零。 */
-  NativeProcess(NativeProcess&& other) noexcept
+  native_process(native_process&& other) noexcept
       : record_(std::move(other.record_)), pid_(std::exchange(other.pid_, 0)) {}
 
   /** @brief 清理原有尚未交接的进程，再接管新记录及进程 ID。 */
-  auto operator=(NativeProcess&& other) noexcept -> NativeProcess& {
+  auto operator=(native_process&& other) noexcept -> native_process& {
     if (this != &other) {
       cleanup();
       record_ = std::move(other.record_);
@@ -33,7 +33,7 @@ class NativeProcess {
   }
 
   /** @brief 终止尚未由服务接管的原生进程，并保留服务的回收路径。 */
-  ~NativeProcess() { cleanup(); }
+  ~native_process() { cleanup(); }
 
   /** @brief 返回尚未交接的原生进程 ID，清理或服务交接后为零。 */
   auto id() const noexcept -> process_id { return pid_; }
@@ -43,34 +43,34 @@ class NativeProcess {
 
  private:
   /** @brief 允许共享服务推进启动状态、登记监视资源并归还记录槽。 */
-  friend class ProcessService;
+  friend class process_service;
   /** @brief 允许平台启动实现在不可分割的操作中填写预留记录的原生标识。 */
   friend auto launch_native(/** @brief 持有待启动进程的参数、管道和预留的监视资源。 */
-                            class PreparedLaunch&) -> expected<NativeProcess>;
+                            class prepared_launch&) -> expected<native_process>;
 
   /** @brief 接管尚未完成服务登记的原生进程清理责任。 */
-  NativeProcess(std::shared_ptr<ProcessState> record, process_id pid)
+  native_process(std::shared_ptr<process_state> record, process_id pid)
       : record_(std::move(record)), pid_(pid) {}
 
   /** @brief 对未完成服务交接的进程请求终止，并恢复服务的回收路径。 */
   void cleanup() noexcept;
-  std::shared_ptr<ProcessState>
+  std::shared_ptr<process_state>
       record_;       /**< 预留或已创建进程的记录，地址保持不变，并持有进程句柄。 */
   process_id pid_{}; /**< 尚未完成服务交接的 Windows 进程 ID。 */
 };
 
 /** @brief 预留进程记录并拥有全部启动前资源，失败时自动归还。 */
-class PreparedLaunch {
+class prepared_launch {
  public:
   /** @brief 禁止复制待启动快照、记录及标准流资源，避免重复持有所有权或复制运行状态。 */
-  PreparedLaunch(const PreparedLaunch&) = delete;
+  prepared_launch(const prepared_launch&) = delete;
   /** @brief 待启动快照、记录及标准流资源不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(const PreparedLaunch&) -> PreparedLaunch& = delete;
+  auto operator=(const prepared_launch&) -> prepared_launch& = delete;
   /** @brief 转交启动快照、预留记录和全部标准流资源。 */
-  PreparedLaunch(PreparedLaunch&&) noexcept = default;
+  prepared_launch(prepared_launch&&) noexcept = default;
 
   /** @brief 归还原预留记录，再接管快照、记录和全部标准流资源。 */
-  auto operator=(PreparedLaunch&& other) noexcept -> PreparedLaunch& {
+  auto operator=(prepared_launch&& other) noexcept -> prepared_launch& {
     if (this != &other) {
       release_record();
       snapshot_ = std::move(other.snapshot_);
@@ -83,13 +83,13 @@ class PreparedLaunch {
   }
 
   /** @brief 归还尚未使用的预留记录，未交付的原生资源由成员通过 RAII 释放。 */
-  ~PreparedLaunch();
+  ~prepared_launch();
 
   /** @brief 借用待启动对象固定的命令快照。 */
-  auto snapshot() const noexcept -> const CommandSnapshot& { return snapshot_; }
+  auto snapshot() const noexcept -> const command_snapshot& { return snapshot_; }
 
   /** @brief 借用准备阶段已经预留的进程记录。 */
-  auto record() const noexcept -> const std::shared_ptr<ProcessState>& { return record_; }
+  auto record() const noexcept -> const std::shared_ptr<process_state>& { return record_; }
 
   /** @brief 原生进程创建成功后，关闭父进程多余的子端副本，避免因自身持有管道而延迟 EOF。 */
   void close_child_ends() noexcept {
@@ -101,24 +101,28 @@ class PreparedLaunch {
   }
 
   /** @brief 若 stdin 配置为管道，则将父写端交给公共包装。 */
-  auto take_parent_stdin() -> expected<std::optional<ChildStdin>> { return take<ChildStdin>(0); }
+  auto take_parent_stdin() -> expected<std::optional<child_stdin>> { return take<child_stdin>(0); }
 
   /** @brief 若 stdout 配置为管道，则将父读端交给公共包装。 */
-  auto take_parent_stdout() -> expected<std::optional<ChildStdout>> { return take<ChildStdout>(1); }
+  auto take_parent_stdout() -> expected<std::optional<child_stdout>> {
+    return take<child_stdout>(1);
+  }
 
   /** @brief 若 stderr 配置为管道，则将父读端交给公共包装。 */
-  auto take_parent_stderr() -> expected<std::optional<ChildStderr>> { return take<ChildStderr>(2); }
+  auto take_parent_stderr() -> expected<std::optional<child_stderr>> {
+    return take<child_stderr>(2);
+  }
 
  private:
   /** @brief 只归还尚未创建原生进程的预留记录，已启动记录留给服务回收。 */
   void release_record() noexcept;
   /** @brief 允许准备阶段填充快照、预留记录及标准流资源。 */
-  friend auto prepare_launch(CommandSnapshot) -> expected<PreparedLaunch>;
+  friend auto prepare_launch(command_snapshot) -> expected<prepared_launch>;
   /** @brief 允许平台启动实现在不可分割的操作中填写预留记录的原生标识。 */
-  friend auto launch_native(PreparedLaunch&) -> expected<NativeProcess>;
+  friend auto launch_native(prepared_launch&) -> expected<native_process>;
 
   /** @brief 接管命令快照和预留记录，后续原生资源由该对象回滚。 */
-  PreparedLaunch(CommandSnapshot snapshot, std::shared_ptr<ProcessState> record)
+  prepared_launch(command_snapshot snapshot, std::shared_ptr<process_state> record)
       : snapshot_(std::move(snapshot)), record_(std::move(record)) {}
 
   /** @brief 移出指定标准管道的父进程端。 */
@@ -133,11 +137,12 @@ class PreparedLaunch {
     return std::optional<T>{std::in_place, std::move(*pipe)};
   }
 
-  CommandSnapshot snapshot_; /**< CreateProcessW 使用的固定启动输入。 */
-  std::shared_ptr<ProcessState>
+  command_snapshot snapshot_; /**< CreateProcessW 使用的固定启动输入。 */
+  std::shared_ptr<process_state>
       record_; /**< 预留或已创建进程的记录，地址保持不变，并持有进程句柄。 */
-  std::array<std::optional<NativePipePair>, 3> pipes_; /**< 三路标准流的命名管道资源所有者。 */
-  std::array<NativeHandle, 3> child_handles_; /**< 继承副本、空设备或普通文件的可继承句柄所有者。 */
+  std::array<std::optional<native_pipe_pair>, 3> pipes_; /**< 三路标准流的命名管道资源所有者。 */
+  std::array<native_handle_type, 3>
+      child_handles_;                   /**< 继承副本、空设备或普通文件的可继承句柄所有者。 */
   std::array<HANDLE, 3> std_handles_{}; /**< 提供给 STARTUPINFOEXW 及继承白名单的三路子端句柄。 */
 };
 }  // namespace faio::process::detail

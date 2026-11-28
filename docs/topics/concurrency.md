@@ -13,13 +13,13 @@
 共享状态用 `faio::sync::mutex` 保护。`scoped_lock()` 返回 RAII 守卫，离开作用域自动解锁：
 
 ```cpp
-struct Config {
+struct config {
   faio::sync::mutex mutex;
   faio::sync::condition_variable changed;
   std::optional<std::string> value;
 };
 
-faio::task<void> publish(Config& config) {
+faio::task<void> publish(config& config) {
   {
     auto guard = co_await config.mutex.scoped_lock();
     config.value.emplace("catalog");
@@ -27,7 +27,7 @@ faio::task<void> publish(Config& config) {
   config.changed.notify_all();
 }
 
-faio::task<void> wait_ready(Config& config) {
+faio::task<void> wait_ready(config& config) {
   auto guard = co_await config.mutex.scoped_lock();
   co_await config.changed.wait(config.mutex, [&] { return config.value.has_value(); });
   const std::string name = *config.value;
@@ -108,7 +108,7 @@ if (!sent) return;                          // 通道已关闭
 auto value = co_await receiver.recv();   // 队列空时挂起
 ```
 
-`send()` 在队列满时等待消费者释放空间，完成结果是 `expected<void>`；通道关闭后返回错误。`try_send()` 不等待，队列满时返回 `false`。`recv()` 在队列空时等待，返回 `expected<T>`；通道关闭且队列排空后返回 `ClosedChannel`。`try_recv()` 暂时为空返回 `nullopt`，与关闭状态分开。
+`send()` 在队列满时等待消费者释放空间，完成结果是 `expected<void>`；通道关闭后返回错误。`try_send()` 不等待，队列满时返回 `false`。`recv()` 在队列空时等待，返回 `expected<T>`；通道关闭且队列排空后返回 `CLOSED_CHANNEL`。`try_recv()` 暂时为空返回 `nullopt`，与关闭状态分开。
 
 发送端可以复制给多个生产者；接收端同一时刻保留一个未完成的 `recv`。最后一个发送端关闭后，接收端排空队列并观察到关闭。关闭不会丢弃队列中已经入队的数据，消费者仍应把剩余消息读完。
 
@@ -201,7 +201,7 @@ const auto values = co_await faio::join_all(std::move(jobs));
 ```cpp
 auto outcomes = co_await faio::join_all_settled(std::move(queries));
 for (auto& outcome : outcomes) {
-  if (outcome.status() == faio::task_outcome_status::value)
+  if (outcome.status() == faio::task_outcome_status::VALUE)
     prices.push_back(outcome.take_value());
 }
 ```

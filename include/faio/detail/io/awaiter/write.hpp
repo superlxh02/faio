@@ -8,17 +8,18 @@
 
 namespace faio::io::detail {
 /**  @brief Write 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class Write : public IORegistrantAwaiter<Write> {
-  using Base = IORegistrantAwaiter<Write>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class write_awaiter : public io_registrant_awaiter<write_awaiter> {
+  using base_type =
+      io_registrant_awaiter<write_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造写入等待器。 */
-  Write(native_descriptor fd, const void* buffer, std::size_t length, std::uint64_t offset)
-      : Base{[&] {
+  write_awaiter(native_descriptor fd, const void* buffer, std::size_t length, std::uint64_t offset)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::write;
+          r.kind = operation_kind::WRITE;
 #if defined(_WIN32)
-          r.native_kind = native_handle_kind::windows_handle;
+          r.native_kind = native_handle_kind::WINDOWS_HANDLE;
           r.bypass_resource_registration = true;
           r.windows_implicit_cursor = offset == UINT64_MAX;
 #endif
@@ -31,8 +32,8 @@ class Write : public IORegistrantAwaiter<Write> {
   }
 
   /** @brief 构造写入等待器。 */
-  Write(resource_ptr resource, const void* buffer, std::size_t length, std::uint64_t offset)
-      : Write{resource ? resource->fd() : -1, buffer, length, offset} {
+  write_awaiter(resource_ptr resource, const void* buffer, std::size_t length, std::uint64_t offset)
+      : write_awaiter{resource ? resource->fd() : -1, buffer, length, offset} {
     this->request_.resource = std::move(resource);
   }
 
@@ -50,6 +51,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto write(F fd, const void* buffer, std::size_t length, std::uint64_t offset = UINT64_MAX) {
-  return detail::Write{std::move(fd), buffer, length, offset};
+  return detail::write_awaiter{std::move(fd), buffer, length, offset};
 }
 }  // namespace faio::io

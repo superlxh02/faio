@@ -28,7 +28,7 @@ namespace faio::io::detail {
  * @tparam T 被包装任务的结果类型。
  */
 template <class T, class S = default_scheduler>
-class StopBoundTask {
+class stop_bound_task {
  public:
   using scheduler_type = S;
 
@@ -37,11 +37,11 @@ class StopBoundTask {
    * @param child 尚未等待的子任务。
    * @param token 子任务执行期间使用的停止令牌。
    */
-  StopBoundTask(task<T, S> child, std::stop_token token)
+  stop_bound_task(task<T, S> child, std::stop_token token)
       : child_(std::move(child)), token_(std::move(token)) {}
 
   /** @brief 在普通任务挂起握手完成后替换子任务的停止上下文。 */
-  struct Awaiter {
+  struct awaiter {
     typename task<T, S>::awaiter inner; /**< 原始任务等待器，负责帧所有权与结果传递。 */
     std::stop_token token;              /**< 即将安装到子任务上下文的停止令牌。 */
 
@@ -70,7 +70,7 @@ class StopBoundTask {
    * @brief 仅允许消费右值包装器，向等待器转移任务及令牌。
    * @return 拥有原始任务等待器的适配对象。
    */
-  auto operator co_await() && -> Awaiter {
+  auto operator co_await() && -> awaiter {
     return {std::move(child_).operator co_await(), std::move(token_)};
   }
 
@@ -87,7 +87,7 @@ class StopBoundTask {
  * @return 可直接 co_await 的任务包装器。
  */
 template <class T, class S>
-auto bind_stop(task<T, S> child, std::stop_token token) -> StopBoundTask<T, S> {
+auto bind_stop(task<T, S> child, std::stop_token token) -> stop_bound_task<T, S> {
   return {std::move(child), std::move(token)};
 }
 
@@ -96,13 +96,13 @@ auto bind_stop(task<T, S> child, std::stop_token token) -> StopBoundTask<T, S> {
  * @tparam T 操作成功结果的类型，可以为 void。
  */
 template <class T>
-class OperationState {
+class stream_operation_state {
   /** @brief 将外部停止回调转发为当前操作的统一取消请求。 */
-  struct ForwardStop {
-    OperationState* state; /**< 回调借用的操作状态，回调必须先于该状态销毁。 */
+  struct forward_stop {
+    stream_operation_state* state; /**< 回调借用的操作状态，回调必须先于该状态销毁。 */
 
     /** @brief 以 ECANCELED 竞争终态；已完成时不覆盖现有结果。 */
-    void operator()() const noexcept { state->try_cancel(Error{ECANCELED}); }
+    void operator()() const noexcept { state->try_cancel(::faio::error{ECANCELED}); }
   };
 
  public:
@@ -111,20 +111,20 @@ class OperationState {
    * @param options 本次操作的绝对截止时间及附加停止令牌。
    * @param parent 当前调用任务继承的停止令牌。
    */
-  OperationState(io::OperationOptions options, std::stop_token parent)
+  stream_operation_state(io::operation_options options, std::stop_token parent)
       : options_(std::move(options)) {
     if (parent.stop_possible())
-      parent_.emplace(parent, ForwardStop{this});
+      parent_.emplace(parent, forward_stop{this});
     if (options_.stop.stop_possible())
-      explicit_.emplace(options_.stop, ForwardStop{this});
+      explicit_.emplace(options_.stop, forward_stop{this});
     if (options_.deadline && std::chrono::steady_clock::now() >= *options_.deadline)
-      try_cancel(Error{ETIMEDOUT});
+      try_cancel(::faio::error{ETIMEDOUT});
   }
 
   /** @brief 禁止复制此状态，其中包含锁和引用自身的停止回调。 */
-  OperationState(const OperationState&) = delete;
+  stream_operation_state(const stream_operation_state&) = delete;
   /** @brief 禁止复制赋值，保持回调地址和结果归属稳定。 */
-  auto operator=(const OperationState&) -> OperationState& = delete;
+  auto operator=(const stream_operation_state&) -> stream_operation_state& = delete;
 
   /** @brief 取得向底层任务广播取消的统一停止令牌。 */
   auto token() const noexcept -> std::stop_token { return stop_.get_token(); }
@@ -140,7 +140,7 @@ class OperationState {
       if (terminal_)
         return true;
       if (options_.deadline && std::chrono::steady_clock::now() >= *options_.deadline) {
-        result_.emplace(std::unexpected(Error{ETIMEDOUT}));
+        result_.emplace(std::unexpected(::faio::error{ETIMEDOUT}));
         terminal_ = true;
         expired = true;
       }
@@ -166,7 +166,7 @@ class OperationState {
       if (terminal_)
         return false;
       if (options_.deadline && std::chrono::steady_clock::now() >= *options_.deadline) {
-        result_.emplace(std::unexpected(Error{ETIMEDOUT}));
+        result_.emplace(std::unexpected(::faio::error{ETIMEDOUT}));
         terminal_ = true;
         expired = true;
       } else {
@@ -184,7 +184,7 @@ class OperationState {
    * @param reason 本次取消独立持有的错误，保留原生原因及已完成进度。
    * @return 是否由本次请求提交了首次终态。
    */
-  auto try_cancel(Error reason) -> bool {
+  auto try_cancel(error reason) -> bool {
     {
       std::lock_guard lock(mutex_);
       if (terminal_)
@@ -210,41 +210,43 @@ class OperationState {
   }
 
  private:
-  io::OperationOptions options_;              /**< 操作开始时固定的截止时间与附加停止源。 */
+  io::operation_options options_;             /**< 操作开始时固定的截止时间与附加停止源。 */
   mutable std::mutex mutex_;                  /**< 保护唯一终态与结果槽位。 */
   mutable std::stop_source stop_;             /**< 向实际执行任务广播取消的统一停止源。 */
   mutable bool terminal_{};                   /**< 是否已提交不可覆盖的完成、取消或超时结果。 */
   mutable std::optional<expected<T>> result_; /**< 尚未被调用者消费的唯一结果。 */
-  std::optional<std::stop_callback<ForwardStop>>
+  std::optional<std::stop_callback<forward_stop>>
       parent_; /**< 父停止回调；后声明以便先于所借用状态销毁。 */
-  std::optional<std::stop_callback<ForwardStop>>
+  std::optional<std::stop_callback<forward_stop>>
       explicit_; /**< 显式停止回调；注销时等待正在运行的回调结束。 */
 };
 
 /**
  * @brief 执行操作主体，并把 select 的停止请求连接到操作统一停止源。
  * @tparam T 操作结果类型。
- * @tparam Body 接收 OperationState<T> 引用并返回相同静态调度器 task<void, S> 的函数对象类型。
+ * @tparam body_type 接收 stream_operation_state<T> 引用并返回相同静态调度器 task<void, S> 的函数对象类型。
  * @param state 保存终态并控制取消的状态。
  * @param body 实际操作主体，成功结束前必须提交结果。
  * @param failure 保存主体抛出的非取消异常，待清理后重新抛出。
  * @return 完成主体及其取消处理的任务。
  */
-template <class T, class Body>
-auto operation_body(OperationState<T>& state, Body& body, std::exception_ptr& failure)
-    -> task<void, typename std::invoke_result_t<Body&, OperationState<T>&>::scheduler_type> {
+template <class T, class body_type>
+auto operation_body(stream_operation_state<T>& state, body_type& body, std::exception_ptr& failure)
+    -> task<void,
+            typename std::invoke_result_t<body_type&, stream_operation_state<T>&>::scheduler_type> {
   const auto inherited = co_await this_coro::stop_token();
-  std::stop_callback selected_stop{inherited, [&state] { state.try_cancel(Error{ECANCELED}); }};
+  std::stop_callback selected_stop{inherited,
+                                   [&state] { state.try_cancel(::faio::error{ECANCELED}); }};
   try {
     if (!state.done())
       co_await bind_stop(body(state), state.token());
     if (!state.done())
       throw std::logic_error("operation body did not commit a result");
   } catch (const operation_cancelled&) {
-    state.try_cancel(Error{ECANCELED});
+    state.try_cancel(::faio::error{ECANCELED});
   } catch (...) {
     failure = std::current_exception();
-    state.try_cancel(Error{ECANCELED});
+    state.try_cancel(::faio::error{ECANCELED});
   }
 }
 
@@ -256,11 +258,11 @@ auto operation_body(OperationState<T>& state, Body& body, std::exception_ptr& fa
  * @return 定时器任务，主体先完成时可安全取消并排空。
  */
 template <class T>
-auto operation_timer(OperationState<T>& state, std::chrono::steady_clock::time_point deadline)
-    -> task<void> {
+auto operation_timer(stream_operation_state<T>& state,
+                     std::chrono::steady_clock::time_point deadline) -> task<void> {
   try {
     co_await time::sleep_until(deadline);
-    state.try_cancel(Error{ETIMEDOUT});
+    state.try_cancel(::faio::error{ETIMEDOUT});
   } catch (const operation_cancelled&) {
   }
 }
@@ -268,16 +270,16 @@ auto operation_timer(OperationState<T>& state, std::chrono::steady_clock::time_p
 /**
  * @brief 统一执行带截止时间和取消的操作，并在返回前排空主体及定时器。
  * @tparam T 成功结果类型。
- * @tparam Body 接收操作状态并显式提交结果的协程函数对象类型。
+ * @tparam body_type 接收操作状态并显式提交结果的协程函数对象类型。
  * @param options 绝对截止时间与附加停止令牌。
  * @param body 操作主体，按值保存在本协程帧内。
  * @return 首次提交的结果；主体非取消异常在排空后重新抛出。
  */
-template <class T, class Body>
-  requires std::same_as<std::invoke_result_t<Body&, OperationState<T>&>, task<void>>
-auto run_operation(io::OperationOptions options, Body body) -> task<expected<T>> {
+template <class T, class body_type>
+  requires std::same_as<std::invoke_result_t<body_type&, stream_operation_state<T>&>, task<void>>
+auto run_operation(io::operation_options options, body_type body) -> task<expected<T>> {
   auto parent = co_await this_coro::stop_token();
-  OperationState<T> state(options, parent);
+  stream_operation_state<T> state(options, parent);
   std::exception_ptr failure;
   if (options.deadline) {
     co_await select(operation_body(state, body, failure),
@@ -296,9 +298,9 @@ auto run_operation(io::OperationOptions options, Body body) -> task<expected<T>>
  * @param timeout 从当前单调时钟时刻开始计算的默认最长持续时间。
  * @return 应用了较早截止时间的选项副本，原停止令牌保持不变。
  */
-inline auto with_default_deadline(io::OperationOptions options,
+inline auto with_default_deadline(io::operation_options options,
                                   std::chrono::steady_clock::duration timeout)
-    -> io::OperationOptions {
+    -> io::operation_options {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   if (!options.deadline || deadline < *options.deadline)
     options.deadline = deadline;

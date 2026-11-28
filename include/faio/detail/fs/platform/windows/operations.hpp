@@ -36,7 +36,7 @@ inline expected<io::windows::owned_file_handle> open_path_handle(
 /**  @brief 查询已有路径的元数据；不跟随链接时，检查符号链接或挂载点本身。 */
 inline auto metadata_path(io::io_context context, path filename, bool follow) {
   return blocking::call(std::move(context),
-                        [filename = std::move(filename), follow]() -> expected<Metadata> {
+                        [filename = std::move(filename), follow]() -> expected<file_metadata> {
                           auto handle = open_path_handle(filename, FILE_READ_ATTRIBUTES, follow);
                           if (!handle)
                             return std::unexpected{handle.error()};
@@ -45,8 +45,8 @@ inline auto metadata_path(io::io_context context, path filename, bool follow) {
 }
 
 /** @brief 判断文件系统错误是否表示目标不存在。 */
-inline bool missing(const Error& error) noexcept {
-  return error.domain() == error_domain::win32
+inline bool missing(const error& error) noexcept {
+  return error.domain() == error_domain::WIN32_API
          && (error.value() == ERROR_FILE_NOT_FOUND || error.value() == ERROR_PATH_NOT_FOUND);
 }
 }  // namespace detail
@@ -62,7 +62,9 @@ inline auto symlink_metadata(io::io_context context, path filename) {
 }
 
 /**  @brief 仅设置 FILE_ATTRIBUTE_READONLY，保留 ACL、其它属性和时间戳。 */
-inline auto set_permissions(io::io_context context, path filename, Permissions permissions) {
+inline auto set_permissions(io::io_context context,
+                            path filename,
+                            ::faio::fs::permissions permissions) {
   return blocking::call(
       std::move(context), [filename = std::move(filename), permissions]() -> expected<void> {
         auto handle =
@@ -194,7 +196,8 @@ inline auto symlink(io::io_context context, path source, path destination) {
 /**  @brief 创建单层目录；权限参数只影响本次新建对象的只读位。 */
 inline auto create_dir(io::io_context context,
                        path filename,
-                       Permissions permissions = Permissions{std::filesystem::perms::all}) {
+                       ::faio::fs::permissions permissions = ::faio::fs::permissions{
+                           std::filesystem::perms::all}) {
   return blocking::call(
       std::move(context), [filename = std::move(filename), permissions]() -> expected<void> {
         auto name = detail::native_path(filename);
@@ -211,10 +214,10 @@ inline auto create_dir(io::io_context context,
 }
 
 /**  @brief 逐层建立，已有目录仅验证类型，不改写其权限或 ACL。 */
-inline task<expected<void>> create_dir_all(io::io_context context,
-                                           path filename,
-                                           Permissions permissions = Permissions{
-                                               std::filesystem::perms::all}) {
+inline task<expected<void>> create_dir_all(
+    io::io_context context,
+    path filename,
+    ::faio::fs::permissions permissions = ::faio::fs::permissions{std::filesystem::perms::all}) {
   if (filename.empty())
     co_return std::unexpected{make_error(ENOENT)};
   path prefix;
@@ -227,7 +230,7 @@ inline task<expected<void>> create_dir_all(io::io_context context,
       co_return std::unexpected{make_error(ENAMETOOLONG)};
     auto result = co_await create_dir(context, prefix, permissions);
     if (!result) {
-      if (result.error().domain() != error_domain::win32
+      if (result.error().domain() != error_domain::WIN32_API
           || result.error().value() != ERROR_ALREADY_EXISTS)
         co_return std::unexpected{result.error()};
       auto attributes = co_await metadata(context, prefix);
@@ -280,7 +283,7 @@ struct remove_tree_state {
   /**  @brief 单个服务任务最多处理 batch_size 步；出错时附带本批实际删除的条目数。 */
   expected<std::uint64_t> advance(std::stop_token stop) {
     std::uint64_t removed = 0;
-    auto failure = [&](const Error& error) -> expected<std::uint64_t> {
+    auto failure = [&](const error& error) -> expected<std::uint64_t> {
       return std::unexpected{error.with_progress(removed + error.progress())};
     };
     for (std::size_t step = 0; step < options.batch_size && !done; ++step) {
@@ -398,14 +401,14 @@ inline task<expected<std::uint64_t>> remove_dir_all(io::io_context context,
       co_await this_coro::yield_if_needed();
     }
   } catch (const operation_cancelled&) {
-    co_return std::unexpected{Error{ECANCELED, total}};
+    co_return std::unexpected{::faio::error{ECANCELED, total}};
   }
   co_return total;
 }
 
 /**  @brief 按有界数据块复制，每块交还协作预算；失败时保留已写入的字节数。 */
 inline task<expected<std::uint64_t>> copy(io::io_context context, path source, path destination) {
-  auto input = co_await File::open(context, std::move(source));
+  auto input = co_await file::open(context, std::move(source));
   if (!input)
     co_return std::unexpected{input.error()};
   auto source_metadata = co_await input->metadata();
@@ -414,7 +417,7 @@ inline task<expected<std::uint64_t>> copy(io::io_context context, path source, p
   if (!source_metadata->is_file())
     co_return std::unexpected{make_error(EINVAL)};
   auto output =
-      co_await File::open(context, std::move(destination), OpenOptions{}.write().create());
+      co_await file::open(context, std::move(destination), open_options{}.write().create());
   if (!output)
     co_return std::unexpected{output.error()};
   auto destination_metadata = co_await output->metadata();
@@ -444,7 +447,7 @@ inline task<expected<std::uint64_t>> copy(io::io_context context, path source, p
 inline task<expected<std::vector<char>>> read(io::io_context context,
                                               path filename,
                                               std::size_t max_bytes = 256 * 1024 * 1024) {
-  auto input = co_await File::open(std::move(context), std::move(filename));
+  auto input = co_await file::open(std::move(context), std::move(filename));
   if (!input)
     co_return std::unexpected{input.error()};
   std::vector<char> result;
@@ -457,7 +460,7 @@ inline task<expected<std::vector<char>>> read(io::io_context context,
     if (!tail)
       co_return std::unexpected{tail.error()};
     if (*tail)
-      co_return std::unexpected{Error{EFBIG, *count}};
+      co_return std::unexpected{::faio::error{EFBIG, *count}};
   }
   co_return result;
 }
@@ -476,7 +479,7 @@ inline task<expected<std::string>> read_to_string(io::io_context context,
 inline task<expected<void>> write(io::io_context context,
                                   path filename,
                                   std::span<const char> contents) {
-  auto output = co_await File::create(std::move(context), std::move(filename));
+  auto output = co_await file::create(std::move(context), std::move(filename));
   if (!output)
     co_return std::unexpected{output.error()};
   auto written = co_await output->write_all(contents);
@@ -501,7 +504,7 @@ inline auto symlink_metadata(path name) {
 }
 
 /** @brief 设置目标文件的权限。 */
-inline auto set_permissions(path name, Permissions value) {
+inline auto set_permissions(path name, ::faio::fs::permissions value) {
   return set_permissions(io::io_context::current(), std::move(name), value);
 }
 
@@ -531,7 +534,9 @@ inline auto symlink(path from, path to) {
 }
 
 /** @brief 创建单个目录。 */
-inline auto create_dir(path name, Permissions value = Permissions{std::filesystem::perms::all}) {
+inline auto create_dir(path name,
+                       ::faio::fs::permissions value = ::faio::fs::permissions{
+                           std::filesystem::perms::all}) {
   return create_dir(io::io_context::current(), std::move(name), value);
 }
 
@@ -583,16 +588,16 @@ inline auto write(path name, std::string_view contents) {
 }
 
 /**  @brief 可复用的目录创建配置，权限只影响本次新建目录。 */
-class DirBuilder {
+class dir_builder {
  public:
   /** @brief 设置目录构建器是否递归创建父目录。 */
-  DirBuilder& recursive(bool enabled = true) noexcept {
+  dir_builder& recursive(bool enabled = true) noexcept {
     recursive_ = enabled;
     return *this;
   }
 
   /** @brief 设置新目录的权限选项。 */
-  DirBuilder& permissions(Permissions value) noexcept {
+  dir_builder& permissions(::faio::fs::permissions value) noexcept {
     permissions_ = value;
     return *this;
   }
@@ -610,13 +615,14 @@ class DirBuilder {
   static task<expected<void>> create_owned(io::io_context context,
                                            path name,
                                            bool recursive,
-                                           Permissions permissions) {
+                                           ::faio::fs::permissions permissions) {
     if (recursive)
       co_return co_await create_dir_all(std::move(context), std::move(name), permissions);
     co_return co_await create_dir(std::move(context), std::move(name), permissions);
   }
 
-  bool recursive_{};                                     /**< 是否递归处理目标目录及其子目录。 */
-  Permissions permissions_{std::filesystem::perms::all}; /**< 创建文件或目录时使用的权限配置。 */
+  bool recursive_{}; /**< 是否递归处理目标目录及其子目录。 */
+  ::faio::fs::permissions permissions_{
+      std::filesystem::perms::all}; /**< 创建文件或目录时使用的权限配置。 */
 };
 }  // namespace faio::fs

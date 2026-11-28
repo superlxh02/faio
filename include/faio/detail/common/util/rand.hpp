@@ -9,10 +9,10 @@
 
 namespace faio::util {
 /** @brief 线程局部快速伪随机数生成器。 */
-class FastRand {
+class fast_rand {
  public:
   /** @brief 初始化线程局部伪随机数生成器。 */
-  FastRand() {
+  fast_rand() {
     std::random_device dev;
     one_ = static_cast<uint32_t>(dev());
     two_ = static_cast<uint32_t>(dev());

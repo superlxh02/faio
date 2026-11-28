@@ -24,8 +24,7 @@ using namespace std::chrono_literals;
 constexpr std::string_view message{"hello TLS"};
 
 /** @brief 接受一条 TCP 连接，完成服务端 TLS 握手并回显一次请求。 */
-faio::task<bool> serve_once(faio::net::TcpListener& listener,
-                            faio::tls::TlsAcceptor acceptor) {
+faio::task<bool> serve_once(faio::net::tcp_listener& listener, faio::tls::tls_acceptor acceptor) {
   auto accepted = co_await listener.accept().set_timeout(5s);
   if (!accepted) {
     faio::log::logger()->error("接受 TCP 连接失败：{}", accepted.error().message());
@@ -66,15 +65,15 @@ faio::task<bool> serve_once(faio::net::TcpListener& listener,
 }
 
 /** @brief 连接服务端，验证证书后发送并核对完整明文回显。 */
-faio::task<bool> request_echo(faio::net::SocketAddr destination,
-                              faio::tls::TlsConnector connector) {
-  auto tcp = co_await faio::net::TcpStream::connect(destination);
+faio::task<bool> request_echo(faio::net::socket_addr destination,
+                              faio::tls::tls_connector connector) {
+  auto tcp = co_await faio::net::tcp_stream::connect(destination);
   if (!tcp) {
     faio::log::logger()->error("连接 TCP 服务失败：{}", tcp.error().message());
     co_return false;
   }
 
-  auto name = faio::tls::ServerName::parse("localhost");
+  auto name = faio::tls::server_name::parse("localhost");
   if (!name) {
     faio::log::logger()->error("解析 TLS 服务端名称失败：{}", name.error().message());
     co_return false;
@@ -118,10 +117,9 @@ faio::task<bool> request_echo(faio::net::SocketAddr destination,
 }
 
 /** @brief 监听本地临时端口，并发运行一次 TLS 回显的客户端与服务端。 */
-faio::task<bool> run_echo(faio::tls::TlsAcceptor acceptor,
-                          faio::tls::TlsConnector connector) {
-  const faio::net::SocketAddr loopback{faio::net::Ipv4Addr{127, 0, 0, 1}, 0};
-  auto listener = faio::net::TcpListener::bind(loopback);
+faio::task<bool> run_echo(faio::tls::tls_acceptor acceptor, faio::tls::tls_connector connector) {
+  const faio::net::socket_addr loopback{faio::net::ipv4_addr{127, 0, 0, 1}, 0};
+  auto listener = faio::net::tcp_listener::bind(loopback);
   if (!listener) {
     faio::log::logger()->error("绑定 TLS 监听器失败：{}", listener.error().message());
     co_return false;
@@ -133,9 +131,8 @@ faio::task<bool> run_echo(faio::tls::TlsAcceptor acceptor,
     co_return false;
   }
 
-  auto [server_ok, client_ok] =
-      co_await faio::join(serve_once(*listener, std::move(acceptor)),
-                          request_echo(*destination, std::move(connector)));
+  auto [server_ok, client_ok] = co_await faio::join(
+      serve_once(*listener, std::move(acceptor)), request_echo(*destination, std::move(connector)));
 
   const auto closed = co_await listener->close();
   if (!closed) {
@@ -153,33 +150,32 @@ int main(int argc, char** argv) {
   }
 
   try {
-    auto identity = faio::tls::Identity::from_pem_files(argv[1], argv[2]);
+    auto identity = faio::tls::identity::from_pem_files(argv[1], argv[2]);
     if (!identity) {
       faio::log::logger()->error("加载服务端证书和私钥失败：{}", identity.error().message());
       return 1;
     }
 
-    auto roots = faio::tls::TrustStore::from_pem_file(argv[3]);
+    auto roots = faio::tls::trust_store::from_pem_file(argv[3]);
     if (!roots) {
       faio::log::logger()->error("加载客户端 CA 失败：{}", roots.error().message());
       return 1;
     }
 
-    auto server = faio::tls::ServerConfig::builder(std::move(*identity)).build();
+    auto server = faio::tls::server_config::builder(std::move(*identity)).build();
     if (!server) {
       faio::log::logger()->error("创建 TLS 服务端配置失败：{}", server.error().message());
       return 1;
     }
 
-    auto client = faio::tls::ClientConfig::builder(std::move(*roots)).build();
+    auto client = faio::tls::client_config::builder(std::move(*roots)).build();
     if (!client) {
       faio::log::logger()->error("创建 TLS 客户端配置失败：{}", client.error().message());
       return 1;
     }
 
-    const bool ok = faio::block_on(
-        run_echo(faio::tls::TlsAcceptor{std::move(*server)},
-                 faio::tls::TlsConnector{std::move(*client)}));
+    const bool ok = faio::block_on(run_echo(faio::tls::tls_acceptor{std::move(*server)},
+                                            faio::tls::tls_connector{std::move(*client)}));
     if (!ok) {
       return 1;
     }

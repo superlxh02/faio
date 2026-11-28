@@ -15,32 +15,32 @@
 
 namespace faio::net::detail {
 template <class Stream, class Addr, bool Owned>
-class BasicWriteHalf;
+class basic_write_half;
 
 /**  @brief 安全读半部：共享控制块，使父 stream 移动或析构后不会留下悬空指针。 */
 template <class Stream, class Addr, bool Owned>
-class BasicReadHalf : public ImplStreamRead<BasicReadHalf<Stream, Addr, Owned>>,
-                      public ImplLocalAddr<BasicReadHalf<Stream, Addr, Owned>, Addr>,
-                      public ImplPeerAddr<BasicReadHalf<Stream, Addr, Owned>, Addr> {
+class basic_read_half : public impl_stream_read<basic_read_half<Stream, Addr, Owned>>,
+                        public impl_local_addr<basic_read_half<Stream, Addr, Owned>, Addr>,
+                        public impl_peer_addr<basic_read_half<Stream, Addr, Owned>, Addr> {
  public:
   /** @brief 保存读半部的连接租约和拆分身份。 */
-  BasicReadHalf(Socket socket, std::shared_ptr<char> identity)
+  basic_read_half(socket socket, std::shared_ptr<char> identity)
       : socket_{std::move(socket)}, identity_{std::move(identity)} {}
 
   /** @brief 接管源对象的状态和资源租约。 */
-  BasicReadHalf(BasicReadHalf&&) noexcept = default;
+  basic_read_half(basic_read_half&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  auto operator=(BasicReadHalf&&) noexcept -> BasicReadHalf& = default;
+  auto operator=(basic_read_half&&) noexcept -> basic_read_half& = default;
 
   /** @brief 禁止复制此对象。 */
-  BasicReadHalf(const BasicReadHalf&) = delete;
+  basic_read_half(const basic_read_half&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const BasicReadHalf&) -> BasicReadHalf& = delete;
+  auto operator=(const basic_read_half&) -> basic_read_half& = delete;
 
   /** @brief 释放读半部的资源和拆分身份租约。 */
-  ~BasicReadHalf() = default;
+  ~basic_read_half() = default;
 
   /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> native_socket_type {
@@ -59,7 +59,7 @@ class BasicReadHalf : public ImplStreamRead<BasicReadHalf<Stream, Addr, Owned>>,
   }
 
   /** @brief 等待给定的 socket 就绪条件。 */
-  auto ready(io::Interest interest = io::Interest::readable) const noexcept {
+  auto ready(io::interest interest = io::interest::READABLE) const noexcept {
     return io::ready(resource(), interest);
   }
 
@@ -70,13 +70,13 @@ class BasicReadHalf : public ImplStreamRead<BasicReadHalf<Stream, Addr, Owned>>,
   auto close() noexcept { return io::close(resource()); }
 
   /**  @brief 仅同一次 owned split 的半部可重新合并，需比较资源身份与 split 身份。 */
-  [[nodiscard]] auto reunite(BasicWriteHalf<Stream, Addr, Owned>&& writer) && -> expected<Stream>
+  [[nodiscard]] auto reunite(basic_write_half<Stream, Addr, Owned>&& writer) && -> expected<Stream>
     requires Owned
   {
     if (!socket_ || !writer.socket_ || identity_ != writer.identity_
         || resource() != writer.resource())
-      return std::unexpected{make_error(Error::ReuniteFailed)};
-    Socket socket = socket_->share();
+      return std::unexpected{make_error(::faio::error::REUNITE_FAILED)};
+    socket socket = socket_->share();
     writer.automatic_shutdown_ = false;
     writer.socket_.reset();
     writer.identity_.reset();
@@ -86,26 +86,26 @@ class BasicReadHalf : public ImplStreamRead<BasicReadHalf<Stream, Addr, Owned>>,
   }
 
  private:
-  friend class BasicWriteHalf<Stream, Addr, Owned>;
-  std::optional<Socket>
+  friend class basic_write_half<Stream, Addr, Owned>;
+  std::optional<socket>
       socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
   std::shared_ptr<char> identity_; /**< 读写半部共享的身份租约，合并时验证来自同一原始流。 */
 };
 
 /**  @brief 独立写半部；owned 半部析构在在途写排空后请求写半关闭。 */
 template <class Stream, class Addr, bool Owned>
-class BasicWriteHalf : public ImplStreamWrite<BasicWriteHalf<Stream, Addr, Owned>>,
-                       public ImplLocalAddr<BasicWriteHalf<Stream, Addr, Owned>, Addr>,
-                       public ImplPeerAddr<BasicWriteHalf<Stream, Addr, Owned>, Addr> {
+class basic_write_half : public impl_stream_write<basic_write_half<Stream, Addr, Owned>>,
+                         public impl_local_addr<basic_write_half<Stream, Addr, Owned>, Addr>,
+                         public impl_peer_addr<basic_write_half<Stream, Addr, Owned>, Addr> {
  public:
   using address_type = Addr; /**< 半部保留原 stream 地址协议与零拷贝能力限制。 */
 
   /** @brief 保存写半部的连接租约和拆分身份。 */
-  BasicWriteHalf(Socket socket, std::shared_ptr<char> identity)
+  basic_write_half(socket socket, std::shared_ptr<char> identity)
       : socket_{std::move(socket)}, identity_{std::move(identity)} {}
 
   /** @brief 接管源对象的状态和资源租约。 */
-  BasicWriteHalf(BasicWriteHalf&& other) noexcept
+  basic_write_half(basic_write_half&& other) noexcept
       : socket_{std::move(other.socket_)},
         identity_{std::move(other.identity_)},
         automatic_shutdown_{std::exchange(other.automatic_shutdown_, false)} {
@@ -113,7 +113,7 @@ class BasicWriteHalf : public ImplStreamWrite<BasicWriteHalf<Stream, Addr, Owned
   }
 
   /** @brief 移动赋值资源及状态。 */
-  auto operator=(BasicWriteHalf&& other) noexcept -> BasicWriteHalf& {
+  auto operator=(basic_write_half&& other) noexcept -> basic_write_half& {
     if (this != &other) {
       request_shutdown();
       socket_ = std::move(other.socket_);
@@ -125,13 +125,13 @@ class BasicWriteHalf : public ImplStreamWrite<BasicWriteHalf<Stream, Addr, Owned
   }
 
   /** @brief 禁止复制此对象。 */
-  BasicWriteHalf(const BasicWriteHalf&) = delete;
+  basic_write_half(const basic_write_half&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const BasicWriteHalf&) -> BasicWriteHalf& = delete;
+  auto operator=(const basic_write_half&) -> basic_write_half& = delete;
 
   /** @brief 按拥有型写半部策略请求写半关闭并释放租约。 */
-  ~BasicWriteHalf() { request_shutdown(); }
+  ~basic_write_half() { request_shutdown(); }
 
   /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> native_socket_type {
@@ -150,7 +150,7 @@ class BasicWriteHalf : public ImplStreamWrite<BasicWriteHalf<Stream, Addr, Owned
   }
 
   /** @brief 等待给定的 socket 就绪条件。 */
-  auto ready(io::Interest interest = io::Interest::writable) const noexcept {
+  auto ready(io::interest interest = io::interest::WRITABLE) const noexcept {
     return io::ready(resource(), interest);
   }
 
@@ -171,14 +171,14 @@ class BasicWriteHalf : public ImplStreamWrite<BasicWriteHalf<Stream, Addr, Owned
   }
 
   /** @brief 合并同一次拆分产生的拥有型读写半部。 */
-  [[nodiscard]] auto reunite(BasicReadHalf<Stream, Addr, Owned>&& reader) && -> expected<Stream>
+  [[nodiscard]] auto reunite(basic_read_half<Stream, Addr, Owned>&& reader) && -> expected<Stream>
     requires Owned
   {
     return std::move(reader).reunite(std::move(*this));
   }
 
  private:
-  friend class BasicReadHalf<Stream, Addr, Owned>;
+  friend class basic_read_half<Stream, Addr, Owned>;
 
   /** @brief 按拥有型写半部的析构策略请求写半关闭。 */
   void request_shutdown() noexcept {
@@ -189,7 +189,7 @@ class BasicWriteHalf : public ImplStreamWrite<BasicWriteHalf<Stream, Addr, Owned
     automatic_shutdown_ = false;
   }
 
-  std::optional<Socket>
+  std::optional<socket>
       socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
   std::shared_ptr<char> identity_; /**< 读写半部共享的身份租约，合并时验证来自同一原始流。 */
   bool automatic_shutdown_{Owned}; /**< 析构拥有型写半部时是否自动请求写半关闭。 */

@@ -22,46 +22,46 @@ inline constexpr std::size_t native_iov_limit =
     1024;
 #endif
 enum class operation_kind : std::uint8_t {
-  recv,
-  send,
-  recvfrom,
-  sendto,
-  recvmsg,
-  sendmsg,
-  send_zc,
-  sendmsg_zc,
-  connect,
-  accept,
-  accept_nowait,
-  read,
-  write,
-  readv,
-  writev,
-  open,
-  open2,
-  fsync,
-  close,
-  shutdown,
-  socket,
-  ready,
-  cancel,
-  getsockopt,
-  setsockopt,
-  socket_inq,
-  socket_outq,
-  statx,
-  mkdirat,
-  unlinkat,
-  renameat,
-  linkat,
-  symlinkat,
-  ftruncate,
-  unsupported
+  RECV,
+  SEND,
+  RECVFROM,
+  SENDTO,
+  RECVMSG,
+  SENDMSG,
+  SEND_ZC,
+  SENDMSG_ZC,
+  CONNECT,
+  ACCEPT,
+  ACCEPT_NOWAIT,
+  READ,
+  WRITE,
+  READV,
+  WRITEV,
+  OPEN,
+  OPEN2,
+  FSYNC,
+  CLOSE,
+  SHUTDOWN,
+  SOCKET,
+  READY,
+  CANCEL,
+  GETSOCKOPT,
+  SETSOCKOPT,
+  SOCKET_INQ,
+  SOCKET_OUTQ,
+  STATX,
+  MKDIRAT,
+  UNLINKAT,
+  RENAMEAT,
+  LINKAT,
+  SYMLINKAT,
+  FTRUNCATE,
+  UNSUPPORTED
 };
 
 /**  @brief 后端无关请求；构造仅保存参数，没有注册或系统调用副作用。 */
 struct io_request {
-  operation_kind kind{operation_kind::unsupported}; /**< 种类标签，用于区分请求、事件或句柄。 */
+  operation_kind kind{operation_kind::UNSUPPORTED}; /**< 种类标签，用于区分请求、事件或句柄。 */
   bool
       bypass_resource_registration{}; /**< 显式借用请求跳过第二份资源登记；File 外层租约已经固定句柄的生命周期。 */
   bool uncancellable{};    /**< 已接管关闭责任不能被域停机或父任务取消跳过。 */
@@ -77,7 +77,7 @@ struct io_request {
   resource_ptr resource;        /**< 稳定 IO 归属及资源租约。 */
   native_descriptor fd{-1};     /**< 请求使用的完整宽度原生句柄，不能将 Win64 SOCKET 截断为 int。 */
 #if defined(_WIN32)
-  native_handle_kind native_kind{native_handle_kind::windows_socket};
+  native_handle_kind native_kind{native_handle_kind::WINDOWS_SOCKET};
   bool windows_implicit_cursor{};
 #endif
   std::uint64_t native_completion_key{}; /**< 仅由原生后端锁保护，取消时无需重复映射 token。 */
@@ -109,7 +109,7 @@ struct io_request {
  *          这两个 opcode 的输入。SEND_ZC 和其他请求继续保存原 io_request。
  */
 struct scalar_io_request {
-  operation_kind kind{operation_kind::unsupported}; /**< 构造函数明确设为 recv/send。 */
+  operation_kind kind{operation_kind::UNSUPPORTED}; /**< 构造函数明确设为 recv/send。 */
   bool
       bypass_resource_registration{}; /**< 显式借用请求跳过第二份资源登记；File 外层租约已经固定句柄的生命周期。 */
   bool uncancellable{};        /**< 已接管关闭责任不能被域停机或父任务取消跳过。 */

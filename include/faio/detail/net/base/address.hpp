@@ -11,12 +11,12 @@
 namespace faio::net::detail {
 /**  @brief 查询对端；长度使用地址存储容量，兼容 IPv6 与 Unix pathname。 */
 template <class T, class Addr>
-struct ImplPeerAddr {
+struct impl_peer_addr {
   /** @brief 查询 socket 的对端地址。 */
   [[nodiscard]] auto peer_addr() const noexcept -> expected<Addr> {
     const auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::none, [&]() -> expected<Addr> {
+        object->resource(), io::interest::NONE, [&]() -> expected<Addr> {
           Addr address{};
           socklen_t length{Addr::capacity()};
           if (::getpeername(object->fd(), address.sockaddr(), &length) < 0)
@@ -30,12 +30,12 @@ struct ImplPeerAddr {
 
 /**  @brief 查询本地地址；bind(端口0) 后可获得内核分配的实际端口。 */
 template <class T, class Addr>
-struct ImplLocalAddr {
+struct impl_local_addr {
   /** @brief 查询 socket 的本地地址。 */
   [[nodiscard]] auto local_addr() const noexcept -> expected<Addr> {
     const auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::none, [&]() -> expected<Addr> {
+        object->resource(), io::interest::NONE, [&]() -> expected<Addr> {
           Addr address{};
           socklen_t length{Addr::capacity()};
           if (::getsockname(object->fd(), address.sockaddr(), &length) < 0)

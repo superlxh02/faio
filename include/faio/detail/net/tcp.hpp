@@ -11,7 +11,7 @@
 
 namespace faio::net {
 using owned_native_socket = detail::owned_native_socket;
-using TcpSocket = detail::TcpSocket;
-using TcpListener = detail::TcpListener;
-using TcpStream = detail::TcpStream;
+using tcp_socket = detail::tcp_socket;
+using tcp_listener = detail::tcp_listener;
+using tcp_stream = detail::tcp_stream;
 }  // namespace faio::net

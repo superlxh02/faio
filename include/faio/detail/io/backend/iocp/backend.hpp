@@ -136,17 +136,17 @@ class iocp_backend {
   /** @brief 查询初始化时固定的原生能力，避免普通请求热路径重复探测平台。 */
   bool supports(std::uint32_t value) const noexcept {
     switch (static_cast<kind>(value)) {
-      case kind::recv:
-      case kind::send:
-      case kind::recvfrom:
-      case kind::sendto:
-      case kind::recvmsg:
-      case kind::sendmsg:
-      case kind::accept:
-      case kind::connect:
-      case kind::read:
-      case kind::write:
-      case kind::ready:
+      case kind::RECV:
+      case kind::SEND:
+      case kind::RECVFROM:
+      case kind::SENDTO:
+      case kind::RECVMSG:
+      case kind::SENDMSG:
+      case kind::ACCEPT:
+      case kind::CONNECT:
+      case kind::READ:
+      case kind::WRITE:
+      case kind::READY:
         return true;
       default:
         return false;
@@ -157,16 +157,16 @@ class iocp_backend {
   submit_result try_submit(detail::backend_operation operation) noexcept {
     std::lock_guard lock(mutex_);
     auto& r = *operation.request;
-    if (!supports(static_cast<std::uint32_t>(r.kind)) && r.kind != kind::send_zc
-        && r.kind != kind::sendmsg_zc)
-      return {submit_status::rejected, EOPNOTSUPP};
+    if (!supports(static_cast<std::uint32_t>(r.kind)) && r.kind != kind::SEND_ZC
+        && r.kind != kind::SENDMSG_ZC)
+      return {submit_status::REJECTED, EOPNOTSUPP};
     if (!free_)
-      return {submit_status::would_queue, 0};
+      return {submit_status::WOULD_QUEUE, 0};
     if (r.fd < 0)
-      return {submit_status::rejected, EBADF};
+      return {submit_status::REJECTED, EBADF};
     const native_registration handle{static_cast<std::uintptr_t>(r.fd), r.native_kind};
     if (int error = register_resource_locked(handle); error)
-      return {submit_status::rejected, -error};
+      return {submit_status::REJECTED, -error};
     auto* node = free_;
     free_ = node->next;
     node->next = nullptr;
@@ -187,21 +187,21 @@ class iocp_backend {
       if (int error = issue(*node); error) {
         recycle(*node);
         r.native_completion_key = 0;
-        return {submit_status::rejected, error};
+        return {submit_status::REJECTED, error};
       }
     } catch (const std::invalid_argument&) {
       recycle(*node);
       r.native_completion_key = 0;
-      return {submit_status::rejected, EINVAL};
+      return {submit_status::REJECTED, EINVAL};
     } catch (...) {
       recycle(*node);
       r.native_completion_key = 0;
-      return {submit_status::rejected, ENOMEM};
+      return {submit_status::REJECTED, ENOMEM};
     }
     ++active_;
     ++statistics_.native_submitted;
     ++statistics_.native_flushed;
-    return {submit_status::accepted, 0};
+    return {submit_status::ACCEPTED, 0};
   }
 
   /** @brief 提交缓冲的写入或已准备的后端请求，失败保留尚未完成的责任。 */
@@ -217,7 +217,7 @@ class iocp_backend {
     if (!node || !node->active || node->token != operation.token || node->cancelled)
       return;
     node->cancelled = true;
-    if ((r.kind == kind::ready || node->polling) && !node->synthetic) {
+    if ((r.kind == kind::READY || node->polling) && !node->synthetic) {
       remove_ready(*node);
       complete_immediate(*node, -ECANCELED);
     } else if (!node->synthetic)
@@ -265,7 +265,7 @@ class iocp_backend {
         auto* node = reinterpret_cast<native_prefix*>(packet.lpOverlapped)->owner;
         if (!node->active || node->synthetic)
           std::terminate();
-        output[count++] = {event_kind::result, node->token, decode(*node, packet), 0};
+        output[count++] = {event_kind::RESULT, node->token, decode(*node, packet), 0};
         --active_;
         ++statistics_.native_completed;
         recycle(*node);
@@ -291,7 +291,7 @@ class iocp_backend {
     std::lock_guard lock(mutex_);
     for (auto& owned : entries_) {
       auto& node = *owned;
-      if (node.active && !node.synthetic && !node.polling && node.request->kind != kind::ready)
+      if (node.active && !node.synthetic && !node.polling && node.request->kind != kind::READY)
         (void)::CancelIoEx(reinterpret_cast<HANDLE>(node.request->fd), &node.native.overlapped);
     }
     wake();
@@ -313,8 +313,8 @@ class iocp_backend {
  private:
   /** @brief 在后端锁内把完整宽度原生句柄关联到完成端口。 */
   int register_resource_locked(native_registration handle) noexcept {
-    if (handle.kind != handle_kind::windows_socket && handle.kind != handle_kind::windows_handle
-        && handle.kind != handle_kind::windows_pipe)
+    if (handle.kind != handle_kind::WINDOWS_SOCKET && handle.kind != handle_kind::WINDOWS_HANDLE
+        && handle.kind != handle_kind::WINDOWS_PIPE)
       return -EINVAL;
     if (auto it = registrations_.find(handle.value); it != registrations_.end())
       return it->second.kind == handle.kind ? 0 : -EINVAL;
@@ -328,7 +328,7 @@ class iocp_backend {
         return -encode_windows_error(error);
       }
       it->second.skip =
-          handle.kind != handle_kind::windows_pipe
+          handle.kind != handle_kind::WINDOWS_PIPE
           && ::SetFileCompletionNotificationModes(native, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS)
                  != FALSE;
       return 0;
@@ -386,11 +386,11 @@ class iocp_backend {
     auto& r = *node.request;
     const SOCKET socket = static_cast<SOCKET>(r.fd);
     const DWORD flags = static_cast<DWORD>(r.flags & ~MSG_DONTWAIT);
-    if (r.kind == kind::recvmsg) {
+    if (r.kind == kind::RECVMSG) {
       const auto result = recv_message(r.fd, r.output_message, r.flags);
       return result < 0 ? -encode_winsock_error(::WSAGetLastError()) : result;
     }
-    if (r.kind == kind::sendmsg || r.kind == kind::sendmsg_zc) {
+    if (r.kind == kind::SENDMSG || r.kind == kind::SENDMSG_ZC) {
       r.message.msg_iov = r.vectors.data();
       const auto result = send_message(r.fd, &r.message, r.flags);
       return result < 0 ? -encode_winsock_error(::WSAGetLastError()) : result;
@@ -402,11 +402,11 @@ class iocp_backend {
     node.bytes = 0;
     int status{};
     switch (r.kind) {
-      case kind::recv:
+      case kind::RECV:
         status =
             ::WSARecv(socket, node.scalar.data(), 1, &node.bytes, &node.flags, nullptr, nullptr);
         break;
-      case kind::recvfrom:
+      case kind::RECVFROM:
         node.address_length = sizeof(node.address);
         status = ::WSARecvFrom(socket,
                                node.scalar.data(),
@@ -418,11 +418,11 @@ class iocp_backend {
                                nullptr,
                                nullptr);
         break;
-      case kind::send:
-      case kind::send_zc:
+      case kind::SEND:
+      case kind::SEND_ZC:
         status = ::WSASend(socket, node.scalar.data(), 1, &node.bytes, flags, nullptr, nullptr);
         break;
-      case kind::sendto:
+      case kind::SENDTO:
         status = ::WSASendTo(socket,
                              node.scalar.data(),
                              1,
@@ -438,7 +438,7 @@ class iocp_backend {
     }
     if (status == SOCKET_ERROR) {
       const int error = ::WSAGetLastError();
-      if (error != WSAEMSGSIZE || (r.kind != kind::recv && r.kind != kind::recvfrom))
+      if (error != WSAEMSGSIZE || (r.kind != kind::RECV && r.kind != kind::RECVFROM))
         return -encode_winsock_error(error);
     }
     return node.bytes;
@@ -453,16 +453,16 @@ class iocp_backend {
     auto* overlapped = &node.native.overlapped;
     SOCKET socket = static_cast<SOCKET>(r.fd);
     int status = SOCKET_ERROR;
-    if (r.kind == kind::ready) {
+    if (r.kind == kind::READY) {
       node.ready_next = ready_;
       ready_ = &node;
       return 0;
     }
     const bool receive =
-        r.kind == kind::recv || r.kind == kind::recvfrom || r.kind == kind::recvmsg;
-    const bool transmit = r.kind == kind::send || r.kind == kind::send_zc || r.kind == kind::sendto
-                          || r.kind == kind::sendmsg || r.kind == kind::sendmsg_zc;
-    if (r.kind == kind::recv && !r.length) {
+        r.kind == kind::RECV || r.kind == kind::RECVFROM || r.kind == kind::RECVMSG;
+    const bool transmit = r.kind == kind::SEND || r.kind == kind::SEND_ZC || r.kind == kind::SENDTO
+                          || r.kind == kind::SENDMSG || r.kind == kind::SENDMSG_ZC;
+    if (r.kind == kind::RECV && !r.length) {
       int type{}, size = sizeof(type);
       if (::getsockopt(socket, SOL_SOCKET, SO_TYPE, reinterpret_cast<char*>(&type), &size))
         return encode_winsock_error(::WSAGetLastError());
@@ -486,18 +486,18 @@ class iocp_backend {
       complete_immediate(node, result);
       return 0;
     }
-    if (r.kind == kind::read || r.kind == kind::write) {
-      if (r.native_kind != handle_kind::windows_handle
-          && r.native_kind != handle_kind::windows_pipe)
+    if (r.kind == kind::READ || r.kind == kind::WRITE) {
+      if (r.native_kind != handle_kind::WINDOWS_HANDLE
+          && r.native_kind != handle_kind::WINDOWS_PIPE)
         return EINVAL;
-      const auto offset = r.native_kind == handle_kind::windows_pipe || r.windows_implicit_cursor
+      const auto offset = r.native_kind == handle_kind::WINDOWS_PIPE || r.windows_implicit_cursor
                               ? std::uint64_t{0}
                               : r.offset;
       overlapped->Offset = static_cast<DWORD>(offset);
       overlapped->OffsetHigh = static_cast<DWORD>(offset >> 32);
       DWORD length = static_cast<DWORD>(std::min<std::size_t>(r.length, MAXDWORD));
       BOOL success =
-          r.kind == kind::read
+          r.kind == kind::READ
               ? ::ReadFile(
                     reinterpret_cast<HANDLE>(r.fd), r.buffer, length, &node.bytes, overlapped)
               : ::WriteFile(reinterpret_cast<HANDLE>(r.fd),
@@ -513,18 +513,18 @@ class iocp_backend {
       DWORD error = ::GetLastError();
       if (error == ERROR_IO_PENDING)
         return 0;
-      if (r.kind == kind::read
+      if (r.kind == kind::READ
           && (error == ERROR_HANDLE_EOF
-              || (r.native_kind == handle_kind::windows_pipe
+              || (r.native_kind == handle_kind::WINDOWS_PIPE
                   && (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED)))) {
         complete_immediate(node, 0);
         return 0;
       }
       return encode_windows_error(error);
     }
-    if (r.native_kind != handle_kind::windows_socket)
+    if (r.native_kind != handle_kind::WINDOWS_SOCKET)
       return EINVAL;
-    if (r.kind == kind::connect) {
+    if (r.kind == kind::CONNECT) {
       int type{}, length = sizeof(type);
       if (::getsockopt(socket, SOL_SOCKET, SO_TYPE, reinterpret_cast<char*>(&type), &length))
         return encode_winsock_error(::WSAGetLastError());
@@ -561,7 +561,7 @@ class iocp_backend {
       int error = ::WSAGetLastError();
       return error == WSA_IO_PENDING ? 0 : encode_winsock_error(error);
     }
-    if (r.kind == kind::accept) {
+    if (r.kind == kind::ACCEPT) {
       LPFN_ACCEPTEX function{};
       GUID id = WSAID_ACCEPTEX;
       if (int error = extension(socket, id, function); error)
@@ -594,10 +594,10 @@ class iocp_backend {
       int error = ::WSAGetLastError();
       return error == WSA_IO_PENDING ? 0 : encode_winsock_error(error);
     }
-    if (r.kind == kind::recvmsg || r.kind == kind::sendmsg || r.kind == kind::sendmsg_zc) {
-      auto& message = r.kind == kind::recvmsg ? *r.output_message : r.message;
-      auto* vectors = r.kind == kind::recvmsg ? message.msg_iov : r.vectors.data();
-      auto size = r.kind == kind::recvmsg ? message.msg_iovlen : r.vectors.size();
+    if (r.kind == kind::RECVMSG || r.kind == kind::SENDMSG || r.kind == kind::SENDMSG_ZC) {
+      auto& message = r.kind == kind::RECVMSG ? *r.output_message : r.message;
+      auto* vectors = r.kind == kind::RECVMSG ? message.msg_iov : r.vectors.data();
+      auto size = r.kind == kind::RECVMSG ? message.msg_iovlen : r.vectors.size();
       node.message.lpBuffers = buffers(node, node.message.dwBufferCount, vectors, size);
       node.message.name = static_cast<sockaddr*>(message.msg_name);
       node.message.namelen = message.msg_namelen;
@@ -606,7 +606,7 @@ class iocp_backend {
       node.message.Control = {static_cast<ULONG>(message.msg_controllen),
                               static_cast<char*>(message.msg_control)};
       node.message.dwFlags = static_cast<DWORD>(r.flags & ~MSG_DONTWAIT);
-      if (r.kind == kind::recvmsg && !message.msg_name && !message.msg_control) {
+      if (r.kind == kind::RECVMSG && !message.msg_name && !message.msg_control) {
         node.flags = node.message.dwFlags;
         status = ::WSARecv(socket,
                            node.message.lpBuffers,
@@ -615,7 +615,7 @@ class iocp_backend {
                            &node.flags,
                            overlapped,
                            nullptr);
-      } else if (r.kind != kind::recvmsg && !message.msg_control) {
+      } else if (r.kind != kind::RECVMSG && !message.msg_control) {
         status = message.msg_name ? ::WSASendTo(socket,
                                                 node.message.lpBuffers,
                                                 node.message.dwBufferCount,
@@ -632,7 +632,7 @@ class iocp_backend {
                                               node.message.dwFlags,
                                               overlapped,
                                               nullptr);
-      } else if (r.kind == kind::recvmsg) {
+      } else if (r.kind == kind::RECVMSG) {
         LPFN_WSARECVMSG function{};
         GUID id = WSAID_WSARECVMSG;
         if (int error = extension(socket, id, function); error)
@@ -652,16 +652,16 @@ class iocp_backend {
                                  : const_cast<char*>(static_cast<const char*>(r.const_buffer))};
       node.flags = static_cast<DWORD>(r.flags & ~MSG_DONTWAIT);
       switch (r.kind) {
-        case kind::recv:
+        case kind::RECV:
           status = ::WSARecv(
               socket, node.scalar.data(), 1, &node.bytes, &node.flags, overlapped, nullptr);
           break;
-        case kind::send:
-        case kind::send_zc:
+        case kind::SEND:
+        case kind::SEND_ZC:
           status = ::WSASend(
               socket, node.scalar.data(), 1, &node.bytes, node.flags, overlapped, nullptr);
           break;
-        case kind::recvfrom:
+        case kind::RECVFROM:
           status = ::WSARecvFrom(socket,
                                  node.scalar.data(),
                                  1,
@@ -672,7 +672,7 @@ class iocp_backend {
                                  overlapped,
                                  nullptr);
           break;
-        case kind::sendto:
+        case kind::SENDTO:
           status = ::WSASendTo(socket,
                                node.scalar.data(),
                                1,
@@ -694,7 +694,7 @@ class iocp_backend {
     }
     int error = ::WSAGetLastError();
     if (error == WSAEMSGSIZE && receive) {
-      if (r.kind == kind::recvmsg) {
+      if (r.kind == kind::RECVMSG) {
         node.flags |= MSG_TRUNC;
         if (!(node.message.dwFlags & (MSG_TRUNC | MSG_CTRUNC)))
           node.message.dwFlags |= MSG_TRUNC;
@@ -713,10 +713,10 @@ class iocp_backend {
     if (result < 0)
       return result;
     if (node.short_io
-        && (r.kind == kind::recvmsg || r.kind == kind::sendmsg || r.kind == kind::sendmsg_zc))
+        && (r.kind == kind::RECVMSG || r.kind == kind::SENDMSG || r.kind == kind::SENDMSG_ZC))
       return result;
     SOCKET socket = static_cast<SOCKET>(r.fd);
-    if (r.kind == kind::accept) {
+    if (r.kind == kind::ACCEPT) {
       if (::setsockopt(node.accepted,
                        SOL_SOCKET,
                        SO_UPDATE_ACCEPT_CONTEXT,
@@ -734,7 +734,7 @@ class iocp_backend {
       }
       return static_cast<std::int64_t>(std::exchange(node.accepted, INVALID_SOCKET));
     }
-    if (r.kind == kind::connect) {
+    if (r.kind == kind::CONNECT) {
       int type{}, length = sizeof(type);
       if (::getsockopt(socket, SOL_SOCKET, SO_TYPE, reinterpret_cast<char*>(&type), &length))
         return -encode_winsock_error(::WSAGetLastError());
@@ -743,13 +743,13 @@ class iocp_backend {
         return -encode_winsock_error(::WSAGetLastError());
       return 0;
     }
-    if (r.kind == kind::recvfrom && r.output_address && r.output_address_length) {
+    if (r.kind == kind::RECVFROM && r.output_address && r.output_address_length) {
       int size = std::min<int>(*r.output_address_length, node.address_length);
       if (size > 0)
         std::memcpy(r.output_address, &node.address, static_cast<std::size_t>(size));
       *r.output_address_length = node.address_length;
     }
-    if (r.kind == kind::recvmsg && r.output_message) {
+    if (r.kind == kind::RECVMSG && r.output_message) {
       if (!r.output_message->msg_name && !r.output_message->msg_control)
         node.message.dwFlags = node.flags;
       r.output_message->msg_flags = static_cast<int>(node.message.dwFlags);
@@ -769,13 +769,13 @@ class iocp_backend {
     if (packet.Internal != 0) {
       DWORD bytes{}, flags{};
       auto& r = *node.request;
-      if (r.native_kind == handle_kind::windows_socket) {
+      if (r.native_kind == handle_kind::WINDOWS_SOCKET) {
         if (!::WSAGetOverlappedResult(
                 static_cast<SOCKET>(r.fd), &node.native.overlapped, &bytes, FALSE, &flags)) {
           int error = ::WSAGetLastError();
           if (error == WSAEMSGSIZE
-              && (r.kind == kind::recv || r.kind == kind::recvfrom || r.kind == kind::recvmsg)) {
-            if (r.kind == kind::recvmsg) {
+              && (r.kind == kind::RECV || r.kind == kind::RECVFROM || r.kind == kind::RECVMSG)) {
+            if (r.kind == kind::RECVMSG) {
               node.flags |= MSG_TRUNC;
               if (!(node.message.dwFlags & (MSG_TRUNC | MSG_CTRUNC)))
                 node.message.dwFlags |= MSG_TRUNC;
@@ -789,9 +789,9 @@ class iocp_backend {
                      reinterpret_cast<HANDLE>(r.fd), &node.native.overlapped, &bytes, FALSE)) {
         DWORD error = ::GetLastError();
         result =
-            r.kind == kind::read
+            r.kind == kind::READ
                     && (error == ERROR_HANDLE_EOF
-                        || (r.native_kind == handle_kind::windows_pipe
+                        || (r.native_kind == handle_kind::WINDOWS_PIPE
                             && (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED)))
                 ? 0
                 : -encode_windows_error(error);
@@ -821,7 +821,7 @@ class iocp_backend {
       done_ = node->next;
       if (!done_)
         done_tail_ = nullptr;
-      output[count++] = {event_kind::result, node->token, finalize(*node, node->immediate), 0};
+      output[count++] = {event_kind::RESULT, node->token, finalize(*node, node->immediate), 0};
       --active_;
       ++statistics_.native_completed;
       recycle(*node);

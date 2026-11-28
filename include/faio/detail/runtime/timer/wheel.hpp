@@ -29,11 +29,11 @@ namespace faio::runtime::detail::timer {
  */
 
 template <std::size_t LEVEL>
-class TimerWheel {
+class timer_wheel {
   static_assert(LEVEL >= 1, "LEVEL must be >= 1, use TimerWheel<0> specialization for level 0");
 
  public:
-  using child_wheel = TimerWheel<LEVEL - 1>;            /**< 子时间轮类型 */
+  using child_wheel = timer_wheel<LEVEL - 1>;           /**< 子时间轮类型 */
   using child_wheel_ptr = std::unique_ptr<child_wheel>; /**< 子时间轮指针 */
 
   static constexpr std::size_t CHILD_SPAN_MS =
@@ -47,30 +47,30 @@ class TimerWheel {
 
  public:
   /** @brief 构造分层时间轮。 */
-  TimerWheel() = default;
+  timer_wheel() = default;
 
   /**
    * @brief 由一个已有的子时间轮升级构造
    * @param child 要放入第0号槽位的子时间轮
    */
-  explicit TimerWheel(child_wheel_ptr&& child) : _slot_map(1ull) {
+  explicit timer_wheel(child_wheel_ptr&& child) : _slot_map(1ull) {
     _wheels_slots[0] = std::move(child);
   }
 
   /** @brief 销毁分层时间轮。 */
-  ~TimerWheel() = default;
+  ~timer_wheel() = default;
 
   /** @brief 禁止复制构造分层时间轮。 */
-  TimerWheel(const TimerWheel&) = delete;
+  timer_wheel(const timer_wheel&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  TimerWheel& operator=(const TimerWheel&) = delete;
+  timer_wheel& operator=(const timer_wheel&) = delete;
 
   /** @brief 移动构造分层时间轮。 */
-  TimerWheel(TimerWheel&&) = default;
+  timer_wheel(timer_wheel&&) = default;
 
   /** @brief 移动赋值。 */
-  TimerWheel& operator=(TimerWheel&&) = default;
+  timer_wheel& operator=(timer_wheel&&) = default;
 
  public:
   /**
@@ -78,7 +78,7 @@ class TimerWheel {
    * @param task 待添加的定时器任务
    * @param interval 距当前位置的时间间隔（ms）
    */
-  void add_task(std::unique_ptr<TimerTask>&& task, std::size_t interval) {
+  void add_task(std::unique_ptr<timer_task>&& task, std::size_t interval) {
     auto slot_idx = interval >> CHILD_SHIFT;
     if (slot_idx >= SLOT_SIZE) {
       faio::log::logger()->error(
@@ -119,7 +119,7 @@ class TimerWheel {
    * @param task 待移除的任务指针
    * @param interval 任务所在的时间间隔
    */
-  void remove_task(TimerTask* task, std::size_t interval) {
+  void remove_task(timer_task* task, std::size_t interval) {
     auto slot_idx = interval >> CHILD_SHIFT;
     if (slot_idx >= SLOT_SIZE || _wheels_slots[slot_idx] == nullptr) {
       faio::log::logger()->warn(
@@ -213,11 +213,11 @@ class TimerWheel {
    * @return 新创建的父时间轮
    */
   [[nodiscard]]
-  auto level_up(std::unique_ptr<TimerWheel>&& me) -> std::unique_ptr<TimerWheel<LEVEL + 1>>
+  auto level_up(std::unique_ptr<timer_wheel>&& me) -> std::unique_ptr<timer_wheel<LEVEL + 1>>
     requires(LEVEL < MAX_LEVEL)
   {
     faio::log::logger()->trace("TimerWheel<{}>::level_up: upgrading to level {}", LEVEL, LEVEL + 1);
-    return std::make_unique<TimerWheel<LEVEL + 1>>(std::move(me));
+    return std::make_unique<timer_wheel<LEVEL + 1>>(std::move(me));
   }
 
   /**
@@ -270,9 +270,9 @@ class TimerWheel {
  */
 
 template <>
-class TimerWheel<0uz> {
+class timer_wheel<0uz> {
  public:
-  using father_wheel = TimerWheel<1uz>;                   /**< 父时间轮类型 */
+  using father_wheel = timer_wheel<1uz>;                  /**< 父时间轮类型 */
   using father_wheel_ptr = std::unique_ptr<father_wheel>; /**< 父时间轮指针 */
 
   static constexpr std::size_t SPAN_MS =
@@ -280,22 +280,22 @@ class TimerWheel<0uz> {
 
  public:
   /** @brief 构造分层时间轮。 */
-  TimerWheel() = default;
+  timer_wheel() = default;
 
   /** @brief 销毁分层时间轮。 */
-  ~TimerWheel() = default;
+  ~timer_wheel() = default;
 
   /** @brief 禁止复制构造分层时间轮。 */
-  TimerWheel(const TimerWheel&) = delete;
+  timer_wheel(const timer_wheel&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  TimerWheel& operator=(const TimerWheel&) = delete;
+  timer_wheel& operator=(const timer_wheel&) = delete;
 
   /** @brief 移动构造分层时间轮。 */
-  TimerWheel(TimerWheel&&) = default;
+  timer_wheel(timer_wheel&&) = default;
 
   /** @brief 移动赋值。 */
-  TimerWheel& operator=(TimerWheel&&) = default;
+  timer_wheel& operator=(timer_wheel&&) = default;
 
  public:
   /**
@@ -303,7 +303,7 @@ class TimerWheel<0uz> {
    * @param task 待添加的定时器任务（unique_ptr，所有权转移）
    * @param interval 从当前位置开始的时间间隔（ms），必须 < SLOT_SIZE
    */
-  void add_task(std::unique_ptr<TimerTask>&& task, std::size_t interval) {
+  void add_task(std::unique_ptr<timer_task>&& task, std::size_t interval) {
     auto slot_idx = interval & SLOT_MASK;
     task->_next = std::move(_task_slots[slot_idx]);
     _task_slots[slot_idx] = std::move(task);
@@ -334,10 +334,10 @@ class TimerWheel<0uz> {
    * @param task 待移除的任务指针（裸指针，用于查找匹配）
    * @param interval 任务所在的时间间隔
    */
-  void remove_task(TimerTask* task, std::size_t interval) {
+  void remove_task(timer_task* task, std::size_t interval) {
     auto slot_idx = interval & SLOT_MASK;
-    TimerTask* prev = nullptr;
-    TimerTask* current = _task_slots[slot_idx].get();
+    timer_task* prev = nullptr;
+    timer_task* current = _task_slots[slot_idx].get();
 
     while (current != nullptr) {
       if (current == task) {
@@ -435,7 +435,7 @@ class TimerWheel<0uz> {
    * @return 新创建的父时间轮（level-1）
    */
   [[nodiscard]]
-  auto level_up(std::unique_ptr<TimerWheel>&& me) -> father_wheel_ptr {
+  auto level_up(std::unique_ptr<timer_wheel>&& me) -> father_wheel_ptr {
     faio::log::logger()->trace("TimerWheel<0>::level_up: upgrading to level 1");
     return std::make_unique<father_wheel>(std::move(me));
   }
@@ -447,7 +447,7 @@ class TimerWheel<0uz> {
   }
 
  private:
-  std::array<std::unique_ptr<TimerTask>, SLOT_SIZE>
+  std::array<std::unique_ptr<timer_task>, SLOT_SIZE>
       _task_slots{};          /**< 任务槽位数组，每个槽位是一个 TimerTask 链表头 */
   std::uint64_t _slot_map{0}; /**< 位图：第 i 位为 1 表示 _task_slots[i] 非空 */
 };

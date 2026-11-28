@@ -17,14 +17,14 @@
 #include <span>
 
 namespace faio::net::detail {
-/**  @brief 地址按值持有的 sendmsg awaiter，临时 SocketAddr 可安全用于 co_await。 */
+/**  @brief 地址按值持有的 sendmsg awaiter，临时 socket_addr 可安全用于 co_await。 */
 template <class Addr>
-class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
+class send_datagram : public awaiter_options<send_datagram<Addr>> {
  public:
   /** @brief 构造单包发送请求并保存目标与缓冲区描述。 */
-  SendDatagram(std::shared_ptr<io::detail::resource_state> resource,
-               std::span<const char> buffer,
-               Addr address)
+  send_datagram(std::shared_ptr<io::detail::resource_state> resource,
+                std::span<const char> buffer,
+                Addr address)
       : resource_{std::move(resource)},
         address_{std::move(address)},
         vector_{const_cast<char*>(buffer.data()), buffer.size()},
@@ -44,11 +44,11 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
   }
 
   /** @brief 构造单包发送请求并保存目标与缓冲区描述。 */
-  SendDatagram(std::shared_ptr<io::detail::resource_state> resource,
-               std::span<const iovec> vectors,
-               std::optional<Addr> address,
-               std::span<const std::byte> control,
-               int flags)
+  send_datagram(std::shared_ptr<io::detail::resource_state> resource,
+                std::span<const iovec> vectors,
+                std::optional<Addr> address,
+                std::span<const std::byte> control,
+                int flags)
       : resource_{std::move(resource)},
         flags_{flags},
         address_{std::move(address)},
@@ -74,11 +74,11 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
   }
 
   /** @brief 禁止复制此对象。 */
-  SendDatagram(const SendDatagram&) = delete;
+  send_datagram(const send_datagram&) = delete;
 
   /**  @brief 登记前移动，区分内置单个 iovec 与调用者借用的 iovec 数组。 */
-  SendDatagram(SendDatagram&& other) noexcept
-      : AwaiterOptions<SendDatagram<Addr>>{std::move(other)},
+  send_datagram(send_datagram&& other) noexcept
+      : awaiter_options<send_datagram<Addr>>{std::move(other)},
         resource_{std::move(other.resource_)},
         owner_{other.owner_},
         flags_{other.flags_},
@@ -103,13 +103,13 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
   }
 
   /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
-  auto reservation(void* owner) & noexcept -> SendDatagram& {
+  auto reservation(void* owner) & noexcept -> send_datagram& {
     owner_ = owner;
     return *this;
   }
 
   /** @brief 设置组合操作的稳定身份，后续请求据此核对方向预留。 */
-  auto reservation(void* owner) && noexcept -> SendDatagram&& {
+  auto reservation(void* owner) && noexcept -> send_datagram&& {
     owner_ = owner;
     return std::move(*this);
   }
@@ -144,14 +144,14 @@ class SendDatagram : public AwaiterOptions<SendDatagram<Addr>> {
 
 /**  @brief 批量发送的一项；借用 payload，可为 connected socket 省略地址。 */
 template <class Addr>
-struct DatagramSend {
+struct datagram_send {
   std::span<const char> bytes; /**< 发送时借用的只读字节区，完成前保持有效。 */
   std::optional<Addr> peer;    /**< 拥有的本地或对端 socket 地址，提交期间不借用临时对象。 */
 };
 
 /**  @brief 消息型发送，不使用 write_all 合并或拆分数据报。 */
 template <class T, class Addr>
-struct ImplSend {
+struct impl_send {
   /** @brief 向已连接的对端发送一条数据报。 */
   auto send(std::span<const char> buffer) const noexcept {
     return io::send(
@@ -174,7 +174,7 @@ struct ImplSend {
 
   /** @brief 向指定对端发送一条完整数据报。 */
   auto send_to(std::span<const char> buffer, Addr address) const noexcept {
-    return SendDatagram<Addr>{static_cast<const T*>(this)->resource(), buffer, std::move(address)};
+    return send_datagram<Addr>{static_cast<const T*>(this)->resource(), buffer, std::move(address)};
   }
 
   /** @brief 向指定对端发送一条完整数据报。 */
@@ -192,7 +192,7 @@ struct ImplSend {
    *  @brief 有界批量发送，逐消息保持边界；失败时 progress
    * 表示已发出的消息数量。
    */
-  auto send_many(std::span<const DatagramSend<Addr>> messages) const
+  auto send_many(std::span<const datagram_send<Addr>> messages) const
       -> task<expected<std::size_t>> {
     return send_many_impl(static_cast<const T*>(this)->resource(), messages);
   }
@@ -202,7 +202,7 @@ struct ImplSend {
                     std::optional<Addr> address = {},
                     std::span<const std::byte> control = {},
                     int flags = 0) const noexcept {
-    return SendDatagram<Addr>{
+    return send_datagram<Addr>{
         static_cast<const T*>(this)->resource(), vectors, std::move(address), control, flags};
   }
 
@@ -210,7 +210,7 @@ struct ImplSend {
   [[nodiscard]] auto try_send(std::span<const char> buffer) const -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::writable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::WRITABLE, [&]() -> expected<std::size_t> {
           const auto result =
               socket_send(object->fd(), buffer.data(), buffer.size(), no_signal_flags);
           if (result < 0)
@@ -224,7 +224,7 @@ struct ImplSend {
       -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::writable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::WRITABLE, [&]() -> expected<std::size_t> {
           const auto result = socket_sendto(object->fd(),
                                             buffer.data(),
                                             buffer.size(),
@@ -244,7 +244,7 @@ struct ImplSend {
                                       int flags = 0) const -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::writable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::WRITABLE, [&]() -> expected<std::size_t> {
           if (vectors.size() > IOV_MAX)
             return std::unexpected{make_error(EINVAL)};
           msghdr message{};
@@ -266,20 +266,20 @@ struct ImplSend {
  private:
   /**  @brief 整个批次持有写方向 token，短挂起或协作让步期间仍保持调用顺序。 */
   static auto send_many_impl(std::shared_ptr<io::detail::resource_state> resource,
-                             std::span<const DatagramSend<Addr>> messages)
+                             std::span<const datagram_send<Addr>> messages)
       -> task<expected<std::size_t>> {
     if (messages.empty())
       co_return std::size_t{0};
     char owner_identity{};
     auto reservation =
-        io::detail::reserve_direction(resource, io::Interest::writable, &owner_identity);
+        io::detail::reserve_direction(resource, io::interest::WRITABLE, &owner_identity);
     if (!reservation)
       co_return std::unexpected{reservation.error()};
     std::size_t completed{};
     for (const auto& message : messages) {
       auto result =
           message.peer
-              ? co_await SendDatagram<Addr>{resource, message.bytes, *message.peer}.reservation(
+              ? co_await send_datagram<Addr>{resource, message.bytes, *message.peer}.reservation(
                     &owner_identity)
               : co_await io::send(
                     resource, message.bytes.data(), message.bytes.size(), no_signal_flags)
@@ -297,7 +297,7 @@ struct ImplSend {
                               io::io_buffer buffer,
                               std::optional<Addr> address) -> task<expected<io::io_transfer>> {
     auto result = address
-                      ? co_await SendDatagram<Addr>{resource, buffer.bytes(), *address}
+                      ? co_await send_datagram<Addr>{resource, buffer.bytes(), *address}
                       : co_await io::send(resource, buffer.data(), buffer.size(), no_signal_flags);
     if (!result)
       co_return std::unexpected{result.error()};

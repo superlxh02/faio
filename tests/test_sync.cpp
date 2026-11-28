@@ -42,8 +42,8 @@ faio::task<bool> notify_ready(faio::sync::condition_variable& condition,
 }
 
 /** @brief 发送有序消息并关闭通道。 */
-template <class Sender>
-faio::task<void> send_sequence(Sender sender) {
+template <class sender_type>
+faio::task<void> send_sequence(sender_type sender) {
   for (int value = 0; value != 16; ++value)
     faio_test::take(co_await sender.send(value));
   sender.close();

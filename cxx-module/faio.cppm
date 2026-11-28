@@ -7,6 +7,7 @@ export import faio.fs;
 export import faio.log;
 export import faio.net;
 export import faio.runtime;
+export import faio.stdio;
 export import faio.sync;
 export import faio.time;
 

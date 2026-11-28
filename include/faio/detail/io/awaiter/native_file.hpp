@@ -18,11 +18,11 @@ inline bool supports_native(const io_context& context, detail::operation_kind ki
  * @details 裸 fd 不另行注册资源所有者；地址稳定的操作持有路径和 iovec 描述符。
  * cancellable=false 用于已接管的原生 close；最终 CQE 到达前不得恢复协程或复用 fd。
  */
-class native_file_awaiter : public detail::IORegistrantAwaiter<native_file_awaiter> {
+class native_file_awaiter : public detail::io_registrant_awaiter<native_file_awaiter> {
  public:
   /** @brief 构造原生文件请求等待器。 */
   native_file_awaiter(io_context context, detail::io_request request, bool cancellable)
-      : IORegistrantAwaiter{
+      : io_registrant_awaiter{
             mark_borrowed(std::move(request), cancellable), std::move(context), cancellable} {}
 
   /**

@@ -47,8 +47,8 @@ struct basic_task_promise_base {
   void initialize_scheduling_opt(const task_scheduling_policy& inherited) {
     if (scheduling_initialized)
       return;
-    if (scheduling_options.stealing != scheduling_setting::inherit
-        || scheduling_options.bind_core != scheduling_setting::inherit || inherited.no_stealing
+    if (scheduling_options.stealing != scheduling_setting::INHERIT
+        || scheduling_options.bind_core != scheduling_setting::INHERIT || inherited.no_stealing
         || inherited.binds_core()) [[unlikely]] {
       context.scheduling = resolve_task_scheduling<S>(scheduling_options, inherited);
     } else if (&context.scheduling != &inherited) {

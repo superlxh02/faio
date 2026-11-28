@@ -15,8 +15,8 @@ namespace faio::experimental {
 /** @brief 关联运行时与任务图的 sender 调度器。 */
 template <faio::runtime::mode Mode>
 class execution_scheduler;
-using current_thread_scheduler = execution_scheduler<faio::runtime::mode::current_thread>;
-using multi_thread_scheduler = execution_scheduler<faio::runtime::mode::multi_thread>;
+using current_thread_scheduler = execution_scheduler<faio::runtime::mode::CURRENT_THREAD>;
+using multi_thread_scheduler = execution_scheduler<faio::runtime::mode::MULTI_THREAD>;
 /** @brief 可移动的 sender 句柄，负责观察已提交操作的结果。 */
 template <class Tuple>
 class sender_join_handle;
@@ -39,14 +39,14 @@ class runtime_ref {
   /** @brief 取得多工作线程模式的调度器；模式不符时抛出异常。 */
   auto get_multi_thread_scheduler() const -> multi_thread_scheduler;
   /** @brief 同步驱动 sender，待所属任务图排空后领取结果。 */
-  template <class Sender>
-  auto run(Sender&& sender) const;
+  template <class sender_type>
+  auto run(sender_type&& sender) const;
   /** @brief 将 sender 绑定到目标运行时及其任务图。 */
-  template <class Sender>
-  auto bind(Sender&& sender) const;
+  template <class sender_type>
+  auto bind(sender_type&& sender) const;
   /** @brief 立即提交 sender，并返回一次性结果观察句柄。 */
-  template <class Sender>
-  auto spawn_sender(Sender&& sender) const;
+  template <class sender_type>
+  auto spawn_sender(sender_type&& sender) const;
   /** @brief 将惰性协程的所有权交给 sender 桥接对象。 */
   template <class T>
   auto as_sender(faio::task<T> child) const;
@@ -79,7 +79,7 @@ class runtime_owner {
   /** @brief 取消并排空运行时；非法析构上下文触发终止。 */
   ~runtime_owner() noexcept {
     try {
-      context_.shutdown(faio::io::shutdown_policy::cancel_all);
+      context_.shutdown(faio::io::shutdown_policy::CANCEL_ALL);
     } catch (...) {
       std::fputs("faio experimental: owner destroyed with active reservation or from worker\n",
                  stderr);
@@ -94,21 +94,21 @@ class runtime_owner {
   auto get_scheduler() noexcept -> execution_scheduler<Mode>;
 
   /** @brief 同步驱动 sender，待所属任务图排空后领取结果。 */
-  template <class Sender>
-  auto run(Sender&& sender) {
-    return ref().run(std::forward<Sender>(sender));
+  template <class sender_type>
+  auto run(sender_type&& sender) {
+    return ref().run(std::forward<sender_type>(sender));
   }
 
   /** @brief 将 sender 绑定到目标运行时及其任务图。 */
-  template <class Sender>
-  auto bind(Sender&& sender) {
-    return ref().bind(std::forward<Sender>(sender));
+  template <class sender_type>
+  auto bind(sender_type&& sender) {
+    return ref().bind(std::forward<sender_type>(sender));
   }
 
   /** @brief 立即提交 sender，并返回一次性结果观察句柄。 */
-  template <class Sender>
-  auto spawn_sender(Sender&& sender) {
-    return ref().spawn_sender(std::forward<Sender>(sender));
+  template <class sender_type>
+  auto spawn_sender(sender_type&& sender) {
+    return ref().spawn_sender(std::forward<sender_type>(sender));
   }
 
   /** @brief 将惰性协程的所有权交给 sender 桥接对象。 */
@@ -121,7 +121,7 @@ class runtime_owner {
   void request_stop() noexcept { context_.request_stop(); }
 
   /** @brief 启动停止与排空流程，释放已经不再被异步操作借用的服务和句柄。 */
-  void shutdown(faio::io::shutdown_policy policy = faio::io::shutdown_policy::cancel_all) {
+  void shutdown(faio::io::shutdown_policy policy = faio::io::shutdown_policy::CANCEL_ALL) {
     context_.shutdown(policy);
   }
 
@@ -143,7 +143,7 @@ class runtime_owner {
 
 /** @brief 由调用线程驱动的实验性运行时。 */
 class current_thread_runtime final
-    : public detail::runtime_owner<faio::runtime::mode::current_thread> {
+    : public detail::runtime_owner<faio::runtime::mode::CURRENT_THREAD> {
  public:
   /** @brief 使用给定选项创建当前线程运行时。 */
   explicit current_thread_runtime(runtime_options options = current_thread_defaults())
@@ -151,7 +151,7 @@ class current_thread_runtime final
 };
 
 /** @brief 由多个工作线程驱动的实验性运行时。 */
-class multi_thread_runtime final : public detail::runtime_owner<faio::runtime::mode::multi_thread> {
+class multi_thread_runtime final : public detail::runtime_owner<faio::runtime::mode::MULTI_THREAD> {
  public:
   /** @brief 使用给定选项创建多工作线程运行时。 */
   explicit multi_thread_runtime(runtime_options options = multi_thread_defaults())

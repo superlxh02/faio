@@ -67,21 +67,21 @@ inline bool env_key_equal(std::string_view left, std::string_view right) {
 }
 
 /** @brief 固定启动时可见的配置、目录、环境和所属 IO 上下文。 */
-class CommandSnapshot {
+class command_snapshot {
  public:
   /** @brief 禁止复制调用时固定的启动输入，避免重复持有所有权或复制运行状态。 */
-  CommandSnapshot(const CommandSnapshot&) = delete;
+  command_snapshot(const command_snapshot&) = delete;
   /** @brief 调用时固定的启动输入不支持复制赋值，以免破坏已有所有权或关联关系。 */
-  auto operator=(const CommandSnapshot&) -> CommandSnapshot& = delete;
+  auto operator=(const command_snapshot&) -> command_snapshot& = delete;
   /** @brief 转交已经固定的命令、目录、环境、候选路径及 IO 上下文。 */
-  CommandSnapshot(CommandSnapshot&&) noexcept = default;
+  command_snapshot(command_snapshot&&) noexcept = default;
   /** @brief 替换本对象的命令、目录、环境、候选路径及 IO 上下文。 */
-  auto operator=(CommandSnapshot&&) noexcept -> CommandSnapshot& = default;
+  auto operator=(command_snapshot&&) noexcept -> command_snapshot& = default;
   /** @brief 释放固定启动输入，不改变已经交付的子进程。 */
-  ~CommandSnapshot() = default;
+  ~command_snapshot() = default;
 
   /** @brief 借用调用时复制并固定的命令配置。 */
-  auto command() const noexcept -> const Command& { return command_; }
+  auto command() const noexcept -> const ::faio::process::command& { return command_; }
 
   /** @brief 借用已固定的子进程绝对工作目录。 */
   auto cwd() const noexcept -> const std::filesystem::path& { return cwd_; }
@@ -104,14 +104,15 @@ class CommandSnapshot {
 #endif
  private:
   /** @brief 允许快照工厂填写校验后固定的目录、环境与候选路径。 */
-  friend auto snapshot_command(const Command&, io::io_context) -> expected<CommandSnapshot>;
+  friend auto snapshot_command(const ::faio::process::command&, io::io_context)
+      -> expected<command_snapshot>;
 
   /** @brief 复制命令并固定 IO 上下文，其余启动输入随后在调用线程填写。 */
-  CommandSnapshot(Command command, io::io_context context)
+  command_snapshot(::faio::process::command command, io::io_context context)
       : command_(std::move(command)), context_(std::move(context)) {}
 
-  Command command_;           /**< 调用时复制的完整命令，不再观察原 Command 的后续修改。 */
-  std::filesystem::path cwd_; /**< 已解析并规范化的子进程绝对工作目录。 */
+  ::faio::process::command command_; /**< 调用时复制的完整命令，不再观察原 Command 的后续修改。 */
+  std::filesystem::path cwd_;        /**< 已解析并规范化的子进程绝对工作目录。 */
   std::vector<std::filesystem::path> candidates_; /**< 按有效 PATH 顺序固定的绝对可执行候选路径。 */
   std::vector<std::filesystem::path::string_type>
       environment_;        /**< 按平台原生编码保存的最终环境条目。 */
@@ -122,18 +123,18 @@ class CommandSnapshot {
 };
 
 /** @brief 同步验证配置并固定目录、环境、PATH 和平台启动条件。 */
-inline auto snapshot_command(const Command& command, io::io_context context)
-    -> expected<CommandSnapshot> {
+inline auto snapshot_command(const command& command, io::io_context context)
+    -> expected<command_snapshot> {
   try {
     if (!context)
-      return std::unexpected{process_error(errc::runtime_unavailable)};
+      return std::unexpected{process_error(errc::RUNTIME_UNAVAILABLE)};
     if (context.stopped())
-      return std::unexpected{process_error(errc::runtime_shutdown)};
+      return std::unexpected{process_error(errc::RUNTIME_SHUTDOWN)};
     const auto invalid = [](std::string message = "invalid process configuration") {
       auto context = std::make_shared<error_context>();
       context->message = std::move(message);
       return std::unexpected{
-          process_error(errc::invalid_configuration).with_context(std::move(context))};
+          process_error(errc::INVALID_CONFIGURATION).with_context(std::move(context))};
     };
     const auto path_ok = [](const std::filesystem::path& path) {
       return !path.empty()
@@ -151,11 +152,11 @@ inline auto snapshot_command(const Command& command, io::io_context context)
           || (item.value && !valid_utf8(*item.value)))
         return invalid("environment[" + std::to_string(i) + "]: invalid key or UTF-8/NUL");
     }
-    const Stdio* slots[] = {&command.get_stdin(), &command.get_stdout(), &command.get_stderr()};
+    const stdio* slots[] = {&command.get_stdin(), &command.get_stdout(), &command.get_stderr()};
     for (int i{}; i < 3; ++i)
-      if (slots[i]->kind() == StdioKind::file) {
+      if (slots[i]->kind() == stdio_kind::FILE) {
         if (!path_ok(slots[i]->file_path()) || !slots[i]->file_mode()
-            || ((i == 0) != (*slots[i]->file_mode() == StdioFileMode::read)))
+            || ((i == 0) != (*slots[i]->file_mode() == stdio_file_mode::READ)))
           return invalid("stdio[" + std::to_string(i) + "]: invalid file binding");
       }
 #if defined(_WIN32)
@@ -167,7 +168,7 @@ inline auto snapshot_command(const Command& command, io::io_context context)
                               | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT;
     const DWORD flags = command.get_creation_flags(), selected = flags & priority;
     if (flags & ~allowed)
-      return std::unexpected{process_error(errc::unsupported_creation_flags)};
+      return std::unexpected{process_error(errc::UNSUPPORTED_CREATION_FLAGS)};
     if ((selected && (selected & (selected - 1)))
         || ((flags & CREATE_NEW_CONSOLE) && (flags & (CREATE_NO_WINDOW | DETACHED_PROCESS))))
       return invalid("creation_flags: conflicting priority or console flags");
@@ -182,7 +183,7 @@ inline auto snapshot_command(const Command& command, io::io_context context)
     if (action.sa_handler == SIG_IGN || (action.sa_flags & SA_NOCLDWAIT))
       return invalid("SIGCHLD: SIG_IGN/SA_NOCLDWAIT prevents exclusive reaping");
 #endif
-    CommandSnapshot result{command, std::move(context)};
+    command_snapshot result{command, std::move(context)};
     std::error_code ec;
     result.cwd_ = std::filesystem::current_path(ec);
     if (ec)
@@ -326,7 +327,7 @@ inline auto snapshot_command(const Command& command, io::io_context context)
 
 namespace faio::process {
 /** @brief 在原位置替换相同环境键，避免同一键出现多项修改。 */
-inline void Command::set_env(std::string key, std::optional<std::string> value) {
+inline void command::set_env(std::string key, std::optional<std::string> value) {
   for (auto& item : envs_)
     if (detail::env_key_equal(item.key, key)) {
       item = {std::move(key), std::move(value)};

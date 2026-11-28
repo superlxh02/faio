@@ -23,6 +23,8 @@ cc_binary(
 # permits `bazel run //examples:<name>` for individual examples. The two echo
 # servers stay running by design, so they are binaries rather than tests.
 HEADER_EXAMPLES = {
+    "match_basics": "common/match.cpp",
+    "stdio_console": "stdio/console.cpp",
     "coroutine_task": "coroutine/task.cpp",
     "composition_basics": "coroutine/composition_basics.cpp",
     "structured_concurrency": "coroutine/structured_concurrency.cpp",
@@ -65,6 +67,18 @@ SERVER_EXAMPLES = {
     )
     for name, source in SERVER_EXAMPLES.items()
 ]
+
+cc_test(
+    name = "unix_echo",
+    size = "small",
+    srcs = ["net/unix_echo.cpp"],
+    features = ["-cpp_modules"],
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    deps = ["//:faio"],
+)
 
 TLS_FIXTURES = ["//tests:fixtures/" + path for path in [
     "server.pem",

@@ -2,7 +2,7 @@
 
 [打开 API 查询 →](../api/index.html)
 
-通过页面顶部的搜索框查找已收录的核心公开类型或函数，例如 `task_group`、`spawn`、`config_builder`、`TcpStream` 和 `File`。类型页列出成员与重载；函数详情包含签名、参数、返回值、错误和生命周期约定。
+通过页面顶部的搜索框查找已收录的核心公开类型或函数，例如 `task_group`、`spawn`、`config_builder`、`tcp_stream` 和 `file`。类型页列出成员与重载；函数详情包含签名、参数、返回值、错误和生命周期约定。
 
 查询范围包括任务、运行时、网络、文件、时间、同步、流操作及错误与日志。TLS、异步进程和实验层分别见[TLS介绍](api/tls.md)、[进程介绍](api/process.md)与[实验性接口介绍](api/experimental.md)。
 

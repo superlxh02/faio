@@ -145,7 +145,5 @@ class config_builder {
   runtime::config _config; /**< 构建中的配置副本，不修改已经启动的运行时。 */
 };
 
-/** @brief 运行时配置构建器的兼容名称。 */
-using ConfigBuilder = config_builder;
 }  // namespace faio
 #endif

@@ -13,22 +13,24 @@ namespace faio::io::detail {
  * FD_FIXED、ANY 等需要额外原生身份的匹配选项返回 ENOTSUP。
  * 参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。
  */
-class Cancel : public IORegistrantAwaiter<Cancel> {
-  using Base = IORegistrantAwaiter<Cancel>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class cancel_awaiter : public io_registrant_awaiter<cancel_awaiter> {
+  using base_type =
+      io_registrant_awaiter<cancel_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造 I/O 取消等待器。 */
-  Cancel(native_descriptor fd, unsigned flags)
-      : Base{[&] {
+  cancel_awaiter(native_descriptor fd, unsigned flags)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::cancel;
+          r.kind = operation_kind::CANCEL;
           r.fd = fd;
           r.flags = static_cast<int>(flags);
           return r;
         }()} {}
 
   /** @brief 构造 I/O 取消等待器。 */
-  Cancel(resource_ptr resource, unsigned flags) : Cancel{resource ? resource->fd() : -1, flags} {
+  cancel_awaiter(resource_ptr resource, unsigned flags)
+      : cancel_awaiter{resource ? resource->fd() : -1, flags} {
     this->request_.resource = std::move(resource);
   }
 
@@ -46,6 +48,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto cancel(F fd, unsigned flags = 0) {
-  return detail::Cancel{std::move(fd), flags};
+  return detail::cancel_awaiter{std::move(fd), flags};
 }
 }  // namespace faio::io

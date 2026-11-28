@@ -15,7 +15,7 @@ namespace faio::net::detail {
  * 移动，不延长已设置的超时。
  */
 template <class Derived>
-class AwaiterOptions {
+class awaiter_options {
  public:
   /** @brief 将相对时长转换为单调时钟截止时间，保存到本次等待中。 */
   template <class Rep, class Period>

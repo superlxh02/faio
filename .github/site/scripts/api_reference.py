@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import sys
 
 sys.pycache_prefix = str(Path(__file__).resolve().parents[3] / "target/docs/pycache")
-from api_reference_content import EXPORTS, FUNCTION_GROUPS, GROUPS, ENUMS, MISSING, documentation
+from api_reference_content import EXPORTS, FUNCTION_GROUPS, GROUPS, GROUP_EXAMPLES, ENUMS, MISSING, documentation
 
 SOURCE = Path(__file__).resolve().parent.parent
 ROOT = SOURCE.parent.parent
@@ -80,9 +80,9 @@ def source_model():
 def public_text(value, spec):
     replacements = {
         '::faio::net::detail::': 'faio::net::', 'faio::net::detail::': 'faio::net::',
-        '::faio::': 'faio::', 'detail::SocketAddr': 'SocketAddr',
-        'detail::Ipv4Addr': 'Ipv4Addr', 'detail::Ipv6Addr': 'Ipv6Addr',
-        'detail::HostPort': 'HostPort', 'detail::owned_native_socket': 'owned_native_socket',
+        '::faio::': 'faio::', 'detail::socket_addr': 'socket_addr',
+        'detail::ipv4_addr': 'ipv4_addr', 'detail::ipv6_addr': 'ipv6_addr',
+        'detail::host_port': 'host_port', 'detail::owned_native_socket': 'owned_native_socket',
     }
     for old, new in replacements.items():
         value = value.replace(old, new)
@@ -94,14 +94,14 @@ def public_text(value, spec):
         value = re.sub(r'\bnative_descriptor\b', 'int', value)
     for old, new in spec.get('bindings', {}).items():
         value = re.sub(r'\b' + re.escape(old) + r'\b', new, value)
-    if spec.get('parent') == 'faio::net::TcpStream':
-        value = re.sub(r'Basic(ReadHalf|WriteHalf)\s*<\s*TcpStream,\s*SocketAddr,\s*(true|false)\s*>',
-                       lambda m: ('Owned' if m[2] == 'true' else '') + m[1], value)
+    if spec.get('parent') == 'faio::net::tcp_stream':
+        value = re.sub(r'basic_(read_half|write_half)\s*<\s*tcp_stream,\s*socket_addr,\s*(true|false)\s*>',
+                       lambda m: ('owned_' if m[2] == 'true' else '') + m[1], value)
     for short in ('mutex', 'semaphore', 'condition_variable', 'latch', 'barrier'):
         value = re.sub(r'\b(?:faio::sync::)?basic_' + short + r'\s*<\s*(?:faio::)?default_scheduler\s*>', 'faio::sync::' + short, value)
     value = re.sub(r'\b(?:faio::)?basic_scope_context\s*<\s*(?:faio::)?default_scheduler\s*>', 'faio::scope_context', value)
-    for alias in ('DatagramMessage', 'DatagramSend', 'OwnedDatagram'):
-        value = re.sub(r'\b' + alias + r'\s*<\s*(?:faio::net::)?SocketAddr\s*>', alias, value)
+    for alias in ('datagram_message', 'datagram_send', 'owned_datagram'):
+        value = re.sub(r'\b' + alias + r'\s*<\s*(?:faio::net::)?socket_addr\s*>', alias, value)
     return re.sub(r'\s+', ' ', value).strip()
 
 
@@ -142,7 +142,7 @@ def declaration(member, spec, owner=None):
     if allowed is not None and name not in allowed:
         return None
     constructor = name == spec['source'].split('::')[-1]
-    if owner and name.startswith(('Base', 'Impl')):
+    if owner and name.startswith(('base_', 'impl_')):
         return None
     result_type = public_text(text(member.find('type')), spec)
     # Applications await these operations or infer the native handle type.
@@ -164,7 +164,7 @@ def declaration(member, spec, owner=None):
         parameters.append((param_type, param_name, default))
     qualifiers = public_text(suffix(args), spec)
     signature = ' '.join([result_type, name, *(p[0] for p in parameters), qualifiers])
-    if re.search(r'\bdetail::|\b(?:resource_state|Socket|task_promise|handle_type|awaiter|scope_state|state)\b', signature):
+    if re.search(r'\bdetail::|\b(?:resource_state|socket|task_promise|handle_type|awaiter|scope_state|state)\b', signature):
         return None
     # Constructors of mixin/base implementation classes are never user factories.
     if owner and not constructor and not result_type and name != 'operator bool':
@@ -214,7 +214,13 @@ def generate(model):
     PUBLIC.mkdir(parents=True, exist_ok=True)
     output = ['// Generated documentation-only declaration view. Do not compile or edit.']
     for group, title, description in GROUPS:
-        output.append(f'/** @defgroup {group} {title}\n * {description}\n */')
+        definition = [f'/** @defgroup {group} {title}', ' * ' + description]
+        if group in GROUP_EXAMPLES:
+            definition += [' * @par 使用示例', ' * @code{.cpp}']
+            definition.extend(' * ' + line for line in GROUP_EXAMPLES[group].splitlines())
+            definition.append(' * @endcode')
+        definition.append(' */')
+        output.append('\n'.join(definition))
     report = []
     nested = {}
     for spec in EXPORTS:
@@ -287,12 +293,11 @@ def generate(model):
             entries.append('/** ' + values[item] + ' */ ' + item + (' ' + initializer if initializer else ''))
         output.append('namespace ' + namespace + ' {\n/** @brief ' + brief + '\n * @ingroup ' + group + '\n */\nenum class ' + name + ' {\n' + ',\n'.join(entries) + '\n};\n}')
     for namespace, alias, target, group, brief in [
-        ('faio','expected','std::expected<T, Error>','errors','成功值或 faio::Error；void 表示成功无业务值。'),
-        ('faio','ConfigBuilder','config_builder','runtime','config_builder 的兼容名称。'),
+        ('faio','expected','std::expected<T, error>','errors','成功值或 faio::error；void 表示成功无业务值。'),
         ('faio::fs','path','std::filesystem::path','filesystem','文件系统路径值。'),
-        ('faio::net','address','SocketAddr','network','SocketAddr 的兼容名称。'),
-        ('faio::net','v4addr','Ipv4Addr','network','Ipv4Addr 的兼容名称。'),
-        ('faio::net','v6addr','Ipv6Addr','network','Ipv6Addr 的兼容名称。'),
+        ('faio::net','address','socket_addr','network','SocketAddr 的兼容名称。'),
+        ('faio::net','v4addr','ipv4_addr','network','Ipv4Addr 的兼容名称。'),
+        ('faio::net','v6addr','ipv6_addr','network','Ipv6Addr 的兼容名称。'),
     ]:
         output.append('namespace ' + namespace + ' {\n/** @brief ' + brief + '\n * @ingroup ' + group + '\n */\n' + ('template <class T>\n' if alias == 'expected' else '') + 'using ' + alias + ' = ' + target + ';\n}')
     for spec in EXPORTS:
@@ -325,7 +330,7 @@ def generate(model):
     if 'UNRESOLVED' in generated:
         raise RuntimeError('Incomplete API documentation')
     (PUBLIC / 'public.hpp').write_text(generated, encoding='utf-8')
-    periodic = model.get('faio::time::detail::Interval')
+    periodic = model.get('faio::time::detail::interval_timer')
     periodic_docs = {
         'tick':('等待下一个周期触发。','co_await 后无业务返回值；遵循当前 MissedTickBehavior 推进下次 deadline。',{}),
         'period':('读取固定周期。','返回 chrono::nanoseconds。',{}),
@@ -340,15 +345,15 @@ def generate(model):
     found = set()
     for member in periodic.findall('./sectiondef/memberdef'):
         name = member.findtext('name')
-        if member.get('kind') != 'function' or member.get('prot') != 'public' or name == 'Interval':
+        if member.get('kind') != 'function' or member.get('prot') != 'public' or name == 'interval_timer':
             continue
         if name not in periodic_docs:
             raise RuntimeError('Missing periodic timer documentation: ' + name)
         found.add(name)
         brief, returns, params = periodic_docs[name]
-        spec = {'source':'faio::time::detail::Interval','public':'周期定时器返回对象'}
+        spec = {'source':'faio::time::detail::interval_timer','public':'周期定时器返回对象'}
         signature, arguments, _, _ = declaration(member, spec, 'timer')
-        signature = re.sub(r'\bSleep\b', 'auto', signature)
+        signature = re.sub(r'\bsleep_awaiter\b', 'auto', signature)
         page += [' * @section periodic_' + name + ' ' + name + '()', ' * ' + brief, ' * @code{.cpp}', ' * ' + signature, ' * @endcode']
         for _, parameter, _ in arguments:
             page += [' * - **' + parameter + '**：' + params[parameter]]

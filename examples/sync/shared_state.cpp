@@ -13,7 +13,7 @@ using namespace std::chrono_literals;
 namespace {
 
 /** @brief 发布者和请求任务共同访问的配置。 */
-struct SharedConfig {
+struct shared_config {
   faio::sync::mutex mutex;                /**< 保护 value 的读写。 */
   faio::sync::condition_variable changed; /**< 配置就绪时通知请求任务。 */
   std::optional<std::string> value;       /**< 为空时仍在加载，填入后保留已发布的配置。 */
@@ -23,7 +23,7 @@ struct SharedConfig {
  * @brief 模拟加载配置，取得锁后发布，再唤醒正在等待的请求。
  * @param config 发布者与请求共享的对象，存活到全部任务结束。
  */
-faio::task<void> publish(SharedConfig& config) {
+faio::task<void> publish(shared_config& config) {
   co_await faio::time::sleep(5ms);
   {
     auto guard = co_await config.mutex.scoped_lock();
@@ -39,7 +39,7 @@ faio::task<void> publish(SharedConfig& config) {
  * @param request_id 用于生成结果的请求编号。
  * @return 当前请求读取到的配置与编号。
  */
-faio::task<std::string> request(SharedConfig& config,
+faio::task<std::string> request(shared_config& config,
                                 faio::sync::semaphore& slots,
                                 int request_id) {
   std::string name;
@@ -58,7 +58,7 @@ faio::task<std::string> request(SharedConfig& config,
 
 /** @brief 并发提交一个发布任务和三个请求，最多允许两个请求同时执行。 */
 faio::task<void> demonstrate() {
-  SharedConfig config;
+  shared_config config;
   faio::sync::semaphore slots{2};
   const auto [first, second, third, published] = co_await faio::join(request(config, slots, 1),
                                                                      request(config, slots, 2),

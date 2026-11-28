@@ -11,10 +11,10 @@ namespace faio::fs {
 /**
  *  @brief 持有目录项路径，不借用 readdir 的临时内存；metadata 按需另行异步获取。
  */
-class DirEntry {
+class dir_entry {
  public:
   /** @brief 保存目录项的名称、路径和文件类型。 */
-  DirEntry(io::io_context context, fs::path filename, unsigned char type)
+  dir_entry(io::io_context context, fs::path filename, unsigned char type)
       : context_(std::move(context)), path_(std::move(filename)), type_(type) {}
 
   /** @brief 返回对象保存的文件系统路径。 */
@@ -76,12 +76,13 @@ struct directory_state {
 #endif
   std::mutex mutex; /**< 保护目录枚举的共享状态；调度与用户回调应遵循锁外调用协议。 */
   bool busy{}, closing{}, eof{}, shutdown_pending{},
-      shutdown_close_started{};     /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
-  std::optional<Error> error;       /**< 保存操作错误，供操作完成或重复查询时返回。 */
-  std::optional<Error> close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
+      shutdown_close_started{};       /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
+  std::optional<::faio::error> error; /**< 保存操作错误，供操作完成或重复查询时返回。 */
+  std::optional<::faio::error>
+      close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
   ::faio::detail::completion_event
-      close_completion;         /**< 保留关闭完成状态的事件，所有关闭等待者共享该通知。 */
-  std::deque<DirEntry> entries; /**< 已解析但尚未交付给调用者的目录项队列。 */
+      close_completion;          /**< 保留关闭完成状态的事件，所有关闭等待者共享该通知。 */
+  std::deque<dir_entry> entries; /**< 已解析但尚未交付给调用者的目录项队列。 */
   std::shared_ptr<::faio::detail::completion_event>
       pending; /**< 当前在途目录批次的共享完成事件。 */
 
@@ -175,7 +176,7 @@ struct directory_lease {
 };
 
 /** @brief 异步读取下一个目录项，枚举结束返回空值。 */
-inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<directory_state> state) {
+inline task<expected<std::optional<dir_entry>>> next_entry(std::shared_ptr<directory_state> state) {
   if (!state)
     co_return std::unexpected{make_error(EBADF)};
   auto event = std::make_shared<::faio::detail::completion_event>();
@@ -247,11 +248,11 @@ inline task<expected<std::optional<DirEntry>>> next_entry(std::shared_ptr<direct
   if (!state->entries.empty()) {
     auto result = std::move(state->entries.front());
     state->entries.pop_front();
-    co_return std::optional<DirEntry>{std::move(result)};
+    co_return std::optional<dir_entry>{std::move(result)};
   }
   if (state->error)
     co_return std::unexpected{*state->error};
-  co_return std::optional<DirEntry>{};
+  co_return std::optional<dir_entry>{};
 }
 
 /** @brief 关闭目录枚举并排空正在执行的读取。 */
@@ -307,22 +308,23 @@ inline task<expected<void>> close_directory(std::shared_ptr<directory_state> sta
 }  // namespace detail
 
 /**  @brief 按有界批次枚举的异步目录迭代器，无法在目录被外部修改时保证快照语义。 */
-class ReadDir {
+class directory_reader {
  public:
   /** @brief 持有目录枚举的共享状态。 */
-  explicit ReadDir(std::shared_ptr<detail::directory_state> state) : state_(std::move(state)) {}
+  explicit directory_reader(std::shared_ptr<detail::directory_state> state)
+      : state_(std::move(state)) {}
 
   /** @brief 转移目录枚举状态和资源租约。 */
-  ReadDir(ReadDir&&) noexcept = default;
+  directory_reader(directory_reader&&) noexcept = default;
 
   /** @brief 转移目录枚举资源和状态的所有权。 */
-  ReadDir& operator=(ReadDir&&) noexcept = default;
+  directory_reader& operator=(directory_reader&&) noexcept = default;
 
   /** @brief 禁止复制此对象。 */
-  ReadDir(const ReadDir&) = delete;
+  directory_reader(const directory_reader&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  ReadDir& operator=(const ReadDir&) = delete;
+  directory_reader& operator=(const directory_reader&) = delete;
 
   /** @brief 异步读取下一个目录项，枚举结束返回空值。 */
   auto next_entry() { return detail::next_entry(state_); }
@@ -336,9 +338,9 @@ class ReadDir {
 };
 
 /** @brief 异步打开目录，返回目录枚举器。 */
-inline task<expected<ReadDir>> read_dir(io::io_context context, fs::path filename) {
+inline task<expected<directory_reader>> read_dir(io::io_context context, fs::path filename) {
 #if defined(__linux__)
-  if (io::supports_native(context, io::detail::operation_kind::open)) {
+  if (io::supports_native(context, io::detail::operation_kind::OPEN)) {
     auto opened =
         co_await detail::open_native_directory(context, AT_FDCWD, filename.native(), false);
     if (!opened)
@@ -346,11 +348,11 @@ inline task<expected<ReadDir>> read_dir(io::io_context context, fs::path filenam
     auto state = std::make_shared<detail::directory_state>(context, filename, nullptr);
     state->native_cursor = std::move(*opened);
     detail::register_directory_shutdown(state);
-    co_return ReadDir{std::move(state)};
+    co_return directory_reader{std::move(state)};
   }
 #endif
   co_return co_await blocking::call(
-      context, [context, filename = std::move(filename)]() -> expected<ReadDir> {
+      context, [context, filename = std::move(filename)]() -> expected<directory_reader> {
         auto* native = ::opendir(filename.c_str());
         if (!native)
           return std::unexpected{make_error(errno)};
@@ -362,7 +364,7 @@ inline task<expected<ReadDir>> read_dir(io::io_context context, fs::path filenam
           throw;
         }
         detail::register_directory_shutdown(state);
-        return ReadDir{std::move(state)};
+        return directory_reader{std::move(state)};
       });
 }
 

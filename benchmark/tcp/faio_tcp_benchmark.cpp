@@ -19,7 +19,7 @@
 
 namespace {
 /** @brief TCP 基准的监听地址与回显模式配置。 */
-struct TcpBenchmarkConfig {
+struct tcp_benchmark_config {
   std::string host = "0.0.0.0";
   uint16_t port = 18081;
   bool echo = false;
@@ -27,7 +27,7 @@ struct TcpBenchmarkConfig {
 };
 
 /** @brief 处理基准连接的字节回显或 HTTP 持久响应。 */
-auto handle_connection(faio::net::TcpStream stream, bool echo, bool inline_echo_write)
+auto handle_connection(faio::net::tcp_stream stream, bool echo, bool inline_echo_write)
     -> faio::task<void> {
   (void)stream.set_nodelay(true);
   std::array<char, 65536> buf{};
@@ -95,7 +95,7 @@ auto handle_connection(faio::net::TcpStream stream, bool echo, bool inline_echo_
 }
 
 /** @brief 绑定基准端口并提交各连接处理任务。 */
-auto run_server(const TcpBenchmarkConfig& config) -> faio::task<int> {
+auto run_server(const tcp_benchmark_config& config) -> faio::task<int> {
   const auto capabilities = faio::io::io_context::current().domain()->capabilities();
   faio::log::logger()->info("faio tcp benchmark IO backend: {} (native files={})",
                             capabilities.backend,
@@ -107,7 +107,7 @@ auto run_server(const TcpBenchmarkConfig& config) -> faio::task<int> {
     co_return 1;
   }
 
-  auto listener_res = faio::net::TcpListener::bind(addr_res.value());
+  auto listener_res = faio::net::tcp_listener::bind(addr_res.value());
   if (!listener_res) {
     faio::log::logger()->error("bind failed: {}", listener_res.error().message());
     co_return 1;
@@ -127,13 +127,13 @@ auto run_server(const TcpBenchmarkConfig& config) -> faio::task<int> {
         handle_connection(std::move(stream), config.echo, config.inline_echo_write));
   }
 }
-}
+}  // namespace
 
 /** @brief 解析参数并启动 faio TCP 回显或 HTTP 基准服务。 */
 int main(int argc, char** argv) {
   faio::log::logger()->set_level(spdlog::level::info);
 
-  TcpBenchmarkConfig config;
+  tcp_benchmark_config config;
   if (argc > 1) {
     config.host = argv[1];
   }
@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
       && (std::string_view(argv[4]) == "echo" || std::string_view(argv[4]) == "echo_inline");
   config.inline_echo_write = argc > 4 && std::string_view(argv[4]) == "echo_inline";
   const auto workers = argc > 3 ? std::strtoul(argv[3], nullptr, 10) : 4;
-  auto builder = faio::ConfigBuilder{}.set_num_workers(workers);
+  auto builder = faio::config_builder{}.set_num_workers(workers);
   if (const auto* value = std::getenv("FAIO_BENCH_IO_INTERVAL"))
     builder.set_io_interval(static_cast<uint32_t>(std::stoul(value)));
   if (const auto* value = std::getenv("FAIO_BENCH_IDLE_SPIN_COUNT"))
@@ -178,7 +178,7 @@ int main(int argc, char** argv) {
   if (current_thread) {
     if (workers != 1)
       throw std::invalid_argument("--current-thread requires workers=1");
-    builder.set_mode(faio::runtime::mode::current_thread);
+    builder.set_mode(faio::runtime::mode::CURRENT_THREAD);
   }
   auto runtime_config = builder.build();
   if (const auto* value = std::getenv("FAIO_BENCH_MAX_IO_DELAY_US"))

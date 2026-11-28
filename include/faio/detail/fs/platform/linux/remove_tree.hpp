@@ -27,7 +27,7 @@ inline auto unlink_relative(io::io_context context, int parent, std::string file
 
     /** @brief 返回当前文件请求的操作类型。 */
     io::detail::operation_kind kind() const noexcept {
-      return io::detail::operation_kind::unlinkat;
+      return io::detail::operation_kind::UNLINKAT;
     }
 
     /** @brief 将紧凑请求展开为完整请求，固定地址、移交资源租约并初始化低频字段。 */
@@ -75,7 +75,7 @@ inline task<expected<std::uint64_t>> remove_native_tree(io::io_context context,
   std::uint64_t removed = 0;
   std::size_t steps = 0;
   std::size_t bytes = root.native().size();
-  auto failure = [&](const Error& error) -> expected<std::uint64_t> {
+  auto failure = [&](const error& error) -> expected<std::uint64_t> {
     return std::unexpected{
         error.with_progress(static_cast<std::size_t>(removed) + error.progress())};
   };

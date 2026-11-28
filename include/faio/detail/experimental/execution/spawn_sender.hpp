@@ -9,15 +9,15 @@
 
 namespace faio::experimental::detail {
 /** @brief 保存连接已提交 sender 与结果接收器的操作状态。 */
-template <class Sender, class Tuple>
+template <class sender_type, class Tuple>
 struct submitted_operation final : graph_operation_storage {
   using operation_type = stdexec::connect_result_t<
-      Sender,
+      sender_type,
       result_receiver<Tuple>>; /**< 连接发送器与接收器后得到的稳定操作状态类型。 */
   operation_type operation;    /**< 地址固定的底层异步操作，由当前包装负责启动、等待和交付结果。 */
 
   /** @brief 将 sender 连接到提交结果的接收器。 */
-  submitted_operation(Sender sender, submitted_graph<Tuple>& state)
+  submitted_operation(sender_type sender, submitted_graph<Tuple>& state)
       : operation(stdexec::connect(std::move(sender), result_receiver<Tuple>{&state})) {}
 
   /** @brief 按执行协议启动已连接的操作，此后只能交付一次终态。 */
@@ -30,9 +30,9 @@ struct submitted_operation final : graph_operation_storage {
 
 namespace faio::experimental {
 /** @brief 立即提交 sender，并返回一次性结果观察句柄。 */
-template <class Sender>
-auto runtime_ref::spawn_sender(Sender&& sender) const {
-  auto bound = bind(std::forward<Sender>(sender));
+template <class sender_type>
+auto runtime_ref::spawn_sender(sender_type&& sender) const {
+  auto bound = bind(std::forward<sender_type>(sender));
   using tuple = detail::result_tuple<decltype(bound)>;
   auto state = std::make_shared<detail::submitted_graph<tuple>>(context().external_host());
   state->operation = std::make_unique<detail::submitted_operation<decltype(bound), tuple>>(

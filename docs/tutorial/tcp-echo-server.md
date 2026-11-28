@@ -21,11 +21,11 @@
 #include <utility>
 
 namespace {
-const auto address = faio::net::SocketAddr{faio::net::Ipv4Addr{127, 0, 0, 1}, 8080};
+const auto address = faio::net::socket_addr{faio::net::ipv4_addr{127, 0, 0, 1}, 8080};
 
 /** @brief 持续读取一条连接并回写，直到对端关闭或 I/O 失败。 */
-faio::task<void> handle_connection(faio::net::TcpStream stream,
-                                   faio::net::SocketAddr peer) {
+faio::task<void> handle_connection(faio::net::tcp_stream stream,
+                                   faio::net::socket_addr peer) {
   std::array<char, 4096> buffer{};
   for (;;) {
     const auto count = co_await stream.read(buffer);
@@ -49,7 +49,7 @@ faio::task<void> handle_connection(faio::net::TcpStream stream,
 
 /** @brief 绑定端口并持续接受连接。 */
 faio::task<int> serve() {
-  auto listener = faio::net::TcpListener::bind(address);
+  auto listener = faio::net::tcp_listener::bind(address);
   if (!listener) {
     faio::log::logger()->error("绑定 {} 失败：{}", address.to_string(), listener.error().message());
     co_return 1;
@@ -81,19 +81,19 @@ int main() {
 }
 ```
 
-## `TcpListener::bind()` 同步返回
+## `tcp_listener::bind()` 同步返回
 
 服务入口先绑定地址：
 
 ```cpp
-auto listener = faio::net::TcpListener::bind(address);
+auto listener = faio::net::tcp_listener::bind(address);
 if (!listener) {
   faio::log::logger()->error("绑定失败：{}", listener.error().message());
   co_return 1;
 }
 ```
 
-`bind(SocketAddr)` 不返回任务，而是同步完成绑定并返回 `expected<TcpListener>`。失败时错误放在 `expected` 里，直接用 `if (!listener)` 处理。`serve()` 返回 `task<int>`，因此绑定失败用 `co_return 1` 结束任务。
+`bind(socket_addr)` 不返回任务，而是同步完成绑定并返回 `expected<tcp_listener>`。失败时错误放在 `expected` 里，直接用 `if (!listener)` 处理。`serve()` 返回 `task<int>`，因此绑定失败用 `co_return 1` 结束任务。
 
 ## `accept()` 是异步任务
 
@@ -111,7 +111,7 @@ for (;;) {
 }
 ```
 
-`accept()` 返回可等待任务；`co_await` 后得到 `expected<std::pair<TcpStream, SocketAddr>>`。错误在 `co_await` 的返回值上处理，不会走异常路径。连接流和客户端地址都从 `expected` 中取出。
+`accept()` 返回可等待任务；`co_await` 后得到 `expected<std::pair<tcp_stream, socket_addr>>`。错误在 `co_await` 的返回值上处理，不会走异常路径。连接流和客户端地址都从 `expected` 中取出。
 
 ## `spawn_detached()` 派生连接任务
 
@@ -121,7 +121,7 @@ for (;;) {
 faio::spawn_detached(handle_connection(std::move(stream), peer));
 ```
 
-`spawn_detached()` 提交任务后立即返回，不提供句柄。`TcpStream` 是移动独占的，必须用 `std::move` 传进处理函数。`accept()` 循环因此只负责接受连接，不会被某个慢客户端拖住。
+`spawn_detached()` 提交任务后立即返回，不提供句柄。`tcp_stream` 是移动独占的，必须用 `std::move` 传进处理函数。`accept()` 循环因此只负责接受连接，不会被某个慢客户端拖住。
 
 ## `read()` 报告本次读取量
 

@@ -25,9 +25,9 @@ void verify_drain() {
 
 /** @brief 注册退出检查并提交后台任务。 */
 [[= faio::experimental::main(async_main)]][[= faio::experimental::runtime_options{
-    .mode = faio::runtime::mode::multi_thread,
+    .mode = faio::runtime::mode::MULTI_THREAD,
     .workers = 2,
-    .exit_policy = faio::experimental::entry_exit_policy::drain}]] faio::task<int>
+    .exit_policy = faio::experimental::entry_exit_policy::DRAIN}]] faio::task<int>
     async_main(int, char**) {
   if (std::atexit(verify_drain) != 0)
     co_return 1;

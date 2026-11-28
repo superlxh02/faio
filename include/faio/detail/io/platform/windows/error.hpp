@@ -25,22 +25,22 @@ inline int encode_winsock_error(int value) noexcept {
 }
 
 /**  @brief 文件服务路径直接交付原生 Win32 代码，无需内部编码中转。 */
-inline Error make_windows_error(std::uint32_t value, std::uint64_t progress = 0) noexcept {
-  return Error{static_cast<int>(value), progress, error_domain::win32};
+inline error make_windows_error(std::uint32_t value, std::uint64_t progress = 0) noexcept {
+  return ::faio::error{static_cast<int>(value), progress, error_domain::WIN32_API};
 }
 
 /**  @brief 网络同步控制面返回原生 Winsock 错误。 */
-inline Error make_winsock_error(int value, std::uint64_t progress = 0) noexcept {
-  return Error{value, progress, error_domain::winsock};
+inline error make_winsock_error(int value, std::uint64_t progress = 0) noexcept {
+  return ::faio::error{value, progress, error_domain::WINSOCK};
 }
 
 /**  @brief 在 IO await_resume 边界解码；取消/超时仍保留普通 errno 契约。 */
-inline Error make_io_error(int value, std::uint64_t progress = 0) noexcept {
+inline error make_io_error(int value, std::uint64_t progress = 0) noexcept {
   if ((value & 0xf0000000) == win32_error_tag)
     return make_windows_error(static_cast<std::uint32_t>(value & native_error_mask), progress);
   if ((value & 0xf0000000) == winsock_error_tag)
     return make_winsock_error(value & native_error_mask, progress);
-  return Error{value, progress};
+  return ::faio::error{value, progress};
 }
 
 /**
@@ -51,8 +51,8 @@ inline Error make_io_error(int value, std::uint64_t progress = 0) noexcept {
  *          代码页。该接口位于 Windows IO 层，通用 Error
  * 类型无需依赖系统缓冲区。
  */
-inline std::string format_windows_error(const Error& error) {
-  if (error.domain() != error_domain::win32 && error.domain() != error_domain::winsock)
+inline std::string format_windows_error(const error& error) {
+  if (error.domain() != error_domain::WIN32_API && error.domain() != error_domain::WINSOCK)
     return std::string{error.message()};
   wchar_t* message{};
   const DWORD length = ::FormatMessageW(
@@ -103,7 +103,7 @@ inline std::string format_windows_error(const Error& error) {
       }
     }
   }
-  return std::string{error.domain() == error_domain::winsock ? "Winsock error " : "Win32 error "}
+  return std::string{error.domain() == error_domain::WINSOCK ? "Winsock error " : "Win32 error "}
          + std::to_string(error.native_code());
 }
 }  // namespace faio::io::windows

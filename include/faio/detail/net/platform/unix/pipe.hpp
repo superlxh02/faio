@@ -21,7 +21,7 @@ namespace faio::net::unix::pipe {
 using owned_native_fd = ::faio::net::detail::owned_native_socket;
 
 namespace detail {
-using Socket = ::faio::net::detail::Socket;
+using socket = ::faio::net::detail::socket;
 
 /**
  *  @brief 导入只接受正确访问方向的 FIFO/匿名管道，拒绝可能阻塞 reactor
@@ -49,22 +49,22 @@ inline auto prepare(int fd) -> expected<void> {
 }  // namespace detail
 
 /**  @brief 非阻塞 Unix pipe/FIFO 发送端。写端关闭以后对端在排空数据后读到 EOF。 */
-class Sender {
+class sender {
  public:
   /** @brief 接管管道写端及所属 IO 上下文。 */
-  explicit Sender(detail::Socket socket) : socket_{std::move(socket)} {}
+  explicit sender(detail::socket socket) : socket_{std::move(socket)} {}
 
   /** @brief 接管源对象的状态和资源租约。 */
-  Sender(Sender&&) noexcept = default;
+  sender(sender&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  Sender& operator=(Sender&&) noexcept = default;
+  sender& operator=(sender&&) noexcept = default;
 
   /** @brief 禁止复制此对象。 */
-  Sender(const Sender&) = delete;
+  sender(const sender&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  Sender& operator=(const Sender&) = delete;
+  sender& operator=(const sender&) = delete;
 
   /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> int { return socket_.fd(); }
@@ -79,7 +79,7 @@ class Sender {
   [[nodiscard]] auto context() const noexcept { return socket_.context(); }
 
   /** @brief 等待 socket 或管道可写，不执行实际写入。 */
-  auto writable() const noexcept { return io::ready(resource(), io::Interest::writable); }
+  auto writable() const noexcept { return io::ready(resource(), io::interest::WRITABLE); }
 
   /** @brief 写入一段字节并返回本次实际写入数量。 */
   auto write(std::span<const char> buffer) const noexcept {
@@ -112,16 +112,16 @@ class Sender {
 
   /** @brief 接管显式传入的原生句柄，按平台规则建立资源包装。 */
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_fd native)
-      -> expected<Sender> {
+      -> expected<sender> {
     if (auto result = detail::validate(native.get(), true); !result)
       return std::unexpected{result.error()};
     if (auto result = detail::prepare(native.get()); !result)
       return std::unexpected{result.error()};
-    auto socket = detail::Socket::adopt_checked(native.get(), std::move(context));
+    auto socket = detail::socket::adopt_checked(native.get(), std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
     (void)native.release();
-    return Sender{std::move(*socket)};
+    return sender{std::move(*socket)};
   }
 
   /**
@@ -129,7 +129,7 @@ class Sender {
    * @details io_uring 使用原生 OPENAT SQE/CQE；epoll/kqueue 的文件打开由
    *          通用 IO 引擎交给文件服务，网络层不额外创建辅助线程任务。
    */
-  static auto open(io::io_context context, std::string path) -> task<expected<Sender>> {
+  static auto open(io::io_context context, std::string path) -> task<expected<sender>> {
     if (path.find('\0') != std::string::npos)
       co_return std::unexpected{make_error(EINVAL)};
     auto descriptor =
@@ -161,7 +161,7 @@ class Sender {
       co_return expected<void>{};
     char owner_identity{};
     auto reservation =
-        io::detail::reserve_direction(lease, io::Interest::writable, &owner_identity);
+        io::detail::reserve_direction(lease, io::interest::WRITABLE, &owner_identity);
     if (!reservation)
       co_return std::unexpected{reservation.error()};
     std::size_t completed{};
@@ -175,7 +175,8 @@ class Sender {
         co_return std::unexpected{
             result.error().with_progress(completed + result.error().progress())};
       if (!*result)
-        co_return std::unexpected{Error{Error::WriteZero, completed, error_domain::faio}};
+        co_return std::unexpected{
+            ::faio::error{::faio::error::WRITE_ZERO, completed, error_domain::FAIO}};
       completed += *result;
       buffer = buffer.subspan(*result);
       co_await this_coro::yield_if_needed();
@@ -183,26 +184,26 @@ class Sender {
     co_return expected<void>{};
   }
 
-  detail::Socket socket_; /**< 持有底层管道包装，在挂起期间保持原生资源身份有效。 */
+  detail::socket socket_; /**< 持有底层管道包装，在挂起期间保持原生资源身份有效。 */
 };
 
 /**  @brief 非阻塞 Unix pipe/FIFO 接收端；使用 read 而非 socket recv。 */
-class Receiver {
+class receiver {
  public:
   /** @brief 接管管道读端及所属 IO 上下文。 */
-  explicit Receiver(detail::Socket socket) : socket_{std::move(socket)} {}
+  explicit receiver(detail::socket socket) : socket_{std::move(socket)} {}
 
   /** @brief 接管源对象的状态和资源租约。 */
-  Receiver(Receiver&&) noexcept = default;
+  receiver(receiver&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  Receiver& operator=(Receiver&&) noexcept = default;
+  receiver& operator=(receiver&&) noexcept = default;
 
   /** @brief 禁止复制此对象。 */
-  Receiver(const Receiver&) = delete;
+  receiver(const receiver&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  Receiver& operator=(const Receiver&) = delete;
+  receiver& operator=(const receiver&) = delete;
 
   /** @brief 读取原生句柄值，不转移关闭责任。 */
   [[nodiscard]] auto fd() const noexcept -> int { return socket_.fd(); }
@@ -217,7 +218,7 @@ class Receiver {
   [[nodiscard]] auto context() const noexcept { return socket_.context(); }
 
   /** @brief 等待 socket 或管道可读，不消费数据。 */
-  auto readable() const noexcept { return io::ready(resource(), io::Interest::readable); }
+  auto readable() const noexcept { return io::ready(resource(), io::interest::READABLE); }
 
   /** @brief 读取一段字节，非空缓冲区返回零表示 EOF。 */
   auto read(std::span<char> buffer) const noexcept {
@@ -247,16 +248,16 @@ class Receiver {
 
   /** @brief 接管显式传入的原生句柄，按平台规则建立资源包装。 */
   [[nodiscard]] static auto from_native(io::io_context context, owned_native_fd native)
-      -> expected<Receiver> {
+      -> expected<receiver> {
     if (auto result = detail::validate(native.get(), false); !result)
       return std::unexpected{result.error()};
     if (auto result = detail::prepare(native.get()); !result)
       return std::unexpected{result.error()};
-    auto socket = detail::Socket::adopt_checked(native.get(), std::move(context));
+    auto socket = detail::socket::adopt_checked(native.get(), std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
     (void)native.release();
-    return Receiver{std::move(*socket)};
+    return receiver{std::move(*socket)};
   }
 
   /**
@@ -264,7 +265,7 @@ class Receiver {
    * @details 取消与成功 CQE 竞争时，通用引擎先回收成功创建的 fd 再发布取消；
    *          接收端仅在成功结果返回后建立唯一拥有者。
    */
-  static auto open(io::io_context context, std::string path) -> task<expected<Receiver>> {
+  static auto open(io::io_context context, std::string path) -> task<expected<receiver>> {
     if (path.find('\0') != std::string::npos)
       co_return std::unexpected{make_error(EINVAL)};
     auto descriptor =
@@ -297,7 +298,7 @@ class Receiver {
       co_return expected<void>{};
     char owner_identity{};
     auto reservation =
-        io::detail::reserve_direction(lease, io::Interest::readable, &owner_identity);
+        io::detail::reserve_direction(lease, io::interest::READABLE, &owner_identity);
     if (!reservation)
       co_return std::unexpected{reservation.error()};
     std::size_t completed{};
@@ -311,7 +312,8 @@ class Receiver {
         co_return std::unexpected{
             result.error().with_progress(completed + result.error().progress())};
       if (!*result)
-        co_return std::unexpected{Error{Error::UnexpectedEOF, completed, error_domain::faio}};
+        co_return std::unexpected{
+            ::faio::error{::faio::error::UNEXPECTED_EOF, completed, error_domain::FAIO}};
       completed += *result;
       buffer = buffer.subspan(*result);
       co_await this_coro::yield_if_needed();
@@ -319,20 +321,20 @@ class Receiver {
     co_return expected<void>{};
   }
 
-  detail::Socket socket_; /**< 持有底层管道包装，在挂起期间保持原生资源身份有效。 */
+  detail::socket socket_; /**< 持有底层管道包装，在挂起期间保持原生资源身份有效。 */
 };
 
 /**  @brief 创建内核匿名管道，返回发送端与接收端，不创建额外线程。 */
 [[nodiscard]] inline auto pair(io::io_context context = io::io_context::current())
-    -> expected<std::pair<Sender, Receiver>> {
+    -> expected<std::pair<sender, receiver>> {
   int descriptors[2];
   if (::faio::net::detail::create_native_pipe(descriptors) < 0)
     return std::unexpected{make_error(errno)};
   owned_native_fd read_end{descriptors[0]}, write_end{descriptors[1]};
-  auto reader = Receiver::from_native(context, std::move(read_end));
+  auto reader = receiver::from_native(context, std::move(read_end));
   if (!reader)
     return std::unexpected{reader.error()};
-  auto writer = Sender::from_native(std::move(context), std::move(write_end));
+  auto writer = sender::from_native(std::move(context), std::move(write_end));
   if (!writer)
     return std::unexpected{writer.error()};
   return std::pair{std::move(*writer), std::move(*reader)};

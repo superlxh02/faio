@@ -21,15 +21,15 @@
 
 namespace faio {
 /** @brief 子任务失败后是否对同组工作发出停止请求。 */
-enum class group_error_policy { fail_fast, collect_all };
+enum class group_error_policy { FAIL_FAST, COLLECT_ALL };
 
 /** @brief 任务组策略，默认在首次观察到错误时发出停止请求。 */
 struct group_options {
-  group_error_policy errors{group_error_policy::fail_fast};
+  group_error_policy errors{group_error_policy::FAIL_FAST};
 };
 
 /** @brief 任务组接纳错误。 */
-enum class task_group_errc { closed = 1 };
+enum class task_group_errc { CLOSED = 1 };
 
 /** @brief 取得任务组错误码所属的类别。 */
 inline const std::error_category& task_group_error_category() noexcept {
@@ -37,7 +37,7 @@ inline const std::error_category& task_group_error_category() noexcept {
     const char* name() const noexcept override { return "faio.task_group"; }
 
     std::string message(int code) const override {
-      return code == static_cast<int>(task_group_errc::closed) ? "任务组已关闭接纳"
+      return code == static_cast<int>(task_group_errc::CLOSED) ? "任务组已关闭接纳"
                                                                : "未知任务组错误";
     }
   };
@@ -93,8 +93,8 @@ class basic_task_group_state {
   /** @brief 短暂持锁以登记工作；可选的停止检查仅用于限制并发时补充接纳任务。 */
   std::shared_ptr<group_child_result> admit(bool stop_sensitive) {
     std::lock_guard lock(mutex_);
-    if (phase_ != phase::open)
-      throw std::system_error(make_error_code(task_group_errc::closed));
+    if (phase_ != phase::OPEN)
+      throw std::system_error(make_error_code(task_group_errc::CLOSED));
     if (stop_sensitive && (stopping_ || stop_owner->source.stop_requested()))
       return {};
     auto record = std::make_shared<group_child_result>();
@@ -106,8 +106,8 @@ class basic_task_group_state {
   /** @brief 登记由组合自身观察终态的工作，不加入组结果列表。 */
   void admit_lifetime() {
     std::lock_guard lock(mutex_);
-    if (phase_ != phase::open)
-      throw std::system_error(make_error_code(task_group_errc::closed));
+    if (phase_ != phase::OPEN)
+      throw std::system_error(make_error_code(task_group_errc::CLOSED));
     ++pending_;
   }
 
@@ -127,8 +127,8 @@ class basic_task_group_state {
   void close() {
     const bool drained = [&] {
       std::lock_guard lock(mutex_);
-      if (phase_ == phase::open)
-        phase_ = phase::closing;
+      if (phase_ == phase::OPEN)
+        phase_ = phase::CLOSING;
       return mark_drained_locked();
     }();
     if (drained)
@@ -141,7 +141,7 @@ class basic_task_group_state {
   /** @brief 记录首个错误后，在锁外广播停止请求。 */
   void observe_error() {
     bool request = false;
-    if (options_.errors == group_error_policy::fail_fast) {
+    if (options_.errors == group_error_policy::FAIL_FAST) {
       std::lock_guard lock(mutex_);
       request = !std::exchange(stopping_, true);
     }
@@ -184,7 +184,7 @@ class basic_task_group_state {
   basic_completion_event<S> completion;
 
  private:
-  enum class phase { open, closing, drained };
+  enum class phase { OPEN, CLOSING, DRAINED };
 
   bool release_locked() noexcept {
     --pending_;
@@ -192,15 +192,15 @@ class basic_task_group_state {
   }
 
   bool mark_drained_locked() noexcept {
-    if (phase_ != phase::closing || pending_ != 0)
+    if (phase_ != phase::CLOSING || pending_ != 0)
       return false;
-    phase_ = phase::drained;
+    phase_ = phase::DRAINED;
     return true;
   }
 
   const group_options options_;
   std::mutex mutex_;
-  phase phase_{phase::open};
+  phase phase_{phase::OPEN};
   std::size_t pending_{1};  ///< 主体占用初始计数，确保其返回前任务组不会被视为已排空。
   bool stopping_{};
   std::vector<std::shared_ptr<group_child_result>> records_;

@@ -7,20 +7,20 @@
 
 namespace faio::util {
 /** @brief 禁止复制的基类。 */
-class Noncopyable {
+class noncopyable {
  public:
   /** @brief 禁止复制构造。 */
-  Noncopyable(const Noncopyable&) = delete;
+  noncopyable(const noncopyable&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  Noncopyable& operator=(const Noncopyable&) = delete;
+  noncopyable& operator=(const noncopyable&) = delete;
 
  protected:
   /** @brief 构造基类对象。 */
-  Noncopyable() = default;
+  noncopyable() = default;
 
   /** @brief 销毁基类对象。 */
-  ~Noncopyable() noexcept = default;
+  ~noncopyable() noexcept = default;
 };
 }  // namespace faio::util
 #endif

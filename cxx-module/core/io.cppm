@@ -13,24 +13,24 @@ export module faio.io;
 export import faio.coroutine;
 
 export namespace faio::io {
-using ::faio::io::BufReader;
-using ::faio::io::BufStream;
-using ::faio::io::BufWriter;
-using ::faio::io::Chain;
-using ::faio::io::DuplexStream;
-using ::faio::io::Empty;
-using ::faio::io::Interest;
-using ::faio::io::Lines;
-using ::faio::io::MemoryStream;
-using ::faio::io::OperationOptions;
-using ::faio::io::ReadHalf;
-using ::faio::io::Ready;
-using ::faio::io::Repeat;
-using ::faio::io::ShutdownBehavior;
-using ::faio::io::Sink;
-using ::faio::io::SplitByDelimiter;
-using ::faio::io::Take;
-using ::faio::io::WriteHalf;
+using ::faio::io::buf_reader;
+using ::faio::io::buf_stream;
+using ::faio::io::buf_writer;
+using ::faio::io::chained_reader;
+using ::faio::io::duplex_stream;
+using ::faio::io::empty_reader;
+using ::faio::io::interest;
+using ::faio::io::line_reader;
+using ::faio::io::memory_stream;
+using ::faio::io::operation_options;
+using ::faio::io::read_half;
+using ::faio::io::readiness;
+using ::faio::io::repeat_reader;
+using ::faio::io::shutdown_behavior;
+using ::faio::io::sink_writer;
+using ::faio::io::delimiter_reader;
+using ::faio::io::limited_reader;
+using ::faio::io::write_half;
 using ::faio::io::accept;
 using ::faio::io::async_buf_reader;
 using ::faio::io::async_reader;
@@ -105,9 +105,9 @@ using ::faio::io::write_all_buf;
 
 #if !defined(_WIN32)
 export namespace faio::io::unix {
-using ::faio::io::unix::AsyncFd;
-using ::faio::io::unix::AsyncFdReadyGuard;
-using ::faio::io::unix::OwnedFd;
+using ::faio::io::unix::async_fd;
+using ::faio::io::unix::async_fd_ready_guard;
+using ::faio::io::unix::owned_fd;
 using ::faio::io::unix::native_fd_owner;
 }  // namespace faio::io::unix
 #endif

@@ -110,7 +110,7 @@ TEST(CoroutineOn, TransferAndStop) {
   std::atomic<bool> armed{};
   std::jthread cancel_target{[&] {
     ready(armed);
-    target.stop(faio::io::shutdown_policy::cancel_all);
+    target.stop(faio::io::shutdown_policy::CANCEL_ALL);
   }};
   verify(current.block_on(forward_stop(target.anchor(), armed)));
   cancel_target.join();
@@ -121,7 +121,7 @@ TEST(CoroutineOn, TransferAndStop) {
   std::atomic<bool> source_armed{};
   std::jthread cancel_source{[&] {
     ready(source_armed);
-    source.stop(faio::io::shutdown_policy::cancel_all);
+    source.stop(faio::io::shutdown_policy::CANCEL_ALL);
   }};
   verify(source.block_on(forward_stop(another.anchor(), source_armed)));
   cancel_source.join();

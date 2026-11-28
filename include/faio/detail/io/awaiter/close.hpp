@@ -8,27 +8,28 @@
 
 namespace faio::io::detail {
 /**  @brief Close 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class Close : public IORegistrantAwaiter<Close> {
-  using Base = IORegistrantAwaiter<Close>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class close_awaiter : public io_registrant_awaiter<close_awaiter> {
+  using base_type =
+      io_registrant_awaiter<close_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造资源关闭等待器。 */
-  Close(native_descriptor fd)
-      : Base{[&] {
+  close_awaiter(native_descriptor fd)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::close;
+          r.kind = operation_kind::CLOSE;
           r.fd = fd;
           return r;
         }()} {}
 
   /** @brief 构造资源关闭等待器。 */
-  Close(resource_ptr resource) : Close{resource ? resource->fd() : -1} {
+  close_awaiter(resource_ptr resource) : close_awaiter{resource ? resource->fd() : -1} {
     this->request_.resource = std::move(resource);
   }
 #if defined(_WIN32)
   /**  @brief 原生文件关闭由不可取消的清理流程处理，与 SOCKET 的关闭流程分开。 */
-  Close(HANDLE handle) : Close{reinterpret_cast<native_descriptor>(handle)} {
-    this->request_.native_kind = native_handle_kind::windows_handle;
+  close_awaiter(HANDLE handle) : close_awaiter{reinterpret_cast<native_descriptor>(handle)} {
+    this->request_.native_kind = native_handle_kind::WINDOWS_HANDLE;
     this->request_.bypass_resource_registration = true;
     this->request_.uncancellable = true;
   }
@@ -48,6 +49,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto close(F fd) {
-  return detail::Close{std::move(fd)};
+  return detail::close_awaiter{std::move(fd)};
 }
 }  // namespace faio::io

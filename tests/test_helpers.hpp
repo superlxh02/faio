@@ -13,8 +13,8 @@
 
 namespace faio_test {
 /** @brief 创建使用当前构建后端、包含两个 worker 的测试配置。 */
-inline auto config(faio::runtime::mode mode = faio::runtime::mode::multi_thread) {
-  return faio::ConfigBuilder{}.set_mode(mode).set_num_workers(2).build();
+inline auto config(faio::runtime::mode mode = faio::runtime::mode::MULTI_THREAD) {
+  return faio::config_builder{}.set_mode(mode).set_num_workers(2).build();
 }
 
 /** @brief 领取成功结果，将错误传播为测试异常。 */

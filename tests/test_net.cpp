@@ -7,26 +7,28 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <string>
+#include <string_view>
 #include <thread>
 
 namespace {
 /** @brief 接受一个连接并回传四字节消息。 */
-faio::task<void> echo(faio::net::TcpListener& listener) {
+faio::task<void> echo(faio::net::tcp_listener& listener) {
   auto accepted = faio_test::take(co_await listener.accept());
   auto stream = std::move(accepted.first);
   std::array<char, 4> bytes{};
   faio_test::take(co_await stream.read_exact(bytes));
   faio_test::take(co_await stream.write_all(bytes));
-  faio_test::take(co_await stream.shutdown(faio::io::ShutdownBehavior::Write));
+  faio_test::take(co_await stream.shutdown(faio::io::shutdown_behavior::WRITE));
 }
 
 /** @brief 通过本地 TCP 连接验证完整读写与 EOF。 */
 faio::task<bool> tcp_roundtrip() {
   auto listener = faio_test::take(
-      faio::net::TcpListener::bind(faio_test::take(faio::net::address::parse("127.0.0.1", 0))));
+      faio::net::tcp_listener::bind(faio_test::take(faio::net::address::parse("127.0.0.1", 0))));
   auto server = faio::spawn(echo(listener));
   auto client = faio_test::take(
-      co_await faio::net::TcpStream::connect(faio_test::take(listener.local_addr())));
+      co_await faio::net::tcp_stream::connect(faio_test::take(listener.local_addr())));
   faio_test::take(client.set_nodelay(true));
   const std::array<char, 4> payload{'f', 'a', 'i', 'o'};
   faio_test::take(co_await client.write_all(payload));
@@ -39,7 +41,7 @@ faio::task<bool> tcp_roundtrip() {
 }
 
 /** @brief 连续回传单字节消息，用较大的缓冲区接收，确保发生短读。 */
-faio::task<void> short_read_echo(faio::net::TcpListener& listener) {
+faio::task<void> short_read_echo(faio::net::tcp_listener& listener) {
   auto accepted = faio_test::take(co_await listener.accept());
   auto stream = std::move(accepted.first);
   std::array<char, 32> bytes{};
@@ -50,16 +52,16 @@ faio::task<void> short_read_echo(faio::net::TcpListener& listener) {
       throw std::runtime_error("短读回显长度错误");
     faio_test::take(co_await stream.write_all(std::span<const char>{bytes}.first(count)));
   }
-  faio_test::take(co_await stream.shutdown(faio::io::ShutdownBehavior::Write));
+  faio_test::take(co_await stream.shutdown(faio::io::shutdown_behavior::WRITE));
 }
 
 /** @brief 短读后的下一批数据、窥视及对端半关闭均能正常完成。 */
 faio::task<bool> stream_short_reads() {
   auto listener = faio_test::take(
-      faio::net::TcpListener::bind(faio_test::take(faio::net::address::parse("127.0.0.1", 0))));
+      faio::net::tcp_listener::bind(faio_test::take(faio::net::address::parse("127.0.0.1", 0))));
   auto server = faio::spawn(short_read_echo(listener));
   auto client = faio_test::take(
-      co_await faio::net::TcpStream::connect(faio_test::take(listener.local_addr())));
+      co_await faio::net::tcp_stream::connect(faio_test::take(listener.local_addr())));
   std::array<char, 32> bytes{};
   for (unsigned round = 0; round != 16; ++round) {
     const char value = static_cast<char>('a' + round);
@@ -82,7 +84,7 @@ faio::task<bool> stream_short_reads() {
 }
 
 /** @brief 通知父任务后等待下一字节，等待期间可由外部线程取消。 */
-faio::task<faio::expected<std::size_t>> read_until_cancelled(faio::net::TcpStream& stream,
+faio::task<faio::expected<std::size_t>> read_until_cancelled(faio::net::tcp_stream& stream,
                                                              faio::sync::latch& started) {
   std::array<char, 1> bytes{};
   started.count_down();
@@ -92,9 +94,9 @@ faio::task<faio::expected<std::size_t>> read_until_cancelled(faio::net::TcpStrea
 /** @brief 挂起的读取在取消或超时后释放读取权，后续读取仍能接收完整数据。 */
 faio::task<bool> read_after_cancel_and_timeout() {
   auto listener = faio_test::take(
-      faio::net::TcpListener::bind(faio_test::take(faio::net::address::parse("127.0.0.1", 0))));
+      faio::net::tcp_listener::bind(faio_test::take(faio::net::address::parse("127.0.0.1", 0))));
   auto client = faio_test::take(
-      co_await faio::net::TcpStream::connect(faio_test::take(listener.local_addr())));
+      co_await faio::net::tcp_stream::connect(faio_test::take(listener.local_addr())));
   auto accepted = faio_test::take(co_await listener.accept());
   auto& stream = accepted.first;
 
@@ -122,8 +124,8 @@ faio::task<bool> read_after_cancel_and_timeout() {
 /** @brief UDP 保留数据报边界，包括空数据报。 */
 faio::task<bool> udp_roundtrip() {
   const auto loopback = faio_test::take(faio::net::address::parse("127.0.0.1", 0));
-  auto sender = faio_test::take(faio::net::UdpDatagram::bind(loopback));
-  auto receiver = faio_test::take(faio::net::UdpDatagram::bind(loopback));
+  auto sender = faio_test::take(faio::net::udp_datagram::bind(loopback));
+  auto receiver = faio_test::take(faio::net::udp_datagram::bind(loopback));
   const auto destination = faio_test::take(receiver.local_addr());
   const std::array<char, 4> payload{'U', 'D', 'P', '!'};
   faio_test::take(co_await sender.send_to(payload, destination));
@@ -151,10 +153,106 @@ TEST(Net, Addresses) {
   EXPECT_FALSE(faio::net::address::parse("localhost", 80));
 }
 
+/** @brief 字面量在编译期校验格式，并构造完整的 IPv4 或 IPv6 端点。 */
+TEST(Net, FromStringLiterals) {
+  const auto ipv4 = faio::net::socket_addr::from_string("127.0.0.1:8080");
+  ASSERT_TRUE(ipv4);
+  EXPECT_EQ(*ipv4, (faio::net::socket_addr{faio::net::ipv4_addr{127, 0, 0, 1}, 8080}));
+
+  const auto ipv6 = faio::net::socket_addr::from_string("[::1]:9000");
+  ASSERT_TRUE(ipv6);
+  EXPECT_TRUE(ipv6->is_ipv6());
+  EXPECT_EQ(ipv6->port(), 9000);
+  EXPECT_TRUE(std::get<faio::net::ipv6_addr>(ipv6->ip()).is_loopback());
+
+  const auto scoped = faio::net::socket_addr::from_string("[fe80::1%3]:5353");
+  ASSERT_TRUE(scoped);
+  EXPECT_EQ(scoped->scope_id(), 3u);
+  EXPECT_EQ(scoped->to_string(), "[fe80::1%3]:5353");
+
+  const auto mapped = faio::net::socket_addr::from_string("[::ffff:192.0.2.1]:443");
+  ASSERT_TRUE(mapped);
+  EXPECT_TRUE(mapped->is_ipv6());
+  EXPECT_EQ(mapped->port(), 443);
+}
+
+/** @brief 端口允许零和 65535，IPv6 支持完整八组地址。 */
+TEST(Net, FromStringBoundaries) {
+  const auto zero = faio::net::socket_addr::from_string("0.0.0.0:0");
+  ASSERT_TRUE(zero);
+  EXPECT_EQ(zero->port(), 0);
+
+  const auto maximum = faio::net::socket_addr::from_string("255.255.255.255:65535");
+  ASSERT_TRUE(maximum);
+  EXPECT_EQ(maximum->port(), 65535);
+
+  const auto full = faio::net::socket_addr::from_string("[1:2:3:4:5:6:7:8]:65535");
+  ASSERT_TRUE(full);
+  EXPECT_EQ(full->to_string(), "[1:2:3:4:5:6:7:8]:65535");
+}
+
+/** @brief 动态字符串、指针和非 NUL 结尾的视图使用运行时解析。 */
+TEST(Net, FromStringRuntime) {
+  const std::string endpoint{"127.0.0.1:8080"};
+  const auto owned = faio::net::socket_addr::from_string(endpoint);
+  ASSERT_TRUE(owned);
+  EXPECT_EQ(owned->to_string(), endpoint);
+
+  const char* pointer = endpoint.c_str();
+  const auto borrowed = faio::net::socket_addr::from_string(pointer);
+  ASSERT_TRUE(borrowed);
+  EXPECT_EQ(*borrowed, *owned);
+
+  const std::string suffixed{endpoint + "/trailing"};
+  const auto view =
+      faio::net::socket_addr::from_string(std::string_view{suffixed}.substr(0, endpoint.size()));
+  ASSERT_TRUE(view);
+  EXPECT_EQ(*view, *owned);
+
+  char buffer[]{"[::1]:9000"};
+  const auto buffered = faio::net::socket_addr::from_string(std::string_view{buffer});
+  ASSERT_TRUE(buffered);
+  EXPECT_EQ(buffered->to_string(), "[::1]:9000");
+}
+
+/** @brief 动态输入中的非法 IP、端口、括号和嵌入 NUL 均返回 EINVAL。 */
+TEST(Net, FromStringRejectsInvalidRuntimeInput) {
+  using namespace std::string_view_literals;
+  for (const auto endpoint : {""sv,
+                              "127.0.0.1"sv,
+                              ":80"sv,
+                              "localhost:80"sv,
+                              "256.0.0.1:80"sv,
+                              "127.00.0.1:80"sv,
+                              "127.0.0.1:"sv,
+                              "127.0.0.1:-1"sv,
+                              "127.0.0.1:+80"sv,
+                              "127.0.0.1:65536"sv,
+                              "127.0.0.1:999999999999999999999"sv,
+                              "127.0.0.1:80x"sv,
+                              "127.0.0.1:80 "sv,
+                              "::1:80"sv,
+                              "[::1:80"sv,
+                              "[::1]80"sv,
+                              "[::1]:"sv,
+                              "[::1]:80:90"sv,
+                              "[1::2::3]:80"sv,
+                              "[1:2:3:4:5:6:7]:80"sv,
+                              "[::ffff:256.0.0.1]:80"sv,
+                              "[fe80::1%]:80"sv,
+                              "127.0.0.1\0:80"sv,
+                              "127.0.0.1:80\0"sv}) {
+    SCOPED_TRACE(std::string{endpoint});
+    const auto result = faio::net::socket_addr::from_string(endpoint);
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().value(), EINVAL);
+  }
+}
+
 /** @brief TCP 连接完成回显与写方向关闭。 */
 TEST(Net, Tcp) {
   for (const auto workers : {1u, 2u}) {
-    const auto config = faio::ConfigBuilder{}.set_num_workers(workers).build();
+    const auto config = faio::config_builder{}.set_num_workers(workers).build();
     faio::runtime::detail::runtime_context context{config};
     EXPECT_TRUE(context.block_on(tcp_roundtrip()));
   }
@@ -168,7 +266,7 @@ TEST(Net, Udp) {
 
 /** @brief 单个或多个 worker 下的连续短读均保留窥视、数据与 EOF 语义。 */
 TEST(Net, StreamShortReads) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
     faio::runtime::detail::runtime_context context{faio_test::config(mode)};
     EXPECT_TRUE(context.block_on(stream_short_reads()));
   }
@@ -177,6 +275,6 @@ TEST(Net, StreamShortReads) {
 /** @brief 单线程 TCP 读取消及超时后仍可继续接收。 */
 TEST(Net, CurrentThreadReadAfterCancelAndTimeout) {
   faio::runtime::detail::runtime_context context{
-      faio_test::config(faio::runtime::mode::current_thread)};
+      faio_test::config(faio::runtime::mode::CURRENT_THREAD)};
   EXPECT_TRUE(context.block_on(read_after_cancel_and_timeout()));
 }

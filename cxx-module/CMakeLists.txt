@@ -85,6 +85,7 @@ faio_add_named_module(faio_module module
     core/net.cppm
     core/fs.cppm
     core/runtime.cppm
+    core/stdio.cppm
     core/sync.cppm
     core/time.cppm
     core/log.cppm)

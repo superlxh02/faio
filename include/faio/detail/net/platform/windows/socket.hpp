@@ -17,13 +17,13 @@ namespace faio::net::detail {
 using native_socket_type = io::detail::native_descriptor;
 
 /**  @brief 获取最近 socket syscall 错误；Windows 明确使用 Winsock 错误域。 */
-inline auto socket_error() noexcept -> Error {
-  return Error{::WSAGetLastError(), 0, error_domain::winsock};
+inline auto socket_error() noexcept -> error {
+  return ::faio::error{::WSAGetLastError(), 0, error_domain::WINSOCK};
 }
 
 /**  @brief 不依赖平台的 would-block 判断，同时识别显式用户 syscall 的 errno 错误。 */
-inline auto socket_would_block(const Error& error) noexcept -> bool {
-  if (error.domain() == error_domain::winsock)
+inline auto socket_would_block(const error& error) noexcept -> bool {
+  if (error.domain() == error_domain::WINSOCK)
     return error.value() == WSAEWOULDBLOCK;
   return error.value() == EAGAIN || error.value() == EWOULDBLOCK;
 }
@@ -178,12 +178,12 @@ using multicast_v4_option_value = DWORD;
 inline constexpr int no_signal_flags = 0;
 
 /** @brief 把原生 socket 错误码转换为 faio 错误。 */
-inline Error socket_error_from_code(int value) noexcept {
+inline error socket_error_from_code(int value) noexcept {
   return io::windows::make_io_error(value);
 }
 
 /** @brief 判断原生 socket 错误是否表示系统调用被中断。 */
-inline bool socket_interrupted(const Error& error) noexcept {
+inline bool socket_interrupted(const error& error) noexcept {
   return error.value() == EINTR || error.value() == WSAEINTR;
 }
 
@@ -193,8 +193,8 @@ inline expected<void> initialize_resolver() noexcept {
 }
 
 /** @brief 将名称解析错误转换为对应错误域。 */
-inline Error resolver_error(int failure) noexcept {
-  return Error{failure, 0, error_domain::resolver};
+inline error resolver_error(int failure) noexcept {
+  return ::faio::error{failure, 0, error_domain::RESOLVER};
 }
 
 /** @brief 为导入或新建 socket 设置平台必要的非阻塞及继承属性。 */

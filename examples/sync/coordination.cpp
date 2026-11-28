@@ -10,7 +10,7 @@
 
 namespace {
 
-using ResultChannel = faio::sync::mpsc<int>;
+using result_channel = faio::sync::mpsc<int>;
 
 /**
  * @brief 写入两个分片的输入值，再开放一次性的启动信号。
@@ -33,7 +33,7 @@ faio::task<void> prepare(std::array<int, 2>& inputs, faio::sync::latch& ready) {
 faio::task<void> produce(faio::sync::latch& ready,
                          faio::sync::barrier& phase,
                          const int& input,
-                         ResultChannel::sender output) {
+                         result_channel::sender output) {
   co_await ready.wait();
   for (const int factor : {1, 2}) {
     const int result = input * factor;
@@ -51,13 +51,13 @@ faio::task<void> produce(faio::sync::latch& ready,
  * @param input 移入任务的唯一接收端。
  * @return 收到的四个结果之和；通道提前关闭或收到额外结果时报告错误。
  */
-faio::task<int> consume(ResultChannel::receiver input) {
+faio::task<int> consume(result_channel::receiver input) {
   int count = 0;
   int total = 0;
   for (;;) {
     const auto result = co_await input.recv();
     if (!result) {
-      if (result.error().value() != faio::Error::ClosedChannel)
+      if (result.error().value() != faio::error::CLOSED_CHANNEL)
         throw std::runtime_error("接收结果失败：" + std::string{result.error().message()});
       break;
     }
@@ -74,7 +74,7 @@ faio::task<void> demonstrate() {
   std::array<int, 2> inputs{};
   faio::sync::latch ready{1};
   faio::sync::barrier phase{2};
-  auto [sender, receiver] = ResultChannel::make(1);
+  auto [sender, receiver] = result_channel::make(1);
   auto second_sender = sender;
 
   /** @brief 任一任务失败，任务组请求同组的等待者停止，并在返回前等它们退出。 */

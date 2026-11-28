@@ -51,7 +51,7 @@ faio::task<void> show_select() {
         co_return 38;
       },
       [&](const faio::task_exit& exit) -> faio::task<void> {
-        backup_cleaned = exit.status == faio::task_exit::kind::cancelled;
+        backup_cleaned = exit.status == faio::task_exit::kind::CANCELLED;
         co_return;
       });
   auto winner = co_await faio::select(ready_quote(backup_started), std::move(backup));

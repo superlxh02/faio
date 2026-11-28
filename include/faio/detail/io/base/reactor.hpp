@@ -10,7 +10,7 @@
 namespace faio::io::detail {
 #if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
 /** @brief 仅单翻译单元的 reactor 契约测试启用这些确定性竞态测试入口。 */
-enum class reactor_control_test_point { poll_after_consume, wake_before_syscall };
+enum class reactor_control_test_point { POLL_AFTER_CONSUME, WAKE_BEFORE_SYSCALL };
 #endif
 
 /** @brief CRTP readiness 约定，显式对象参数直接调用具体 reactor。 */

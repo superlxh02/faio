@@ -23,17 +23,17 @@ namespace faio::io::detail {
  * @details arming/suspended/completed 门闩保证立即完成和跨线程完成均只恢复一次协程。
  */
 template <class IO, class Request = io_request>
-class IORegistrantAwaiter : protected completion_state {
+class io_registrant_awaiter : protected completion_state {
   static_assert(std::same_as<Request, io_request> || std::same_as<Request, scalar_io_request>);
 
  public:
   using io_registrant_base_type =
-      IORegistrantAwaiter; /**< 公开所用的基类别名，供包装约束识别两种策略。 */
+      io_registrant_awaiter; /**< 公开所用的基类别名，供包装约束识别两种策略。 */
 
   /** @brief 构造注册 I/O 请求的协程等待器。 */
-  explicit IORegistrantAwaiter(Request request,
-                               io_context context = {},
-                               bool cancellable = true) noexcept
+  explicit io_registrant_awaiter(Request request,
+                                 io_context context = {},
+                                 bool cancellable = true) noexcept
       : request_(std::move(request)), context_(std::move(context)), cancellable_(cancellable) {}
 
   /**
@@ -41,26 +41,26 @@ class IORegistrantAwaiter : protected completion_state {
    * @details 工厂仅创建参数，不注册句柄或提交 I/O；返回的同类型纯右值直接初始化成员。
    * 原按值入口以及公开的请求、取消和选项接口均保留，仅内部单缓冲区构造使用此入口。
    */
-  template <class RequestFactory>
-    requires requires(RequestFactory&& factory) {
-      { std::forward<RequestFactory>(factory)() } -> std::same_as<Request>;
+  template <class request_factory_type>
+    requires requires(request_factory_type&& factory) {
+      { std::forward<request_factory_type>(factory)() } -> std::same_as<Request>;
     }
-  explicit IORegistrantAwaiter(
-      RequestFactory&& factory,
+  explicit io_registrant_awaiter(
+      request_factory_type&& factory,
       io_context context = {},
-      bool cancellable = true) noexcept(noexcept(std::forward<RequestFactory>(factory)()))
-      : request_(std::forward<RequestFactory>(factory)()),
+      bool cancellable = true) noexcept(noexcept(std::forward<request_factory_type>(factory)()))
+      : request_(std::forward<request_factory_type>(factory)()),
         context_(std::move(context)),
         cancellable_(cancellable) {}
 
   /** @brief 禁止复制构造注册 I/O 请求的协程等待器。 */
-  IORegistrantAwaiter(const IORegistrantAwaiter&) = delete;
+  io_registrant_awaiter(const io_registrant_awaiter&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  IORegistrantAwaiter& operator=(const IORegistrantAwaiter&) = delete;
+  io_registrant_awaiter& operator=(const io_registrant_awaiter&) = delete;
 
   /** @brief 移动构造注册 I/O 请求的协程等待器。 */
-  IORegistrantAwaiter(IORegistrantAwaiter&& other) noexcept
+  io_registrant_awaiter(io_registrant_awaiter&& other) noexcept
       : request_(std::move(other.request_)),
         context_(std::move(other.context_)),
         cancellable_(other.cancellable_) {
@@ -68,7 +68,7 @@ class IORegistrantAwaiter : protected completion_state {
   }
 
   /** @brief 禁止移动赋值。 */
-  IORegistrantAwaiter& operator=(IORegistrantAwaiter&&) = delete;
+  io_registrant_awaiter& operator=(io_registrant_awaiter&&) = delete;
 
   /** @brief 准备阶段不发起 I/O。 */
   bool await_ready() const noexcept { return false; }
@@ -127,8 +127,8 @@ class IORegistrantAwaiter : protected completion_state {
       domain = context.domain().get();
     }
     if (!request_.resource && !request_.bypass_resource_registration && request_.fd >= 0
-        && request_.kind != operation_kind::open && request_.kind != operation_kind::open2
-        && request_.kind != operation_kind::socket) {
+        && request_.kind != operation_kind::OPEN && request_.kind != operation_kind::OPEN2
+        && request_.kind != operation_kind::SOCKET) {
       request_.resource = domain->find_raw_resource(request_.fd, !context_);
       if (request_.resource)
         domain = request_.resource->owner.get();

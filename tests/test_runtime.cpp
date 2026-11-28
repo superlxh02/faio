@@ -248,7 +248,7 @@ TEST(Runtime, ResultsAndExceptions) {
 
 /** @brief 单线程与多线程运行时均支持任务组合。 */
 TEST(Runtime, ModesAndJoin) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
     runtime context{faio_test::config(mode)};
     auto values = context.wait_all(value_task(17), value_task(25));
     EXPECT_EQ(std::get<0>(values) + std::get<1>(values), 42);
@@ -257,9 +257,9 @@ TEST(Runtime, ModesAndJoin) {
 
 /** @brief 空输入、批量阈值和满批边界均保持执行次数与输入结果顺序。 */
 TEST(Runtime, JoinAllKeepsResultsAcrossSubmissionBoundaries) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
-    SCOPED_TRACE(mode == faio::runtime::mode::current_thread ? "current_thread" : "multi_thread");
-    runtime context{faio::ConfigBuilder{}.set_mode(mode).set_num_workers(1).build()};
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
+    SCOPED_TRACE(mode == faio::runtime::mode::CURRENT_THREAD ? "current_thread" : "multi_thread");
+    runtime context{faio::config_builder{}.set_mode(mode).set_num_workers(1).build()};
     for (const std::size_t count : {0u, 1u, 7u, 8u, 31u, 32u, 33u, 64u, 65u}) {
       SCOPED_TRACE(count);
       std::vector<int> runs(count);
@@ -275,8 +275,8 @@ TEST(Runtime, JoinAllKeepsResultsAcrossSubmissionBoundaries) {
 
 /** @brief 异构输入走批量路径时仍保留 void、重复类型和独占结果。 */
 TEST(Runtime, BatchedJoinKeepsHeterogeneousResults) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
-    runtime context{faio::ConfigBuilder{}.set_mode(mode).set_num_workers(1).build()};
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
+    runtime context{faio::config_builder{}.set_mode(mode).set_num_workers(1).build()};
     std::atomic<int> completed{};
     auto results = context.block_on(faio::join(value_task(0),
                                                unique_value_task(11),
@@ -301,8 +301,8 @@ TEST(Runtime, BatchedJoinKeepsHeterogeneousResults) {
 
 /** @brief 单个 worker 在队列满载时仍保持分支计数和结果的输入顺序。 */
 TEST(Runtime, JoinAllDrainsBeyondLocalCapacity) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
-    runtime context{faio::ConfigBuilder{}.set_mode(mode).set_num_workers(1).build()};
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
+    runtime context{faio::config_builder{}.set_mode(mode).set_num_workers(1).build()};
     constexpr auto count = faio::runtime::detail::LOCAL_QUEUE_CAPACITY + 65;
     std::array<int, count> runs{};
     const auto results = context.block_on(join_recorded_children(runs));
@@ -317,7 +317,7 @@ TEST(Runtime, JoinAllDrainsBeyondLocalCapacity) {
 /** @brief 投递过程中私有队列满载时，join 仍等待已接纳的分支退出，并归还恢复槽。 */
 TEST(Runtime, JoinAllDrainsAfterPartialSubmission) {
   constexpr std::size_t queue_capacity = 4;
-  runtime context{faio::ConfigBuilder{}
+  runtime context{faio::config_builder{}
                       .set_num_workers(1)
                       .set_no_stealing_queue_capacity(queue_capacity)
                       .build()};
@@ -342,8 +342,8 @@ TEST(Runtime, JoinDrainsBeforePropagatingFailure) {
 
 /** @brief 最后一批分支失败时，异常只在前面各批的分支全部完成后交付。 */
 TEST(Runtime, BatchedJoinAllDrainsBeforePropagatingFailure) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
-    runtime context{faio::ConfigBuilder{}.set_mode(mode).set_num_workers(1).build()};
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
+    runtime context{faio::config_builder{}.set_mode(mode).set_num_workers(1).build()};
     std::array<int, 33> runs{};
     EXPECT_TRUE(context.block_on(join_drains_failing_batch(runs)));
     EXPECT_EQ(context.block_on(value_task(42)), 42);
@@ -372,7 +372,7 @@ TEST(Runtime, ScopedJoinDrainsDescendants) {
 
 /** @brief 外部提交可唤醒当前驱动，同一运行时可由另一线程继续驱动。 */
 TEST(Runtime, CurrentThreadExternalWakeAndHandoff) {
-  auto config = faio_test::config(faio::runtime::mode::current_thread);
+  auto config = faio_test::config(faio::runtime::mode::CURRENT_THREAD);
   runtime context{config};
   faio::sync::semaphore completed{0};
   std::latch entered{1};
@@ -400,7 +400,7 @@ TEST(Runtime, CurrentThreadExternalWakeAndHandoff) {
 
 /** @brief 分批接收外部普通任务，并保持定向就绪任务的交付。 */
 TEST(Runtime, CurrentThreadOwnerSchedulerImportsExternalBatch) {
-  auto config = faio_test::config(faio::runtime::mode::current_thread);
+  auto config = faio_test::config(faio::runtime::mode::CURRENT_THREAD);
   runtime context{config};
   std::array<int, 300> counts{};
   faio::sync::latch completed{static_cast<std::ptrdiff_t>(counts.size())};
@@ -435,8 +435,8 @@ TEST(Runtime, BlockingWork) {
 
 /** @brief 两种驱动模式默认使用弹性池，显式选择固定池时预热线程。 */
 TEST(Runtime, BlockingPoolPolicy) {
-  for (const auto mode : {faio::runtime::mode::current_thread, faio::runtime::mode::multi_thread}) {
-    auto builder = faio::ConfigBuilder{};
+  for (const auto mode : {faio::runtime::mode::CURRENT_THREAD, faio::runtime::mode::MULTI_THREAD}) {
+    auto builder = faio::config_builder{};
     builder.set_mode(mode).set_num_workers(2).set_max_blocking_threads(2);
     {
       runtime context{builder.build()};
@@ -444,7 +444,7 @@ TEST(Runtime, BlockingPoolPolicy) {
       EXPECT_EQ(context.block_on(blocking_value()), 42);
       EXPECT_EQ(context.block_on(blocking_worker_count()), 1u);
     }
-    builder.set_blocking_pool_policy(faio::runtime::blocking_pool_policy::fixed);
+    builder.set_blocking_pool_policy(faio::runtime::blocking_pool_policy::FIXED);
     runtime context{builder.build()};
     EXPECT_EQ(context.block_on(blocking_worker_count()), 2u);
   }
@@ -552,7 +552,7 @@ TEST(Runtime, Cancellation) {
 }
 
 /** @brief 定时等待不会提前完成。 */
-TEST(Runtime, Timer) {
+TEST(Runtime, timer) {
   runtime context{faio_test::config()};
   const auto started = std::chrono::steady_clock::now();
   context.block_on(sleep_briefly());

@@ -10,22 +10,22 @@ namespace faio::io::detail {
 /** @brief 按操作种类计算占用读方向、写方向或仅观察的执行权。 */
 inline std::uint32_t direction_of(operation_kind kind) noexcept {
   switch (kind) {
-    case operation_kind::recv:
-    case operation_kind::recvfrom:
-    case operation_kind::recvmsg:
-    case operation_kind::accept:
-    case operation_kind::accept_nowait:
-    case operation_kind::read:
-    case operation_kind::readv:
+    case operation_kind::RECV:
+    case operation_kind::RECVFROM:
+    case operation_kind::RECVMSG:
+    case operation_kind::ACCEPT:
+    case operation_kind::ACCEPT_NOWAIT:
+    case operation_kind::READ:
+    case operation_kind::READV:
       return 1;
-    case operation_kind::send:
-    case operation_kind::sendto:
-    case operation_kind::sendmsg:
-    case operation_kind::send_zc:
-    case operation_kind::sendmsg_zc:
-    case operation_kind::connect:
-    case operation_kind::write:
-    case operation_kind::writev:
+    case operation_kind::SEND:
+    case operation_kind::SENDTO:
+    case operation_kind::SENDMSG:
+    case operation_kind::SEND_ZC:
+    case operation_kind::SENDMSG_ZC:
+    case operation_kind::CONNECT:
+    case operation_kind::WRITE:
+    case operation_kind::WRITEV:
       return 2;
     default:
       return 0;
@@ -37,20 +37,20 @@ inline bool empty_stream_request(const io_request& request) noexcept {
   if (!request.empty_success)
     return false;
   switch (request.kind) {
-    case operation_kind::recv:
-    case operation_kind::send:
-    case operation_kind::send_zc:
-    case operation_kind::read:
-    case operation_kind::write:
+    case operation_kind::RECV:
+    case operation_kind::SEND:
+    case operation_kind::SEND_ZC:
+    case operation_kind::READ:
+    case operation_kind::WRITE:
       return request.length == 0;
-    case operation_kind::readv:
-    case operation_kind::writev:
-    case operation_kind::sendmsg:
-    case operation_kind::sendmsg_zc:
+    case operation_kind::READV:
+    case operation_kind::WRITEV:
+    case operation_kind::SENDMSG:
+    case operation_kind::SENDMSG_ZC:
       return std::all_of(request.vectors.begin(), request.vectors.end(), [](const iovec& vector) {
         return vector.iov_len == 0;
       });
-    case operation_kind::recvmsg:
+    case operation_kind::RECVMSG:
       if (!request.output_message)
         return false;
       if (static_cast<std::uint64_t>(request.output_message->msg_iovlen) > native_iov_limit)

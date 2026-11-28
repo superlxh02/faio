@@ -15,7 +15,7 @@ namespace faio::experimental {
 namespace detail {
 /** @brief 校验反射注解中的运行时选项。 */
 consteval runtime_options checked_annotation(runtime_options options) {
-  if (const auto error = validate_options(options); error != options_error::none)
+  if (const auto error = validate_options(options); error != options_error::NONE)
     throw options_error_message(error);
   return options;
 }

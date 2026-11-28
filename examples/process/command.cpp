@@ -48,10 +48,10 @@ int run_child(std::string_view mode) {
  * 截止时间限制整个操作，标准输入设为空设备。
  */
 faio::task<void> capture_output(const std::filesystem::path& executable) {
-  faio::process::Command command{executable};
-  command.args({"--child", "output"}).set_stdin(faio::process::Stdio::null());
+  faio::process::command command{executable};
+  command.args({"--child", "output"}).set_stdin(faio::process::stdio::null());
 
-  faio::process::CaptureOptions options;
+  faio::process::capture_options options;
   options.max_stdout_bytes = 1024;
   options.max_stderr_bytes = 1024;
   options.max_total_bytes = 2048;
@@ -76,8 +76,8 @@ faio::task<void> capture_output(const std::filesystem::path& executable) {
  * 随后的 wait 读取已经缓存的退出状态。kill_on_drop 为异常路径提供清理。
  */
 faio::task<void> stop_on_timeout(const std::filesystem::path& executable) {
-  faio::process::Command command{executable};
-  command.args({"--child", "sleep"}).set_stdin(faio::process::Stdio::null()).kill_on_drop(true);
+  faio::process::command command{executable};
+  command.args({"--child", "sleep"}).set_stdin(faio::process::stdio::null()).kill_on_drop(true);
   auto child = co_await command.spawn_async({.deadline = steady_clock::now() + 5s});
   if (!child)
     throw std::runtime_error("启动子进程失败：" + std::string{child.error().message()});

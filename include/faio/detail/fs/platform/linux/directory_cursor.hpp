@@ -93,7 +93,7 @@ struct native_directory_cursor {
 inline task<expected<std::shared_ptr<native_directory_cursor>>> open_native_directory(
     io::io_context context, int parent, std::string filename, bool no_follow) {
   io::detail::io_request request;
-  request.kind = io::detail::operation_kind::open;
+  request.kind = io::detail::operation_kind::OPEN;
   request.fd = parent;
   request.path = std::move(filename);
   request.flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC | (no_follow ? O_NOFOLLOW : 0);
@@ -113,7 +113,7 @@ inline task<expected<std::shared_ptr<native_directory_cursor>>> open_native_dire
 /**  @brief 不可取消的原生目录 CLOSE，接管 fd 后等待唯一的最终 CQE。 */
 inline auto close_native_directory(const std::shared_ptr<native_directory_cursor>& cursor) {
   io::detail::io_request request;
-  request.kind = io::detail::operation_kind::close;
+  request.kind = io::detail::operation_kind::CLOSE;
   request.fd = cursor->release();
   return io::native_file_close(cursor->context, std::move(request));
 }

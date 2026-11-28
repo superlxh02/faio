@@ -9,13 +9,13 @@
 
 namespace faio::io::detail {
 /**  @brief Linux openat2 扩展，按值持有 open_how 参数，磁盘调用交给文件服务。 */
-class Open2 : public IORegistrantAwaiter<Open2> {
+class open2_awaiter : public io_registrant_awaiter<open2_awaiter> {
  public:
   /** @brief 构造带路径解析约束的文件打开等待器。 */
-  Open2(int directory, const char* path, const open_how* how)
-      : IORegistrantAwaiter{[&] {
+  open2_awaiter(int directory, const char* path, const open_how* how)
+      : io_registrant_awaiter{[&] {
           io_request request;
-          request.kind = how ? operation_kind::open2 : operation_kind::unsupported;
+          request.kind = how ? operation_kind::OPEN2 : operation_kind::UNSUPPORTED;
           request.fd = directory;
           request.path = path ? path : "";
           if (how) {
@@ -27,12 +27,12 @@ class Open2 : public IORegistrantAwaiter<Open2> {
         }()} {}
 
   /** @brief 构造带路径解析约束的文件打开等待器。 */
-  Open2(const char* path, const open_how* how) : Open2{AT_FDCWD, path, how} {}
+  open2_awaiter(const char* path, const open_how* how) : open2_awaiter{AT_FDCWD, path, how} {}
 
   /** @brief 取得异步操作结果。 */
   expected<native_descriptor> await_resume() const noexcept {
     if (_user_data.result < 0)
-      return std::unexpected{Error{static_cast<int>(-_user_data.result)}};
+      return std::unexpected{::faio::error{static_cast<int>(-_user_data.result)}};
     return static_cast<int>(_user_data.result);
   }
 };

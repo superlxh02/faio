@@ -8,12 +8,12 @@
 namespace faio::util {
 /** @brief 单例对象访问器。 */
 template <typename T>
-class Singleton {
+class singleton {
   /** @brief 禁止创建单例访问器实例。 */
-  Singleton() = delete;
+  singleton() = delete;
 
   /** @brief 禁止销毁单例访问器实例。 */
-  ~Singleton() = delete;
+  ~singleton() = delete;
 
  public:
   /** @brief 取得单例对象。 */

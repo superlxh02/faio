@@ -26,10 +26,10 @@ class blocking_pool {
   blocking_pool(std::size_t limit,
                 std::chrono::milliseconds keep_alive,
                 std::size_t queue_limit = 4096,
-                blocking_pool_policy policy = blocking_pool_policy::elastic) {
+                blocking_pool_policy policy = blocking_pool_policy::ELASTIC) {
     if (keep_alive.count() <= 0)
       throw std::invalid_argument("阻塞线程保活参数无效");
-    service_ = policy == blocking_pool_policy::elastic
+    service_ = policy == blocking_pool_policy::ELASTIC
                    ? std::make_shared<blocking::service>(limit, queue_limit, keep_alive)
                    : std::make_shared<blocking::service>(limit, queue_limit);
   }

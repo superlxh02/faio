@@ -20,10 +20,10 @@
 #include <vector>
 
 namespace faio::runtime {
-enum class mode { current_thread, multi_thread };
+enum class mode { CURRENT_THREAD, MULTI_THREAD };
 
 /** @brief 用户阻塞任务池的线程生命周期策略。 */
-enum class blocking_pool_policy { fixed, elastic };
+enum class blocking_pool_policy { FIXED, ELASTIC };
 }  // namespace faio::runtime
 
 namespace faio::runtime::detail {
@@ -37,7 +37,7 @@ static inline constexpr uint32_t AUTO_IDLE_SPIN_COUNT{UINT32_MAX};
 /** @brief 运行时配置的构建值；runtime_context 在创建线程前验证它。 */
 struct runtime_config {
   runtime::mode _mode{
-      runtime::mode::multi_thread}; /**< 运行时调度模式，选择当前线程或多工作线程驱动。 */
+      runtime::mode::MULTI_THREAD}; /**< 运行时调度模式，选择当前线程或多工作线程驱动。 */
 #if defined(__linux__)
   std::optional<runtime::io_backend> _requested_io_backend;
 #endif
@@ -67,27 +67,27 @@ struct runtime_config {
   std::chrono::milliseconds _blocking_keep_alive{
       std::chrono::seconds(10)}; /**< 弹性用户阻塞池线程的空闲保活时长。 */
   runtime::blocking_pool_policy _blocking_pool_policy{
-      runtime::blocking_pool_policy::elastic}; /**< 用户阻塞任务池的线程生命周期策略。 */
+      runtime::blocking_pool_policy::ELASTIC}; /**< 用户阻塞任务池的线程生命周期策略。 */
 };
 
 /** @brief 验证除数和资源数量；idle_spin_count 为零合法，表示禁用空闲轮询。 */
 inline runtime_config validate_config(runtime_config config) {
-  if ((config._mode == runtime::mode::multi_thread && config._num_workers == 0)
+  if ((config._mode == runtime::mode::MULTI_THREAD && config._num_workers == 0)
       || config._num_events == 0 || config._max_io_delay.count() <= 0 || config._io_interval == 0
       || config._global_queue_interval == 0 || config._max_blocking_threads == 0
       || config._blocking_keep_alive.count() <= 0 || !config._blocking_queue_limit
       || !config._filesystem_threads || !config._resolver_threads || !config._filesystem_queue_limit
       || !config._resolver_queue_limit)
     throw std::invalid_argument("运行时线程数、事件数和调度间隔必须大于零");
-  if (config._blocking_pool_policy != runtime::blocking_pool_policy::fixed
-      && config._blocking_pool_policy != runtime::blocking_pool_policy::elastic)
+  if (config._blocking_pool_policy != runtime::blocking_pool_policy::FIXED
+      && config._blocking_pool_policy != runtime::blocking_pool_policy::ELASTIC)
     throw std::invalid_argument("用户阻塞线程池策略无效");
   if (config._no_stealing_queue_capacity < 2
       || !std::has_single_bit(config._no_stealing_queue_capacity)
       || config._no_stealing_queue_capacity > (std::size_t{1} << 29))
     throw std::invalid_argument("不可窃取队列容量必须是 2..2^29 范围内的 2 的幂");
   validate_worker_affinity(config._worker_cpus,
-                           config._mode == runtime::mode::current_thread ? 1 : config._num_workers);
+                           config._mode == runtime::mode::CURRENT_THREAD ? 1 : config._num_workers);
 #if defined(__linux__)
   (void)io::detail::resolve_io_backend(config._requested_io_backend);
   if (config._idle_spin_count == AUTO_IDLE_SPIN_COUNT)
@@ -102,8 +102,6 @@ inline runtime_config validate_config(runtime_config config) {
 
 namespace faio::runtime {
 using config = detail::runtime_config;
-/** @brief 公开配置类型的兼容别名。 */
-using Config = config;
 }  // namespace faio::runtime
 
 namespace std {
@@ -126,7 +124,7 @@ class formatter<faio::runtime::detail::runtime_config> {
   }
 
   /** @brief 格式化对象状态。 */
-  auto format(const faio::runtime::detail::runtime_config& config, auto& context) const noexcept {
+  auto format(const faio::runtime::detail::runtime_config& config, auto& context) const {
     return format_to(
         context.out(),
         R"(mode: {},
@@ -142,7 +140,7 @@ class formatter<faio::runtime::detail::runtime_config> {
                          max_blocking_threads: {},
                          blocking_pool_policy: {},
                          blocking_keep_alive_ms: {})",
-        config._mode == faio::runtime::mode::current_thread ? "current_thread" : "multi_thread",
+        config._mode == faio::runtime::mode::CURRENT_THREAD ? "current_thread" : "multi_thread",
         config._num_events,
         config._num_workers,
         config._worker_cpus.size(),
@@ -153,7 +151,7 @@ class formatter<faio::runtime::detail::runtime_config> {
         config._submit_interval,
         config._idle_spin_count,
         config._max_blocking_threads,
-        config._blocking_pool_policy == faio::runtime::blocking_pool_policy::elastic ? "elastic"
+        config._blocking_pool_policy == faio::runtime::blocking_pool_policy::ELASTIC ? "elastic"
                                                                                      : "fixed",
         config._blocking_keep_alive.count());
   }

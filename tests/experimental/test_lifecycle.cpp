@@ -29,7 +29,7 @@ struct policy {
 TEST(ExperimentalLifecycle, Hooks) {
   policy::started = policy::finished = 0;
   faio::runtime::detail::runtime_context runtime{
-      faio::ConfigBuilder{}.set_mode(faio::runtime::mode::current_thread).build()};
+      faio::config_builder{}.set_mode(faio::runtime::mode::CURRENT_THREAD).build()};
   EXPECT_EQ(runtime.block_on(annotated_value()), 42);
   EXPECT_EQ(policy::started, 1);
   EXPECT_EQ(policy::finished, 1);

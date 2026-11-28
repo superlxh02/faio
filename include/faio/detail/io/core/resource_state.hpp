@@ -60,7 +60,7 @@ struct resource_state {
   std::atomic<native_descriptor> handle{
       -1}; /**< exchange(-1) 是关闭/导出的唯一接管点，不截断 Win64 SOCKET。 */
 #if defined(_WIN32)
-  native_handle_kind native_kind{native_handle_kind::windows_socket};
+  native_handle_kind native_kind{native_handle_kind::WINDOWS_SOCKET};
 #endif
   std::atomic<std::size_t> wrappers{0}; /**< 包装对象所有者数量，与操作租约区分。 */
   std::uint64_t id{};                   /**< 单调资源 token，fd 重用不能命中旧注册事件。 */

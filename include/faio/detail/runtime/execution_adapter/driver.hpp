@@ -21,9 +21,9 @@ class execution_driver {
   void native_progress() noexcept { prefer_external_ = true; }
 
   /** @brief 执行已领取的任务。 */
-  template <class LocalScheduler>
+  template <class local_scheduler_type>
   void execute(::faio::detail::external_work_host& host,
-               LocalScheduler& local,
+               local_scheduler_type& local,
                std::size_t worker) noexcept {
     auto dispatch = host.try_pop_external(worker);
     if (!dispatch)

@@ -104,7 +104,7 @@ class epoll_reactor {
       return 0;
     const bool noticed = wake_pending_.exchange(false, std::memory_order_seq_cst);
 #if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
-    control_test_step(reactor_control_test_point::poll_after_consume);
+    control_test_step(reactor_control_test_point::POLL_AFTER_CONSUME);
 #endif
     if (noticed)
       timeout = 0;
@@ -128,15 +128,15 @@ class epoll_reactor {
       }
       std::uint32_t flags{};
       if (event.events & EPOLLIN)
-        flags |= readable_bit;
+        flags |= READABLE_BIT;
       if (event.events & EPOLLOUT)
-        flags |= writable_bit;
+        flags |= WRITABLE_BIT;
       if (event.events & EPOLLERR)
-        flags |= error_bit;
+        flags |= ERROR_BIT;
       if (event.events & EPOLLHUP)
-        flags |= readable_bit | writable_bit | closed_bit;
+        flags |= READABLE_BIT | WRITABLE_BIT | CLOSED_BIT;
       if (event.events & EPOLLRDHUP)
-        flags |= readable_bit | read_closed_bit;
+        flags |= READABLE_BIT | READ_CLOSED_BIT;
       output[static_cast<std::size_t>(i)] = map(event.data.u64, flags);
     }
     return count;
@@ -147,7 +147,7 @@ class epoll_reactor {
     if (wake_pending_.exchange(true, std::memory_order_seq_cst))
       return;
 #if defined(FAIO_REACTOR_CONTROL_TESTS) && FAIO_REACTOR_CONTROL_TESTS
-    control_test_step(reactor_control_test_point::wake_before_syscall);
+    control_test_step(reactor_control_test_point::WAKE_BEFORE_SYSCALL);
 #endif
     const std::uint64_t value = 1;
     ssize_t result;

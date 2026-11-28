@@ -9,18 +9,18 @@ export module faio.net;
 export import faio.io;
 
 export namespace faio::net {
-using ::faio::net::DatagramMessage;
-using ::faio::net::DatagramSend;
-using ::faio::net::HostPort;
-using ::faio::net::Ipv4Addr;
-using ::faio::net::Ipv6Addr;
-using ::faio::net::OwnedDatagram;
-using ::faio::net::SocketAddr;
-using ::faio::net::TcpListener;
-using ::faio::net::TcpSocket;
-using ::faio::net::TcpStream;
-using ::faio::net::UdpDatagram;
-using ::faio::net::UdpSocket;
+using ::faio::net::datagram_message;
+using ::faio::net::datagram_send;
+using ::faio::net::host_port;
+using ::faio::net::ipv4_addr;
+using ::faio::net::ipv6_addr;
+using ::faio::net::owned_datagram;
+using ::faio::net::socket_addr;
+using ::faio::net::tcp_listener;
+using ::faio::net::tcp_socket;
+using ::faio::net::tcp_stream;
+using ::faio::net::udp_datagram;
+using ::faio::net::udp_socket;
 using ::faio::net::accept_options;
 using ::faio::net::accept_placement;
 using ::faio::net::address;
@@ -32,20 +32,20 @@ using ::faio::net::v6addr;
 
 #if !defined(_WIN32)
 export namespace faio::net::unix {
-using ::faio::net::unix::PeerCredentials;
-using ::faio::net::unix::UnixAddr;
-using ::faio::net::unix::UnixDatagram;
-using ::faio::net::unix::UnixListener;
-using ::faio::net::unix::UnixSocket;
-using ::faio::net::unix::UnixStream;
+using ::faio::net::unix::peer_credentials;
+using ::faio::net::unix::unix_addr;
+using ::faio::net::unix::unix_datagram;
+using ::faio::net::unix::unix_listener;
+using ::faio::net::unix::unix_socket;
+using ::faio::net::unix::unix_stream;
 using ::faio::net::unix::address;
 }  // namespace faio::net::unix
 #endif
 
 #if !defined(_WIN32)
 export namespace faio::net::unix::pipe {
-using ::faio::net::unix::pipe::Receiver;
-using ::faio::net::unix::pipe::Sender;
+using ::faio::net::unix::pipe::receiver;
+using ::faio::net::unix::pipe::sender;
 using ::faio::net::unix::pipe::owned_native_fd;
 using ::faio::net::unix::pipe::pair;
 }  // namespace faio::net::unix::pipe

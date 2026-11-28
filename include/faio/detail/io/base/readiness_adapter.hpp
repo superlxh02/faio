@@ -37,7 +37,7 @@ class basic_readiness_adapter {
 
   /** @brief 拒绝原生类型化请求提交；reactor 的系统调用尝试仅在域内执行。 */
   backend_submit_result try_submit(backend_operation) noexcept {
-    return {backend_submit_status::rejected, EOPNOTSUPP};
+    return {backend_submit_status::REJECTED, EOPNOTSUPP};
   }
 
   /**
@@ -48,7 +48,7 @@ class basic_readiness_adapter {
   /** @brief 按预算读取一次就绪批次，只转换事件格式，不生成虚假 IO 字节结果。 */
   int poll(std::span<backend_event> out, std::optional<int> ms) noexcept {
     auto convert = [](std::uint64_t key, std::uint32_t flags) noexcept {
-      return backend_event{backend_event_kind::readiness, key, 0, flags};
+      return backend_event{backend_event_kind::READINESS, key, 0, flags};
     };
     if constexpr (requires { reactor_.poll_into(out, ms, convert); }) {
       return reactor_.poll_into(out, ms, convert);
@@ -58,7 +58,7 @@ class basic_readiness_adapter {
       const int n = reactor_.poll(std::span(events).first(std::min(out.size(), events.size())), ms);
       for (int i = 0; i < n; ++i) {
         const auto index = static_cast<std::size_t>(i);
-        out[index] = {backend_event_kind::readiness, events[index].key, 0, events[index].flags};
+        out[index] = {backend_event_kind::READINESS, events[index].key, 0, events[index].flags};
       }
       return n;
     }

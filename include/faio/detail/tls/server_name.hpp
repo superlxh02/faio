@@ -15,30 +15,30 @@
 
 namespace faio::tls {
 /** @brief 经校验的服务端名称，区分 DNS 与 IP 身份验证路径。 */
-class ServerName {
+class server_name {
  public:
   /** @brief 禁止默认构造尚未经验证的服务端名称。 */
-  ServerName() = delete;
+  server_name() = delete;
   /** @brief 复制规范化名称文本和 DNS/IP 分类。 */
-  ServerName(const ServerName&) = default;
+  server_name(const server_name&) = default;
   /** @brief 用另一对象的名称文本和 DNS/IP 分类替换当前值。 */
-  auto operator=(const ServerName&) -> ServerName& = default;
+  auto operator=(const server_name&) -> server_name& = default;
   /** @brief 移动构造名称文本及 DNS/IP 分类。 */
-  ServerName(ServerName&&) noexcept = default;
+  server_name(server_name&&) noexcept = default;
   /** @brief 移动赋值；先放弃目标已有的所有权，再接管源对象。 */
-  auto operator=(ServerName&&) noexcept -> ServerName& = default;
+  auto operator=(server_name&&) noexcept -> server_name& = default;
   /** @brief 释放持有的名称文本。 */
-  ~ServerName() noexcept = default;
+  ~server_name() noexcept = default;
 
   /**
    * @brief 规范化并验证 DNS 名称或不带 zone 的 IP 字面量。
    * @param name 不含端口的目标名称。
    * @return 已校验名称，或 invalid_server_name。
    */
-  static auto parse(std::string name) -> expected<ServerName> {
+  static auto parse(std::string name) -> expected<server_name> {
     auto fail = [] {
       return std::unexpected{
-          detail::tls_error(errc::invalid_server_name, "Invalid TLS DNS name or IP address")};
+          detail::tls_error(errc::INVALID_SERVER_NAME, "Invalid TLS DNS name or IP address")};
     };
     if (name.empty() || name.find('\0') != std::string::npos || name.find('%') != std::string::npos)
       return fail();
@@ -48,7 +48,7 @@ class ServerName {
       if (inet_pton(family, name.c_str(), address.data()) == 1) {
         if (!inet_ntop(family, address.data(), normalized.data(), normalized.size()))
           return fail();
-        return ServerName{normalized.data(), true};
+        return server_name{normalized.data(), true};
       }
     }
     if (name.back() == '.')
@@ -77,7 +77,7 @@ class ServerName {
     if (name.find('.') != std::string::npos
         && name.find_first_not_of("0123456789.") == std::string::npos)
       return fail();
-    return ServerName{std::move(name), false};
+    return server_name{std::move(name), false};
   }
 
   /**
@@ -98,7 +98,7 @@ class ServerName {
    * @param name 已规范化且不含端口的名称文本。
    * @param ip 是否采用 IP SAN 验证。
    */
-  explicit ServerName(std::string name, bool ip) : name_(std::move(name)), ip_(ip) {}
+  explicit server_name(std::string name, bool ip) : name_(std::move(name)), ip_(ip) {}
 
   std::string name_; /**< 规范化后的 DNS 或 IP 文本。 */
   bool ip_{};        /**< 是否采用 IP SAN 校验。 */

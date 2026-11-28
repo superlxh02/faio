@@ -9,9 +9,9 @@
 
 namespace faio::net {
 using owned_native_socket = detail::owned_native_socket;
-using UdpSocket = detail::UdpSocket;
-using UdpDatagram = detail::UdpDatagram;
-using DatagramMessage = detail::DatagramMessage<detail::SocketAddr>;
-using OwnedDatagram = detail::OwnedDatagram<detail::SocketAddr>;
-using DatagramSend = detail::DatagramSend<detail::SocketAddr>;
+using udp_socket = detail::udp_socket;
+using udp_datagram = detail::udp_datagram;
+using datagram_message = detail::datagram_message<detail::socket_addr>;
+using owned_datagram = detail::owned_datagram<detail::socket_addr>;
+using datagram_send = detail::datagram_send<detail::socket_addr>;
 }  // namespace faio::net

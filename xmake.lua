@@ -123,6 +123,8 @@ if has_headers then
     end
     if has_config("faio_examples") then
         for _, example in ipairs({
+            {"match_basics", "common/match.cpp"},
+            {"stdio_console", "stdio/console.cpp"},
             {"coroutine_task", "coroutine/task.cpp"},
             {"composition_basics", "coroutine/composition_basics.cpp"},
             {"structured_concurrency", "coroutine/structured_concurrency.cpp"},
@@ -144,6 +146,13 @@ if has_headers then
             binary(example[1], "faio", "examples/" .. example[2])
             target_end()
         end
+        if not is_plat("windows", "mingw") then
+            binary("unix_echo", "faio", "examples/net/unix_echo.cpp")
+                if has_config("faio_tests") then
+                    add_tests("run")
+                end
+            target_end()
+        end
     end
     if has_config("faio_tests") then
         local function header_contract(name, library, ...)
@@ -156,6 +165,9 @@ if has_headers then
         target_end()
         header_contract("header_core_contract", "faio", "tests/modules/core_contract.cpp")
             add_tests("core")
+        target_end()
+        header_contract("header_match_stdio_contract", "faio", "tests/modules/match_stdio_contract.cpp")
+            add_tests("match_stdio")
         target_end()
         if use_tls then
             header_contract("header_tls_contract", "faio", "tests/modules/tls_contract.cpp")
@@ -250,7 +262,7 @@ if has_modules then
     end
     if has_config("faio_tests") then
         local import_components = {"faio", "common", "coroutine", "io", "net", "fs",
-                                   "runtime", "sync", "time", "log"}
+                                   "runtime", "stdio", "sync", "time", "log"}
         if use_tls then
             table.insert(import_components, "tls")
         end
@@ -264,7 +276,7 @@ if has_modules then
                 if component ~= "common" and component ~= "log" then
                     add_defines("FAIO_IMPORT_HAS_TASK=1")
                 end
-                if component == "faio" or component == "runtime" or component == "tls" or component == "process" then
+                if component == "faio" or component == "runtime" or component == "stdio" or component == "tls" or component == "process" then
                     add_defines("FAIO_IMPORT_HAS_RUNTIME=1")
                 end
                 add_tests("import_only")
@@ -276,6 +288,9 @@ if has_modules then
         target_end()
         named_binary("module_core_contract", "faio_module", "tests/modules/core_contract.cpp")
             add_tests("core")
+        target_end()
+        named_binary("module_match_stdio_contract", "faio_module", "tests/modules/match_stdio_contract.cpp")
+            add_tests("match_stdio")
         target_end()
         if use_tls then
             named_binary("module_tls_contract", "faio_module", "tests/modules/tls_contract.cpp")

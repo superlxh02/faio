@@ -23,7 +23,7 @@ inline expected<void> close_file_handle(const io::io_context& context, HANDLE ha
     return {};
   if (context.domain())
     context.domain()->forget_native_handle(reinterpret_cast<std::intptr_t>(handle),
-                                           io::detail::native_handle_kind::windows_handle);
+                                           io::detail::native_handle_kind::WINDOWS_HANDLE);
   if (!::CloseHandle(handle))
     return std::unexpected{io::windows::make_windows_error(::GetLastError())};
   return {};
@@ -40,8 +40,9 @@ struct file_state {
       std::make_shared<cursor_state>()}; /**< 共享文件位置或目录枚举游标，由对应的平台实现推进。 */
   std::mutex mutex; /**< 只保护操作接纳、租约和关闭状态，不在内核调用期间持锁。 */
   bool closing{}, shutdown_pending{},
-      shutdown_close_started{};     /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
-  std::optional<Error> close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
+      shutdown_close_started{}; /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
+  std::optional<::faio::error>
+      close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
   ::faio::detail::completion_event
       close_completion; /**< 保留关闭完成状态的事件，所有关闭等待者共享该通知。 */
 

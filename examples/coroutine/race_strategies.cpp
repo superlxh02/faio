@@ -35,7 +35,7 @@ faio::task<void> show_first_success() {
       [] {},
       [&](const faio::task_exit& exit) noexcept {
         /** @brief 主查询实际退出后才允许备用查询返回，结果与调度先后无关。 */
-        primary_failed = exit.status == faio::task_exit::kind::failed;
+        primary_failed = exit.status == faio::task_exit::kind::FAILED;
         primary_finished.count_down();
       });
   auto result = co_await faio::select_success(std::move(primary), quote_after(primary_finished));

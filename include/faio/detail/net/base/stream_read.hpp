@@ -20,11 +20,11 @@
 namespace faio::net::detail {
 /**  @brief recvmsg 组合 awaiter；iovec 与 msghdr 始终位于最终协程帧内。 */
 template <std::size_t N>
-class VectoredRead : public AwaiterOptions<VectoredRead<N>> {
+class vectored_read : public awaiter_options<vectored_read<N>> {
  public:
   /** @brief 接管源对象的状态和资源租约。 */
   template <class... Buffers>
-  VectoredRead(std::shared_ptr<io::detail::resource_state> resource, Buffers&&... buffers)
+  vectored_read(std::shared_ptr<io::detail::resource_state> resource, Buffers&&... buffers)
       : resource_{std::move(resource)},
         vectors_{iovec{std::span<char>{buffers}.data(), std::span<char>{buffers}.size_bytes()}...},
         message_{[&] {
@@ -40,11 +40,11 @@ class VectoredRead : public AwaiterOptions<VectoredRead<N>> {
   }
 
   /** @brief 禁止复制此对象。 */
-  VectoredRead(const VectoredRead&) = delete;
+  vectored_read(const vectored_read&) = delete;
 
   /**  @brief 仅提交前可移动；重建操作使原生消息指针指向新 awaiter。 */
-  VectoredRead(VectoredRead&& other) noexcept
-      : AwaiterOptions<VectoredRead<N>>{std::move(other)},
+  vectored_read(vectored_read&& other) noexcept
+      : awaiter_options<vectored_read<N>>{std::move(other)},
         resource_{std::move(other.resource_)},
         vectors_{other.vectors_},
         message_{[&] {
@@ -84,11 +84,11 @@ class VectoredRead : public AwaiterOptions<VectoredRead<N>> {
 };
 
 /**  @brief 借用 iovec 数组的分散读取，不复制 payload、不新增 task 帧。 */
-class BorrowedVectoredRead : public AwaiterOptions<BorrowedVectoredRead> {
+class borrowed_vectored_read : public awaiter_options<borrowed_vectored_read> {
  public:
   /** @brief 借用分散读取描述表，调用方须保证其存活至操作完成。 */
-  BorrowedVectoredRead(std::shared_ptr<io::detail::resource_state> resource,
-                       std::span<iovec> vectors)
+  borrowed_vectored_read(std::shared_ptr<io::detail::resource_state> resource,
+                         std::span<iovec> vectors)
       : resource_{std::move(resource)},
         message_{[&] {
           msghdr message{};
@@ -103,11 +103,11 @@ class BorrowedVectoredRead : public AwaiterOptions<BorrowedVectoredRead> {
   }
 
   /** @brief 禁止复制此对象。 */
-  BorrowedVectoredRead(const BorrowedVectoredRead&) = delete;
+  borrowed_vectored_read(const borrowed_vectored_read&) = delete;
 
   /** @brief 接管源对象的状态和资源租约。 */
-  BorrowedVectoredRead(BorrowedVectoredRead&& other) noexcept
-      : AwaiterOptions<BorrowedVectoredRead>{std::move(other)},
+  borrowed_vectored_read(borrowed_vectored_read&& other) noexcept
+      : awaiter_options<borrowed_vectored_read>{std::move(other)},
         resource_{std::move(other.resource_)},
         message_{other.message_},
         operation_{io::recvmsg(resource_, &message_, 0)} {
@@ -139,7 +139,7 @@ class BorrowedVectoredRead : public AwaiterOptions<BorrowedVectoredRead> {
 
 /**  @brief TCP/Unix stream 读方向接口，空 buffer 成功但不表示 EOF。 */
 template <class T>
-struct ImplStreamRead {
+struct impl_stream_read {
   /** @brief 读取一段字节，非空缓冲区返回零表示 EOF。 */
   auto read(std::span<char> buffer) const noexcept {
     auto operation =
@@ -166,7 +166,7 @@ struct ImplStreamRead {
 
   /** @brief 发起分散读取，缓冲区描述及负载在完成前均须有效。 */
   auto read_vectored(std::span<iovec> vectors) const noexcept {
-    return BorrowedVectoredRead{static_cast<const T*>(this)->resource(), vectors};
+    return borrowed_vectored_read{static_cast<const T*>(this)->resource(), vectors};
   }
 
   /** @brief 发起分散读取，缓冲区描述及负载在完成前均须有效。 */
@@ -174,8 +174,8 @@ struct ImplStreamRead {
     requires(sizeof...(Buffers) > 0
              && (requires(Buffers& buffer) { std::span<char>{buffer}; } && ...))
   auto read_vectored(Buffers&&... buffers) const noexcept {
-    return VectoredRead<sizeof...(Buffers)>{static_cast<const T*>(this)->resource(),
-                                            std::forward<Buffers>(buffers)...};
+    return vectored_read<sizeof...(Buffers)>{static_cast<const T*>(this)->resource(),
+                                             std::forward<Buffers>(buffers)...};
   }
 
   /** @brief 提交多个缓冲区的分散读取。 */
@@ -198,7 +198,7 @@ struct ImplStreamRead {
   [[nodiscard]] auto try_read_vectored(std::span<iovec> vectors) const -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::readable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::READABLE, [&]() -> expected<std::size_t> {
           if (vectors.size() > IOV_MAX)
             return std::unexpected{make_error(EINVAL)};
           const auto result =
@@ -321,7 +321,7 @@ struct ImplStreamRead {
     char owner_identity{};
 
     auto reservation =
-        io::detail::reserve_direction(resource, io::Interest::readable, &owner_identity);
+        io::detail::reserve_direction(resource, io::interest::READABLE, &owner_identity);
     if (!reservation)
       co_return std::unexpected{reservation.error()};
     std::size_t transferred{};
@@ -336,7 +336,8 @@ struct ImplStreamRead {
           co_return std::unexpected{
               result.error().with_progress(transferred + result.error().progress())};
         if (*result == 0)
-          co_return std::unexpected{Error{Error::UnexpectedEOF, transferred, error_domain::faio}};
+          co_return std::unexpected{
+              ::faio::error{::faio::error::UNEXPECTED_EOF, transferred, error_domain::FAIO}};
         transferred += *result;
         buffer = buffer.subspan(*result);
       }
@@ -351,7 +352,7 @@ struct ImplStreamRead {
       -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::readable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::READABLE, [&]() -> expected<std::size_t> {
           if (buffer.empty())
             return std::size_t{0};
           decltype(socket_recv(0, nullptr, 0, 0)) result{};

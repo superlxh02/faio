@@ -8,21 +8,22 @@
 
 namespace faio::io::detail {
 /**  @brief WriteV 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class WriteV : public IORegistrantAwaiter<WriteV> {
-  using Base = IORegistrantAwaiter<WriteV>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class write_v_awaiter : public io_registrant_awaiter<write_v_awaiter> {
+  using base_type =
+      io_registrant_awaiter<write_v_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造向量写入等待器。 */
-  WriteV(native_descriptor fd,
-         const iovec* vectors,
-         unsigned count,
-         std::uint64_t offset,
-         int flags = 0)
-      : Base{[&] {
+  write_v_awaiter(native_descriptor fd,
+                  const iovec* vectors,
+                  unsigned count,
+                  std::uint64_t offset,
+                  int flags = 0)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::writev;
+          r.kind = operation_kind::WRITEV;
 #if defined(_WIN32)
-          r.native_kind = native_handle_kind::windows_handle;
+          r.native_kind = native_handle_kind::WINDOWS_HANDLE;
           r.bypass_resource_registration = true;
           r.windows_implicit_cursor = offset == UINT64_MAX;
 #endif
@@ -40,12 +41,12 @@ class WriteV : public IORegistrantAwaiter<WriteV> {
   }
 
   /** @brief 构造向量写入等待器。 */
-  WriteV(resource_ptr resource,
-         const iovec* vectors,
-         unsigned count,
-         std::uint64_t offset,
-         int flags = 0)
-      : WriteV{resource ? resource->fd() : -1, vectors, count, offset, flags} {
+  write_v_awaiter(resource_ptr resource,
+                  const iovec* vectors,
+                  unsigned count,
+                  std::uint64_t offset,
+                  int flags = 0)
+      : write_v_awaiter{resource ? resource->fd() : -1, vectors, count, offset, flags} {
     this->request_.resource = std::move(resource);
   }
 
@@ -64,6 +65,6 @@ namespace faio::io {
 template <class F>
 inline auto writev(
     F fd, const iovec* vectors, unsigned count, std::uint64_t offset = UINT64_MAX, int flags = 0) {
-  return detail::WriteV{std::move(fd), vectors, count, offset, flags};
+  return detail::write_v_awaiter{std::move(fd), vectors, count, offset, flags};
 }
 }  // namespace faio::io

@@ -256,7 +256,7 @@ class local_ready_queue {
   }
 
   /** @brief 本地获取下一任务，连续快速槽恢复达到上限后给 FIFO 队列一次机会。 */
-  template <bool OwnerOnly = false>
+  template <bool owner_only = false>
   std::optional<std::coroutine_handle<>> try_pop_local(bool allow_fast = true) noexcept {
     last_pop_from_fast_ = false;
     if (allow_fast && fast_task_) {
@@ -271,7 +271,7 @@ class local_ready_queue {
       }
     }
     fast_streak_ = 0;
-    if constexpr (OwnerOnly) {
+    if constexpr (owner_only) {
       if (auto task = try_pop_owner())
         return task;
     } else if (auto task = try_pop()) {

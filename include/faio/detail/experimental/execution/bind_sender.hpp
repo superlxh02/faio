@@ -9,7 +9,7 @@
 
 namespace faio::experimental::detail {
 /** @brief 绑定调度模式、任务图和接收器的稳定操作。 */
-template <faio::runtime::mode Mode, class Sender, class Receiver>
+template <faio::runtime::mode Mode, class sender_type, class receiver_type>
 class bound_operation {
   /** @brief 补充运行时环境，并转发 sender 的终态。 */
   struct forwarding_receiver {
@@ -18,8 +18,8 @@ class bound_operation {
     bound_operation* owner;    /**< 借用所属操作；该操作在回调或等待期间不得移动或销毁。 */
 
     /** @brief 返回接收器的环境视图，传递调度归属、停止令牌及原环境查询。 */
-    auto get_env() const noexcept -> root_environment<Mode, stdexec::env_of_t<Receiver>> {
-      return root_environment<Mode, stdexec::env_of_t<Receiver>>{
+    auto get_env() const noexcept -> root_environment<Mode, stdexec::env_of_t<receiver_type>> {
+      return root_environment<Mode, stdexec::env_of_t<receiver_type>>{
           owner->scheduler_, owner->root_, stdexec::get_env(owner->receiver_)};
     }
 
@@ -35,14 +35,14 @@ class bound_operation {
     }
 
     /** @brief 向接收器交付失败，交付后不再访问可被回调销毁的操作。 */
-    template <class Error>
-    void set_error(Error&& error) && noexcept {
+    template <class error_type>
+    void set_error(error_type&& error) && noexcept {
       auto root = owner->root_;
       faio::detail::external_publisher_guard publisher{root};
       owner->terminal_ = true;
       auto receiver = std::move(owner->receiver_);
       root->terminal();
-      stdexec::set_error(std::move(receiver), std::forward<Error>(error));
+      stdexec::set_error(std::move(receiver), std::forward<error_type>(error));
     }
 
     /** @brief 向接收器交付协作停止终态，归还任务图完成责任。 */
@@ -57,10 +57,10 @@ class bound_operation {
   };
 
   using token_type = stdexec::stop_token_of_t<
-      stdexec::env_of_t<Receiver>>; /**< 从接收器环境推导的停止令牌类型。 */
+      stdexec::env_of_t<receiver_type>>; /**< 从接收器环境推导的停止令牌类型。 */
   using started_sender = decltype(stdexec::starts_on(
       std::declval<execution_scheduler<Mode>>(),
-      std::declval<Sender>())); /**< 绑定目标调度器后实际连接到接收器的发送器类型。 */
+      std::declval<sender_type>())); /**< 绑定目标调度器后实际连接到接收器的发送器类型。 */
   using operation_type = stdexec::connect_result_t<
       started_sender,
       forwarding_receiver>; /**< 连接发送器与接收器后得到的稳定操作状态类型。 */
@@ -69,7 +69,9 @@ class bound_operation {
       stdexec::operation_state_tag; /**< 标记该类型为操作状态，连接后其地址必须保持不变。 */
 
   /** @brief 连接源 sender，并预留目标任务图的接纳责任。 */
-  bound_operation(faio::runtime::detail::runtime_context& context, Sender sender, Receiver receiver)
+  bound_operation(faio::runtime::detail::runtime_context& context,
+                  sender_type sender,
+                  receiver_type receiver)
       : receiver_(std::move(receiver)),
         root_(context.external_host().acquire_root()),
         scheduler_(context, root_),
@@ -105,8 +107,8 @@ class bound_operation {
   auto root() const noexcept -> const root_handle& { return root_; }
 
  private:
-  Receiver receiver_; /**< 接收操作结果的接收器，完成时将其移出，允许回调销毁当前操作。 */
-  root_handle root_;  /**< 持有任务图的根状态租约，维持接纳、取消及排空的归属。 */
+  receiver_type receiver_; /**< 接收操作结果的接收器，完成时将其移出，允许回调销毁当前操作。 */
+  root_handle root_;       /**< 持有任务图的根状态租约，维持接纳、取消及排空的归属。 */
   execution_scheduler<Mode>
       scheduler_; /**< 保存目标调度器，跨线程完成时用它将续体投递回所属运行时。 */
   faio::detail::external_reservation
@@ -119,13 +121,13 @@ class bound_operation {
 };
 
 /** @brief 保存固定调度模式及运行时的 sender。 */
-template <faio::runtime::mode Mode, class Sender>
+template <faio::runtime::mode Mode, class sender_type>
 class bound_sender {
  public:
   using sender_concept = stdexec::sender_tag; /**< 标记该类型为 sender/receiver 协议中的发送器。 */
 
   /** @brief 保存目标模式、运行时和源 sender。 */
-  bound_sender(faio::runtime::detail::runtime_context& context, Sender sender)
+  bound_sender(faio::runtime::detail::runtime_context& context, sender_type sender)
       : context_(&context), sender_(std::move(sender)) {}
 
   /** @brief 通过移动移交已绑定 sender 的所有权。 */
@@ -136,12 +138,12 @@ class bound_sender {
   /** @brief 声明 sender 在给定环境中的完成签名。 */
   template <class Self, class Environment = stdexec::env<>>
   static consteval auto get_completion_signatures() noexcept {
-    return stdexec::completion_signatures_of_t<Sender, root_environment<Mode, Environment>>{};
+    return stdexec::completion_signatures_of_t<sender_type, root_environment<Mode, Environment>>{};
   }
 
   /** @brief 连接 receiver，创建地址固定的异步操作。 */
-  template <stdexec::receiver Receiver>
-  auto connect(Receiver receiver) && -> bound_operation<Mode, Sender, Receiver> {
+  template <stdexec::receiver receiver_type>
+  auto connect(receiver_type receiver) && -> bound_operation<Mode, sender_type, receiver_type> {
     return {*context_, std::move(sender_), std::move(receiver)};
   }
 
@@ -150,12 +152,12 @@ class bound_sender {
 
  private:
   faio::runtime::detail::runtime_context*
-      context_;   /**< 借用运行时上下文，运行时必须在整个操作期间保持存活。 */
-  Sender sender_; /**< 尚未连接或启动的源发送器对象。 */
+      context_;        /**< 借用运行时上下文，运行时必须在整个操作期间保持存活。 */
+  sender_type sender_; /**< 尚未连接或启动的源发送器对象。 */
 };
 
 /** @brief runtime_ref 在运行期选择模式；类型擦除仅发生在连接阶段，启动与完成期间不分配或迁移稳定内部操作。 */
-template <class Sender, class Receiver>
+template <class sender_type, class receiver_type>
 class runtime_bound_operation {
   /** @brief 运行期模式选择后的类型擦除操作接口。 */
   struct base {
@@ -170,13 +172,13 @@ class runtime_bound_operation {
   /** @brief 持有具体调度模式的稳定操作实现。 */
   template <faio::runtime::mode Mode>
   struct implementation final : base {
-    bound_operation<Mode, Sender, Receiver>
+    bound_operation<Mode, sender_type, receiver_type>
         operation; /**< 地址固定的底层异步操作，由当前包装负责启动、等待和交付结果。 */
 
     /** @brief 按具体调度模式构造地址固定的 sender 操作。 */
     implementation(faio::runtime::detail::runtime_context& context,
-                   Sender sender,
-                   Receiver receiver)
+                   sender_type sender,
+                   receiver_type receiver)
         : operation(context, std::move(sender), std::move(receiver)) {}
 
     /** @brief 按执行协议启动已连接的操作，此后只能交付一次终态。 */
@@ -192,13 +194,13 @@ class runtime_bound_operation {
 
   /** @brief 按运行时模式创建具体的稳定操作。 */
   runtime_bound_operation(faio::runtime::detail::runtime_context& context,
-                          Sender sender,
-                          Receiver receiver) {
-    if (context.config()._mode == faio::runtime::mode::current_thread)
-      operation_ = std::make_unique<implementation<faio::runtime::mode::current_thread>>(
+                          sender_type sender,
+                          receiver_type receiver) {
+    if (context.config()._mode == faio::runtime::mode::CURRENT_THREAD)
+      operation_ = std::make_unique<implementation<faio::runtime::mode::CURRENT_THREAD>>(
           context, std::move(sender), std::move(receiver));
     else
-      operation_ = std::make_unique<implementation<faio::runtime::mode::multi_thread>>(
+      operation_ = std::make_unique<implementation<faio::runtime::mode::MULTI_THREAD>>(
           context, std::move(sender), std::move(receiver));
   }
 
@@ -219,13 +221,13 @@ class runtime_bound_operation {
 };
 
 /** @brief 连接时按运行时模式绑定的 sender。 */
-template <class Sender>
+template <class sender_type>
 class runtime_bound_sender {
  public:
   using sender_concept = stdexec::sender_tag; /**< 标记该类型为 sender/receiver 协议中的发送器。 */
 
   /** @brief 保存运行时和待连接的源 sender。 */
-  runtime_bound_sender(faio::runtime::detail::runtime_context& context, Sender sender)
+  runtime_bound_sender(faio::runtime::detail::runtime_context& context, sender_type sender)
       : context_(&context), sender_(std::move(sender)) {}
 
   /** @brief 移交绑定到运行时的 sender。 */
@@ -237,19 +239,19 @@ class runtime_bound_sender {
   template <class Self, class Environment = stdexec::env<>>
   static consteval auto get_completion_signatures() noexcept {
     using current = stdexec::completion_signatures_of_t<
-        Sender,
-        root_environment<faio::runtime::mode::current_thread, Environment>>;
+        sender_type,
+        root_environment<faio::runtime::mode::CURRENT_THREAD, Environment>>;
     using multi = stdexec::completion_signatures_of_t<
-        Sender,
-        root_environment<faio::runtime::mode::multi_thread, Environment>>;
+        sender_type,
+        root_environment<faio::runtime::mode::MULTI_THREAD, Environment>>;
     static_assert(std::same_as<current, multi>,
                   "faio experimental: runtime_ref sender signatures depend on runtime mode");
     return current{};
   }
 
   /** @brief 连接 receiver，创建地址固定的异步操作。 */
-  template <stdexec::receiver Receiver>
-  auto connect(Receiver receiver) && -> runtime_bound_operation<Sender, Receiver> {
+  template <stdexec::receiver receiver_type>
+  auto connect(receiver_type receiver) && -> runtime_bound_operation<sender_type, receiver_type> {
     return {*context_, std::move(sender_), std::move(receiver)};
   }
 
@@ -258,17 +260,17 @@ class runtime_bound_sender {
 
  private:
   faio::runtime::detail::runtime_context*
-      context_;   /**< 借用运行时上下文，运行时必须在整个操作期间保持存活。 */
-  Sender sender_; /**< 尚未连接或启动的源发送器对象。 */
+      context_;        /**< 借用运行时上下文，运行时必须在整个操作期间保持存活。 */
+  sender_type sender_; /**< 尚未连接或启动的源发送器对象。 */
 };
 }  // namespace faio::experimental::detail
 
 namespace faio::experimental {
 /** @brief 将 sender 绑定到目标运行时及其任务图。 */
-template <class Sender>
-auto runtime_ref::bind(Sender&& sender) const {
-  return detail::runtime_bound_sender<std::decay_t<Sender>>{context(),
-                                                            std::forward<Sender>(sender)};
+template <class sender_type>
+auto runtime_ref::bind(sender_type&& sender) const {
+  return detail::runtime_bound_sender<std::decay_t<sender_type>>{context(),
+                                                                 std::forward<sender_type>(sender)};
 }
 }  // namespace faio::experimental
 #endif

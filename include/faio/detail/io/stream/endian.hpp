@@ -34,21 +34,21 @@ task<expected<void>> write_integer(Writer& writer,
   co_return co_await write_all(writer, std::span<const char>{bytes});
 }
 
-#define FAIO_IO_ENDIAN_INTEGER(Name, Type)             \
+#define FAIO_IO_ENDIAN_INTEGER(Name, type)             \
   template <borrowed_async_reader R>                   \
   auto read_##Name(R& r) {                             \
-    return read_integer<Type>(r);                      \
+    return read_integer<type>(r);                      \
   }                                                    \
   template <borrowed_async_reader R>                   \
   auto read_##Name##_le(R& r) {                        \
-    return read_integer<Type>(r, std::endian::little); \
+    return read_integer<type>(r, std::endian::little); \
   }                                                    \
   template <borrowed_async_writer W>                   \
-  auto write_##Name(W& w, Type v) {                    \
+  auto write_##Name(W& w, type v) {                    \
     return write_integer(w, v);                        \
   }                                                    \
   template <borrowed_async_writer W>                   \
-  auto write_##Name##_le(W& w, Type v) {               \
+  auto write_##Name##_le(W& w, type v) {               \
     return write_integer(w, v, std::endian::little);   \
   }
 FAIO_IO_ENDIAN_INTEGER(u8, std::uint8_t)

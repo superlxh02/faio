@@ -11,12 +11,12 @@
 namespace faio::detail {
 inline constexpr std::size_t no_bound_worker = std::numeric_limits<std::size_t>::max();
 
-enum class scheduling_setting : std::uint8_t { inherit, enabled, disabled };
+enum class scheduling_setting : std::uint8_t { INHERIT, ENABLED, DISABLED };
 
 /** @brief 只描述本任务显式请求；任务启动时与父级有效约束合并。 */
 struct task_scheduling_options {
-  scheduling_setting stealing{scheduling_setting::inherit};
-  scheduling_setting bind_core{scheduling_setting::inherit};
+  scheduling_setting stealing{scheduling_setting::INHERIT};
+  scheduling_setting bind_core{scheduling_setting::INHERIT};
 };
 
 /** @brief 生效后的策略。禁止窃取不固定 worker；绑核则固定 worker 和它的 CPU。 */

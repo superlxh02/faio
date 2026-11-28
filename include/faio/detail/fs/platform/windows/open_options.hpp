@@ -7,46 +7,46 @@
 
 namespace faio::fs {
 /**  @brief Windows 文件打开配置；宽字符 CreateFile、共享删除和 OVERLAPPED。 */
-class OpenOptions {
+class open_options {
  public:
   /** @brief 设置打开文件时是否允许读取。 */
-  OpenOptions& read(bool enabled = true) noexcept {
+  open_options& read(bool enabled = true) noexcept {
     read_ = enabled;
     return *this;
   }
 
   /** @brief 设置打开文件时是否允许写入。 */
-  OpenOptions& write(bool enabled = true) noexcept {
+  open_options& write(bool enabled = true) noexcept {
     write_ = enabled;
     return *this;
   }
 
   /** @brief 设置打开文件时是否将写入追加到末尾。 */
-  OpenOptions& append(bool enabled = true) noexcept {
+  open_options& append(bool enabled = true) noexcept {
     append_ = enabled;
     return *this;
   }
 
   /** @brief 设置打开文件时是否将已有内容截断。 */
-  OpenOptions& truncate(bool enabled = true) noexcept {
+  open_options& truncate(bool enabled = true) noexcept {
     truncate_ = enabled;
     return *this;
   }
 
   /** @brief 设置目标不存在时是否创建文件。 */
-  OpenOptions& create(bool enabled = true) noexcept {
+  open_options& create(bool enabled = true) noexcept {
     create_ = enabled;
     return *this;
   }
 
   /** @brief 设置独占创建，目标已存在时打开失败。 */
-  OpenOptions& create_new(bool enabled = true) noexcept {
+  open_options& create_new(bool enabled = true) noexcept {
     exclusive_ = enabled;
     return *this;
   }
 
   /** @brief 设置创建文件时采用的权限值。 */
-  OpenOptions& creation_permissions(Permissions value) noexcept {
+  open_options& creation_permissions(::faio::fs::permissions value) noexcept {
     permissions_ = value;
     return *this;
   }
@@ -81,12 +81,12 @@ class OpenOptions {
   bool append_enabled() const noexcept { return append_; }
 
   /** @brief 返回创建文件时采用的权限配置。 */
-  Permissions permissions() const noexcept { return permissions_; }
+  ::faio::fs::permissions permissions() const noexcept { return permissions_; }
 
  private:
   bool read_{}, write_{}, append_{}, truncate_{}, create_{},
       exclusive_{}; /**< 创建时是否要求目标原先不存在。 */
-  Permissions permissions_{
+  ::faio::fs::permissions permissions_{
       std::filesystem::perms::owner_read | std::filesystem::perms::owner_write
       | std::filesystem::perms::group_read
       | std::filesystem::perms::others_read}; /**< 创建文件或目录时使用的权限配置。 */

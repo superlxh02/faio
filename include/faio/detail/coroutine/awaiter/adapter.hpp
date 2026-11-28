@@ -45,7 +45,7 @@ class coroutine_awaiter {
   /** @brief 绑定等待器的静态恢复调度器。 */
   template <class Target>
   auto rebind_scheduler(scheduler_ref_for<Target> scheduler) & {
-    if (!state_ || state_->gate.load(std::memory_order_acquire) != state_type::idle)
+    if (!state_ || state_->gate.load(std::memory_order_acquire) != state_type::IDLE)
       throw std::logic_error("不能重新绑定已使用的用户等待器");
     return coroutine_awaiter<Operation, Target>{std::exchange(state_, {}), scheduler};
   }
@@ -75,9 +75,9 @@ class coroutine_awaiter {
       throw std::logic_error("用户等待器需要有效的静态调度器");
     const auto target = detail::capture_resume_target(scheduler);
 
-    unsigned char idle = state_type::idle;
+    unsigned char idle = state_type::IDLE;
     if (!state->gate.compare_exchange_strong(
-            idle, state_type::registering, std::memory_order_acq_rel))
+            idle, state_type::REGISTERING, std::memory_order_acq_rel))
       throw std::logic_error("用户等待器只能等待一次");
 
     const bool matching_thread = detail::current_scheduler_matches(scheduler);
@@ -107,15 +107,15 @@ class coroutine_awaiter {
     );
 
     state->operation.on_suspend(completion_type{state, target, continuation});
-    unsigned char registering = state_type::registering;
+    unsigned char registering = state_type::REGISTERING;
     return state->gate.compare_exchange_strong(
-        registering, state_type::suspended, std::memory_order_acq_rel);
+        registering, state_type::SUSPENDED, std::memory_order_acq_rel);
   }
 
   /** @brief 取得等待结果。 */
   decltype(auto) await_resume() {
     auto state = std::exchange(state_, {});
-    if (!state || state->gate.load(std::memory_order_acquire) != state_type::completed)
+    if (!state || state->gate.load(std::memory_order_acquire) != state_type::COMPLETED)
       throw std::logic_error("用户等待器尚未完成或已经被消费");
     return std::move(state->operation).on_resume();
   }

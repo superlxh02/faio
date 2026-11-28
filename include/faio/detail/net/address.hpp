@@ -6,10 +6,10 @@
 #include "faio/detail/net/base/address_value.hpp"
 
 namespace faio::net {
-using SocketAddr = detail::SocketAddr;
-using Ipv4Addr = detail::Ipv4Addr;
-using Ipv6Addr = detail::Ipv6Addr;
-using address = detail::SocketAddr;
-using v4addr = detail::Ipv4Addr;
-using v6addr = detail::Ipv6Addr;
+using socket_addr = detail::socket_addr;
+using ipv4_addr = detail::ipv4_addr;
+using ipv6_addr = detail::ipv6_addr;
+using address = detail::socket_addr;
+using v4addr = detail::ipv4_addr;
+using v6addr = detail::ipv6_addr;
 }  // namespace faio::net

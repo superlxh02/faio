@@ -25,7 +25,7 @@ faio::task<void> multicast(std::atomic<int>& starts) {
   });
   EXPECT_EQ(group.children.size(), 65);
   for (const auto& result : group.children)
-    EXPECT_EQ(result.status, faio::task_outcome_status::value);
+    EXPECT_EQ(result.status, faio::task_outcome_status::VALUE);
 }
 
 faio::task<int> fails() {
@@ -34,7 +34,7 @@ faio::task<int> fails() {
 }
 
 faio::task<void> repeated_error() {
-  auto group = co_await faio::task_group({faio::group_error_policy::collect_all},
+  auto group = co_await faio::task_group({faio::group_error_policy::COLLECT_ALL},
                                          [](faio::task_group_context& owner) -> faio::task<void> {
                                            const auto observer =
                                                owner.spawn_shared_uncancellable(fails());
@@ -47,7 +47,7 @@ faio::task<void> repeated_error() {
   EXPECT_EQ(group.children.size(), 1);
   if (group.children.empty())
     co_return;
-  EXPECT_EQ(group.children[0].status, faio::task_outcome_status::error);
+  EXPECT_EQ(group.children[0].status, faio::task_outcome_status::ERROR_VALUE);
 }
 
 TEST(CoroutineSharedTask, MulticastAndRepeatableError) {

@@ -28,7 +28,7 @@
 
 namespace faio::blocking {
 /**  @brief 原生后端的辅助服务仅在实际使用回退路径时启动应用线程。 */
-enum class startup_policy { preheated, on_demand };
+enum class startup_policy { PREHEATED, ON_DEMAND };
 
 /**
  *  @brief 不依赖运行时类型的有界阻塞执行服务。
@@ -67,14 +67,14 @@ class service {
   explicit service(std::size_t limit = 4,
                    std::size_t queue_limit = 4096,
                    std::size_t min_threads = 1,
-                   startup_policy startup = startup_policy::preheated)
+                   startup_policy startup = startup_policy::PREHEATED)
       : queue_limit_(queue_limit), thread_limit_(limit) {
     if (!limit || !queue_limit || !min_threads || min_threads > limit)
       throw std::invalid_argument("阻塞执行器线程数/队列容量无效");
     workers_ = std::make_unique<worker_node[]>(limit);
     threads_.reserve(limit);
     try {
-      if (startup == startup_policy::preheated)
+      if (startup == startup_policy::PREHEATED)
         start_threads();
     } catch (...) {
       close();
@@ -330,29 +330,29 @@ class service_api {
 };
 
 /**  @brief 具体服务类型的引用；共享租约和显式外部借用各自遵守相应的生命周期约定。 */
-template <class Service>
-class basic_service_ref : public service_api<basic_service_ref<Service>> {
+template <class service_t>
+class basic_service_ref : public service_api<basic_service_ref<service_t>> {
  public:
-  using service_type = Service;
+  using service_type = service_t;
   /** @brief 构造静态服务引用。 */
   basic_service_ref() = default;
 
   /** @brief 构造静态服务引用。 */
-  explicit basic_service_ref(std::shared_ptr<Service> service) noexcept
+  explicit basic_service_ref(std::shared_ptr<service_type> service) noexcept
       : service_(std::move(service)) {}
 
   /** @brief 构造静态服务引用。 */
-  explicit basic_service_ref(Service& service) noexcept : borrowed_(std::addressof(service)) {}
+  explicit basic_service_ref(service_type& service) noexcept : borrowed_(std::addressof(service)) {}
 
   /** @brief 判断是否持有有效状态。 */
   explicit operator bool() const noexcept { return native_handle() != nullptr; }
 
   /** @brief 借用底层服务对象。 */
-  Service* native_handle() const noexcept { return service_ ? service_.get() : borrowed_; }
+  service_type* native_handle() const noexcept { return service_ ? service_.get() : borrowed_; }
 
  private:
-  std::shared_ptr<Service> service_; /**< 持有服务租约，保证服务在异步任务执行期间存活。 */
-  Service* borrowed_{};              /**< 外部所有者必须存活到全部已接纳任务结束。 */
+  std::shared_ptr<service_type> service_; /**< 持有服务租约，保证服务在异步任务执行期间存活。 */
+  service_type* borrowed_{};              /**< 外部所有者必须存活到全部已接纳任务结束。 */
 };
 
 using service_ref = basic_service_ref<service>;

@@ -14,14 +14,14 @@ namespace faio::fs::detail {
  * @details 等待器自身持有输出结构，提交前移动不会遗留旧地址；仅在 await_suspend 中
  *          将固定的输出地址写入请求，直到最终 CQE 完成且取消排空前，该地址均保持有效。
  */
-class native_metadata_awaiter : public io::detail::IORegistrantAwaiter<native_metadata_awaiter> {
-  using Base = io::detail::IORegistrantAwaiter<
+class native_metadata_awaiter : public io::detail::io_registrant_awaiter<native_metadata_awaiter> {
+  using base_type = io::detail::io_registrant_awaiter<
       native_metadata_awaiter>; /**< 注册等待器的共用基类，复用提交、取消与完成握手。 */
 
  public:
   /** @brief 建立元数据请求并固定原生输出存储。 */
   native_metadata_awaiter(io::io_context context, int descriptor, std::string filename, int flags)
-      : Base{request(descriptor, std::move(filename), flags), std::move(context)} {}
+      : base_type{request(descriptor, std::move(filename), flags), std::move(context)} {}
 
   /** @brief 转移等待器状态和资源租约。 */
   native_metadata_awaiter(native_metadata_awaiter&&) noexcept = default;
@@ -33,21 +33,22 @@ class native_metadata_awaiter : public io::detail::IORegistrantAwaiter<native_me
   template <class Promise>
   bool await_suspend(std::coroutine_handle<Promise> continuation) {
     request_.buffer = &attributes_;
-    return Base::await_suspend(continuation);
+    return base_type::await_suspend(continuation);
   }
 
   /**  @brief CQE 完成后，内核已不再借用输出内存；直接返回该快照，无需重新查询文件系统。 */
-  expected<Metadata> await_resume() const noexcept {
+  expected<file_metadata> await_resume() const noexcept {
     if (_user_data.result < 0)
-      return std::unexpected{Error{static_cast<int>(-_user_data.result), _user_data.transferred}};
-    return Metadata{attributes_};
+      return std::unexpected{
+          ::faio::error{static_cast<int>(-_user_data.result), _user_data.transferred}};
+    return file_metadata{attributes_};
   }
 
  private:
   /** @brief 返回元数据等待器内部的原生请求。 */
   static io::detail::io_request request(int descriptor, std::string filename, int flags) {
     io::detail::io_request value;
-    value.kind = io::detail::operation_kind::statx;
+    value.kind = io::detail::operation_kind::STATX;
     value.bypass_resource_registration = true;
     value.fd = descriptor;
     value.path = std::move(filename);

@@ -16,10 +16,10 @@ namespace faio::detail {
 /** @brief 注解辅助帧拥有的状态；未注解任务不为这些字段增加帧空间。 */
 struct task_lifecycle_state {
   /** @brief 辅助帧只允许首次执行与最终退出两次恢复。 */
-  enum class phase : unsigned char { unstarted, before_done, after_done };
+  enum class phase : unsigned char { UNSTARTED, BEFORE_DONE, AFTER_DONE };
 
   task_exit exit{};              /**< after 观察的最终状态，不保存任务结果。 */
-  phase stage{phase::unstarted}; /**< 用于验证两阶段恢复顺序。 */
+  phase stage{phase::UNSTARTED}; /**< 用于验证两阶段恢复顺序。 */
   bool before_failed{};          /**< before 的异常统一归为失败，不误判成任务取消。 */
   bool writing_result{};         /**< promise 构造返回值失败时统一归为失败。 */
 };
@@ -74,10 +74,10 @@ class owned_task_lifecycle {
     if (!handle_)
       return;
     auto& state = handle_.promise().state;
-    if (state.stage != task_lifecycle_state::phase::unstarted)
+    if (state.stage != task_lifecycle_state::phase::UNSTARTED)
       std::terminate();
     handle_.resume();
-    if (state.stage != task_lifecycle_state::phase::before_done)
+    if (state.stage != task_lifecycle_state::phase::BEFORE_DONE)
       std::terminate();
     if (state.before_failed)
       std::rethrow_exception(state.exit.exception);
@@ -88,10 +88,10 @@ class owned_task_lifecycle {
     if (!handle_)
       return;
     auto& state = handle_.promise().state;
-    if (state.stage != task_lifecycle_state::phase::before_done)
+    if (state.stage != task_lifecycle_state::phase::BEFORE_DONE)
       std::terminate();
     handle_.resume();
-    if (state.stage != task_lifecycle_state::phase::after_done)
+    if (state.stage != task_lifecycle_state::phase::AFTER_DONE)
       std::terminate();
   }
 
@@ -106,13 +106,13 @@ class owned_task_lifecycle {
     if (!handle_)
       return;
     auto& state = handle_.promise().state;
-    state.exit = {task_exit::kind::failed, std::move(exception)};
+    state.exit = {task_exit::kind::FAILED, std::move(exception)};
     if (state.before_failed || state.writing_result)
       return;
     try {
       std::rethrow_exception(state.exit.exception);
     } catch (const operation_cancelled&) {
-      state.exit.status = task_exit::kind::cancelled;
+      state.exit.status = task_exit::kind::CANCELLED;
     } catch (...) {
     }
   }
@@ -158,12 +158,12 @@ owned_task_lifecycle make_task_lifecycle_frame(Policy policy) {
     policy.before();
   } catch (...) {
     state.before_failed = true;
-    state.exit = {task_exit::kind::failed, std::current_exception()};
+    state.exit = {task_exit::kind::FAILED, std::current_exception()};
   }
-  state.stage = task_lifecycle_state::phase::before_done;
+  state.stage = task_lifecycle_state::phase::BEFORE_DONE;
   co_await std::suspend_always{};
   policy.after(state.exit);
-  state.stage = task_lifecycle_state::phase::after_done;
+  state.stage = task_lifecycle_state::phase::AFTER_DONE;
 }
 
 /** @brief 注解选择策略类型，每次创建原 task 时默认构造独立的运行期策略。 */

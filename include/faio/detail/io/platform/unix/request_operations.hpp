@@ -62,16 +62,16 @@ inline void shutdown_write(int fd) noexcept {
 inline std::uint32_t readiness_flags(std::int64_t result) noexcept {
   std::uint32_t flags{};
   if (result & (POLLIN | POLLPRI))
-    flags |= readable_bit;
+    flags |= READABLE_BIT;
   if (result & POLLOUT)
-    flags |= writable_bit;
+    flags |= WRITABLE_BIT;
   if (result & POLLERR)
-    flags |= error_bit;
+    flags |= ERROR_BIT;
   if (result & POLLHUP)
-    flags |= readable_bit | writable_bit | closed_bit;
+    flags |= READABLE_BIT | WRITABLE_BIT | CLOSED_BIT;
 #ifdef POLLRDHUP
   if (result & POLLRDHUP)
-    flags |= readable_bit | read_closed_bit;
+    flags |= READABLE_BIT | READ_CLOSED_BIT;
 #endif
   return flags;
 }
@@ -95,10 +95,10 @@ inline int query_socket_family(int fd) noexcept {
 
 /** @brief 根据请求种类及资源属性判定是否需要文件执行路径。 */
 inline bool is_file_request(const io_request& req) noexcept {
-  return req.kind == operation_kind::open || req.kind == operation_kind::open2
-         || req.kind == operation_kind::fsync
-         || ((req.kind == operation_kind::read || req.kind == operation_kind::write
-              || req.kind == operation_kind::readv || req.kind == operation_kind::writev)
+  return req.kind == operation_kind::OPEN || req.kind == operation_kind::OPEN2
+         || req.kind == operation_kind::FSYNC
+         || ((req.kind == operation_kind::READ || req.kind == operation_kind::WRITE
+              || req.kind == operation_kind::READV || req.kind == operation_kind::WRITEV)
              && req.resource && req.resource->regular_file);
 }
 
@@ -142,13 +142,13 @@ inline ssize_t pipe_write(F&& call) noexcept {
 /** @brief 执行统一 RECV 或 SEND 非阻塞系统调用并立即捕获错误。 */
 template <class Request>
 inline std::int64_t perform_socket_scalar(Request& request) noexcept {
-  if (request.kind != operation_kind::recv && request.kind != operation_kind::send)
+  if (request.kind != operation_kind::RECV && request.kind != operation_kind::SEND)
     return -EINVAL;
   if (request.empty_success && request.length == 0)
     return request.fd >= 0 ? 0 : -EBADF;
   ssize_t result;
   do {
-    if (request.kind == operation_kind::recv) {
+    if (request.kind == operation_kind::RECV) {
       result = ::recv(request.fd, request.buffer, request.length, request.flags);
     } else {
       result = ::send(request.fd,
@@ -166,8 +166,8 @@ inline std::int64_t perform_socket_scalar(Request& request) noexcept {
 
 /** @brief 按统一请求种类执行真实系统调用，保留短读写进度与原生错误。 */
 inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
-  if ((r.kind == operation_kind::read || r.kind == operation_kind::write
-       || r.kind == operation_kind::readv || r.kind == operation_kind::writev)
+  if ((r.kind == operation_kind::READ || r.kind == operation_kind::WRITE
+       || r.kind == operation_kind::READV || r.kind == operation_kind::WRITEV)
       && r.offset != UINT64_MAX && r.resource && r.resource->regular_file
       && r.offset > static_cast<std::uint64_t>(std::numeric_limits<off_t>::max()))
     return -EINVAL;
@@ -177,14 +177,14 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
   ssize_t result = -1;
   do {
     switch (r.kind) {
-      case operation_kind::recv:
-      case operation_kind::send:
+      case operation_kind::RECV:
+      case operation_kind::SEND:
         return perform_socket_scalar(r);
-      case operation_kind::recvfrom:
+      case operation_kind::RECVFROM:
         result = ::recvfrom(
             r.fd, r.buffer, r.length, r.flags, r.output_address, r.output_address_length);
         break;
-      case operation_kind::sendto:
+      case operation_kind::SENDTO:
         result = ::sendto(r.fd,
                           r.const_buffer,
                           r.length,
@@ -196,11 +196,11 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
                           reinterpret_cast<const sockaddr*>(&r.address),
                           r.address_length);
         break;
-      case operation_kind::recvmsg:
+      case operation_kind::RECVMSG:
 
         result = ::recvmsg(r.fd, r.output_message, r.flags);
         break;
-      case operation_kind::sendmsg:
+      case operation_kind::SENDMSG:
 
         result = ::sendmsg(r.fd,
                            &r.message,
@@ -210,20 +210,20 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
 #endif
         );
         break;
-      case operation_kind::read:
+      case operation_kind::READ:
 
         result = (r.offset == UINT64_MAX || (r.resource && !r.resource->regular_file))
                      ? ::read(r.fd, r.buffer, r.length)
                      : ::pread(r.fd, r.buffer, r.length, static_cast<off_t>(r.offset));
         break;
-      case operation_kind::write:
+      case operation_kind::WRITE:
         result = (r.offset == UINT64_MAX || (r.resource && !r.resource->regular_file))
                      ? (r.resource && !r.resource->regular_file
                             ? pipe_write([&] { return ::write(r.fd, r.const_buffer, r.length); })
                             : ::write(r.fd, r.const_buffer, r.length))
                      : ::pwrite(r.fd, r.const_buffer, r.length, static_cast<off_t>(r.offset));
         break;
-      case operation_kind::readv:
+      case operation_kind::READV:
         if (r.flags) {
 #if defined(__linux__) && defined(__GLIBC__)
           const auto offset = r.offset == UINT64_MAX || (r.resource && !r.resource->regular_file)
@@ -243,7 +243,7 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
                                 static_cast<int>(r.vectors.size()),
                                 static_cast<off_t>(r.offset));
         break;
-      case operation_kind::writev:
+      case operation_kind::WRITEV:
         if (r.flags) {
 #if defined(__linux__) && defined(__GLIBC__)
           const auto offset = r.offset == UINT64_MAX || (r.resource && !r.resource->regular_file)
@@ -274,7 +274,7 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
                                  static_cast<int>(r.vectors.size()),
                                  static_cast<off_t>(r.offset));
         break;
-      case operation_kind::connect:
+      case operation_kind::CONNECT:
 
         if (!connecting) {
           result = ::connect(r.fd, reinterpret_cast<const sockaddr*>(&r.address), r.address_length);
@@ -296,7 +296,7 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
           result = 0;
         }
         break;
-      case operation_kind::accept:
+      case operation_kind::ACCEPT:
 
 #if defined(__linux__)
         result = ::accept4(r.fd,
@@ -324,12 +324,12 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
         }
 #endif
         break;
-      case operation_kind::open:
+      case operation_kind::OPEN:
 
         result =
             ::openat(r.fd, r.path.c_str(), r.flags | O_CLOEXEC, static_cast<mode_t>(r.argument));
         break;
-      case operation_kind::open2:
+      case operation_kind::OPEN2:
 #if defined(__linux__) && defined(SYS_openat2)
       {
         const open_how how{r.extension_flags | O_CLOEXEC, r.extension_mode, r.extension_resolve};
@@ -338,7 +338,7 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
 #else
         return -ENOTSUP;
 #endif
-      case operation_kind::fsync:
+      case operation_kind::FSYNC:
         if (r.flags & ~1)
           return -EINVAL;
 #if defined(__linux__)
@@ -347,10 +347,10 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
         result = ::fsync(r.fd);
 #endif
         break;
-      case operation_kind::shutdown:
+      case operation_kind::SHUTDOWN:
         result = ::shutdown(r.fd, r.argument);
         break;
-      case operation_kind::socket:
+      case operation_kind::SOCKET:
         if (r.flags)
           return -ENOTSUP;
 
@@ -368,25 +368,25 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
         }
 #endif
         break;
-      case operation_kind::getsockopt: {
+      case operation_kind::GETSOCKOPT: {
         auto size = static_cast<socklen_t>(r.length);
         result = ::getsockopt(r.fd, r.argument, r.argument2, r.buffer, &size);
         if (!result)
           result = size;
         break;
       }
-      case operation_kind::setsockopt:
+      case operation_kind::SETSOCKOPT:
         result = ::setsockopt(
             r.fd, r.argument, r.argument2, r.const_buffer, static_cast<socklen_t>(r.length));
         break;
-      case operation_kind::socket_inq: {
+      case operation_kind::SOCKET_INQ: {
         int queued{};
         result = ::ioctl(r.fd, FIONREAD, &queued);
         if (!result)
           result = queued;
         break;
       }
-      case operation_kind::socket_outq: {
+      case operation_kind::SOCKET_OUTQ: {
         int queued{};
 #if defined(TIOCOUTQ)
         result = ::ioctl(r.fd, TIOCOUTQ, &queued);
@@ -400,9 +400,9 @@ inline std::int64_t perform(io_request& r, bool& connecting) noexcept {
           result = queued;
         break;
       }
-      case operation_kind::unsupported:
-      case operation_kind::send_zc:
-      case operation_kind::sendmsg_zc:
+      case operation_kind::UNSUPPORTED:
+      case operation_kind::SEND_ZC:
+      case operation_kind::SENDMSG_ZC:
         return -ENOTSUP;
       default:
         return -EINVAL;

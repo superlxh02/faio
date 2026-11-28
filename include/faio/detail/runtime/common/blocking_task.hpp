@@ -165,9 +165,9 @@ auto submit_blocking_task(
                                 : ::faio::detail::task_scheduling_policy{};
   state->cancellation_policy = same_host
                                    ? ::faio::detail::current_task_context().cancellation_policy
-                                   : ::faio::detail::cancellation_error_policy::fatal_if_unobserved;
+                                   : ::faio::detail::cancellation_error_policy::FATAL_IF_UNOBSERVED;
   if (state->cancellation_policy
-          == ::faio::detail::cancellation_error_policy::normal_if_stop_requested
+          == ::faio::detail::cancellation_error_policy::NORMAL_IF_STOP_REQUESTED
       || (same_host && ::faio::detail::current_task_context().cancellation_owner)) {
     state->cancellation_owner = std::make_shared<::faio::detail::cancellation_state>(
         parent_stop,

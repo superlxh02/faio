@@ -29,8 +29,8 @@ static_assert(faio::experimental::runtime_options_of<^^configured>().workers == 
 
 int main() {
   using namespace faio::experimental;
-  runtime_options options{.mode = faio::runtime::mode::current_thread, .workers = 1};
-  if (validate_options(options) != options_error::none
+  runtime_options options{.mode = faio::runtime::mode::CURRENT_THREAD, .workers = 1};
+  if (validate_options(options) != options_error::NONE
       || to_runtime_config(options)._num_workers != 1)
     return EXIT_FAILURE;
 #if FAIO_EXPERIMENTAL_HAS_EXECUTION
@@ -40,5 +40,5 @@ int main() {
     return EXIT_FAILURE;
 #endif
   options.workers = 2;
-  return validate_options(options) == options_error::workers ? EXIT_SUCCESS : EXIT_FAILURE;
+  return validate_options(options) == options_error::WORKERS ? EXIT_SUCCESS : EXIT_FAILURE;
 }

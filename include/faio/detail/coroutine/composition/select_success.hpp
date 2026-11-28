@@ -66,7 +66,7 @@ root_task select_success_root_task_wrapper(task<T, S> work, select_success_state
   } catch (...) {
     outcome.emplace(task_outcome<T>::from_error(std::current_exception()));
   }
-  if (outcome->status() == task_outcome_status::value) {
+  if (outcome->status() == task_outcome_status::VALUE) {
     std::size_t expected = sizeof...(Ts);
     if (state->winner.compare_exchange_strong(expected, I, std::memory_order_acq_rel))
       state->stop->source.request_stop();

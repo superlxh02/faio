@@ -24,11 +24,11 @@
 namespace faio::net::detail {
 /**  @brief 聚集发送 awaiter；借用数据，持有 iovec 与 msghdr，不复制 payload。 */
 template <std::size_t N>
-class VectoredWrite : public AwaiterOptions<VectoredWrite<N>> {
+class vectored_write : public awaiter_options<vectored_write<N>> {
  public:
   /** @brief 接管源对象的状态和资源租约。 */
   template <class... Buffers>
-  VectoredWrite(std::shared_ptr<io::detail::resource_state> resource, Buffers&&... buffers)
+  vectored_write(std::shared_ptr<io::detail::resource_state> resource, Buffers&&... buffers)
       : resource_{std::move(resource)},
         vectors_{iovec{const_cast<char*>(std::span<const char>{buffers}.data()),
                        std::span<const char>{buffers}.size_bytes()}...},
@@ -45,11 +45,11 @@ class VectoredWrite : public AwaiterOptions<VectoredWrite<N>> {
   }
 
   /** @brief 禁止复制此对象。 */
-  VectoredWrite(const VectoredWrite&) = delete;
+  vectored_write(const vectored_write&) = delete;
 
   /**  @brief 提交前移动时重建消息指针，不让后端借用已销毁临时 awaiter。 */
-  VectoredWrite(VectoredWrite&& other) noexcept
-      : AwaiterOptions<VectoredWrite<N>>{std::move(other)},
+  vectored_write(vectored_write&& other) noexcept
+      : awaiter_options<vectored_write<N>>{std::move(other)},
         resource_{std::move(other.resource_)},
         vectors_{other.vectors_},
         message_{[&] {
@@ -89,11 +89,11 @@ class VectoredWrite : public AwaiterOptions<VectoredWrite<N>> {
 };
 
 /** @brief 借用 iovec 描述表的聚集写入等待器。 */
-class BorrowedVectoredWrite : public AwaiterOptions<BorrowedVectoredWrite> {
+class borrowed_vectored_write : public awaiter_options<borrowed_vectored_write> {
  public:
   /** @brief 借用聚集写入描述表，调用方保证其存活至完成。 */
-  BorrowedVectoredWrite(std::shared_ptr<io::detail::resource_state> resource,
-                        std::span<const iovec> vectors)
+  borrowed_vectored_write(std::shared_ptr<io::detail::resource_state> resource,
+                          std::span<const iovec> vectors)
       : resource_{std::move(resource)},
         message_{[&] {
           msghdr message{};
@@ -108,11 +108,11 @@ class BorrowedVectoredWrite : public AwaiterOptions<BorrowedVectoredWrite> {
   }
 
   /** @brief 禁止复制此对象。 */
-  BorrowedVectoredWrite(const BorrowedVectoredWrite&) = delete;
+  borrowed_vectored_write(const borrowed_vectored_write&) = delete;
 
   /** @brief 接管源对象的状态和资源租约。 */
-  BorrowedVectoredWrite(BorrowedVectoredWrite&& other) noexcept
-      : AwaiterOptions<BorrowedVectoredWrite>{std::move(other)},
+  borrowed_vectored_write(borrowed_vectored_write&& other) noexcept
+      : awaiter_options<borrowed_vectored_write>{std::move(other)},
         resource_{std::move(other.resource_)},
         message_{other.message_},
         operation_{io::sendmsg(resource_, &message_, no_signal_flags)} {
@@ -150,32 +150,33 @@ class BorrowedVectoredWrite : public AwaiterOptions<BorrowedVectoredWrite> {
  * 通知，返回前不会再借用 payload。
  *          返回值是本次实际进度，仍允许短写；零长度范围使用流式无操作语义。
  */
-class ZeroCopyWrite : public AwaiterOptions<ZeroCopyWrite> {
-  using Send = decltype(io::send(
+class zero_copy_write : public awaiter_options<zero_copy_write> {
+  using send_awaiter = decltype(io::send(
       std::declval<io::detail::resource_ptr>(), nullptr, 0, 0)); /**< 普通发送等待器类型。 */
-  using SendZC = decltype(io::send_zc(std::declval<io::detail::resource_ptr>(),
-                                      nullptr,
-                                      0,
-                                      0)); /**< 零拷贝发送等待器类型，完成须包含负载释放阶段。 */
+  using send_zc_awaiter =
+      decltype(io::send_zc(std::declval<io::detail::resource_ptr>(),
+                           nullptr,
+                           0,
+                           0)); /**< 零拷贝发送等待器类型，完成须包含负载释放阶段。 */
 
  public:
   /** @brief 持有零拷贝写入所需的负载与资源租约。 */
-  ZeroCopyWrite(io::detail::resource_ptr resource,
-                std::span<const char> buffer,
-                bool ip_stream) noexcept
+  zero_copy_write(io::detail::resource_ptr resource,
+                  std::span<const char> buffer,
+                  bool ip_stream) noexcept
       : resource_{std::move(resource)}, buffer_{buffer}, ip_stream_{ip_stream} {}
 
   /** @brief 禁止复制此对象。 */
-  ZeroCopyWrite(const ZeroCopyWrite&) = delete;
+  zero_copy_write(const zero_copy_write&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const ZeroCopyWrite&) -> ZeroCopyWrite& = delete;
+  auto operator=(const zero_copy_write&) -> zero_copy_write& = delete;
 
   /** @brief 接管源对象的状态和资源租约。 */
-  ZeroCopyWrite(ZeroCopyWrite&&) noexcept = default;
+  zero_copy_write(zero_copy_write&&) noexcept = default;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(ZeroCopyWrite&&) -> ZeroCopyWrite& = delete;
+  auto operator=(zero_copy_write&&) -> zero_copy_write& = delete;
 
   /** @brief 选择后端时也不在构造或 ready 阶段提交。 */
   bool await_ready() const noexcept { return false; }
@@ -214,12 +215,13 @@ class ZeroCopyWrite : public AwaiterOptions<ZeroCopyWrite> {
   io::detail::resource_ptr resource_; /**< lease 保持实际 domain 与句柄控制块有效。 */
   std::span<const char> buffer_;      /**< 借用 payload，调用者在最终结果返回前不得修改或销毁。 */
   bool ip_stream_{}; /**< 原生 SEND_ZC 的网络协议限制，不将 Unix socket 当作 TCP。 */
-  std::variant<std::monostate, Send, SendZC> operation_; /**< 仅所选请求建立操作状态。 */
+  std::variant<std::monostate, send_awaiter, send_zc_awaiter>
+      operation_; /**< 仅所选请求建立操作状态。 */
 };
 
 /**  @brief TCP/Unix stream 写方向，默认不额外缓存数据，直接服从内核背压。 */
 template <class T>
-struct ImplStreamWrite {
+struct impl_stream_write {
   /** @brief 写入一段字节并返回本次实际写入数量。 */
   auto write(std::span<const char> buffer) const noexcept {
     auto operation = io::send(
@@ -251,24 +253,24 @@ struct ImplStreamWrite {
   auto write_zc(std::span<const char> buffer) const noexcept {
     constexpr bool ip_stream = [] {
       if constexpr (requires { typename T::address_type; })
-        return std::same_as<typename T::address_type, SocketAddr>;
+        return std::same_as<typename T::address_type, socket_addr>;
       else
         return false;
     }();
-    return ZeroCopyWrite{static_cast<const T*>(this)->resource(), buffer, ip_stream};
+    return zero_copy_write{static_cast<const T*>(this)->resource(), buffer, ip_stream};
   }
 
   /** @brief 发起聚集写入，按实际完成字节数解释短写。 */
   auto write_vectored(std::span<const iovec> vectors) const noexcept {
-    return BorrowedVectoredWrite{static_cast<const T*>(this)->resource(), vectors};
+    return borrowed_vectored_write{static_cast<const T*>(this)->resource(), vectors};
   }
 
   /** @brief 发起聚集写入，按实际完成字节数解释短写。 */
   template <class... Buffers>
     requires(sizeof...(Buffers) > 0 && (constructible_to_char_slice<Buffers> && ...))
   auto write_vectored(Buffers&&... buffers) const noexcept {
-    return VectoredWrite<sizeof...(Buffers)>{static_cast<const T*>(this)->resource(),
-                                             std::forward<Buffers>(buffers)...};
+    return vectored_write<sizeof...(Buffers)>{static_cast<const T*>(this)->resource(),
+                                              std::forward<Buffers>(buffers)...};
   }
 
   /** @brief 提交多个缓冲区的聚集写入。 */
@@ -281,7 +283,7 @@ struct ImplStreamWrite {
   [[nodiscard]] auto try_write(std::span<const char> buffer) const -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::writable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::WRITABLE, [&]() -> expected<std::size_t> {
           if (buffer.empty())
             return std::size_t{0};
           decltype(socket_send(0, nullptr, 0, 0)) result{};
@@ -301,7 +303,7 @@ struct ImplStreamWrite {
       -> expected<std::size_t> {
     auto* object = static_cast<const T*>(this);
     return io::detail::with_resource(
-        object->resource(), io::Interest::writable, [&]() -> expected<std::size_t> {
+        object->resource(), io::interest::WRITABLE, [&]() -> expected<std::size_t> {
           if (vectors.size() > IOV_MAX)
             return std::unexpected{make_error(EINVAL)};
           msghdr message{};
@@ -371,7 +373,7 @@ struct ImplStreamWrite {
     if (!resource)
       co_return std::unexpected{make_error(EBADF)};
     io::detail::borrowed_direction_lease reservation{
-        *resource, io::Interest::writable, &owner_identity};
+        *resource, io::interest::WRITABLE, &owner_identity};
     std::size_t transferred{};
     bool first_operation = true;
     while (!buffer.empty()) {
@@ -391,7 +393,8 @@ struct ImplStreamWrite {
           co_return std::unexpected{
               result.error().with_progress(transferred + result.error().progress())};
         if (*result == 0)
-          co_return std::unexpected{Error{Error::WriteZero, transferred, error_domain::faio}};
+          co_return std::unexpected{
+              ::faio::error{::faio::error::WRITE_ZERO, transferred, error_domain::FAIO}};
         transferred += *result;
         buffer = buffer.subspan(*result);
       }

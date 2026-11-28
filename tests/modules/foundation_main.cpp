@@ -19,8 +19,8 @@ import faio;
 faio::expected<int> peer_result(bool fail);
 void peer_cancel();
 
-static_assert(std::is_same_v<faio::expected<int>, std::expected<int, faio::Error>>);
-static_assert(static_cast<int>(faio::error_domain::process) == 7);
+static_assert(std::is_same_v<faio::expected<int>, std::expected<int, faio::error>>);
+static_assert(static_cast<int>(faio::error_domain::PROCESS) == 7);
 
 int main() {
   const auto success = peer_result(false);
@@ -33,7 +33,7 @@ int main() {
   const auto& error = failure.error();
   const auto updated = error.with_progress(12);
   if (error.transferred() != 7 || updated.progress() != 12 || updated.native_code() != 3
-      || updated.domain() != faio::error_domain::process || !updated.context()
+      || updated.domain() != faio::error_domain::PROCESS || !updated.context()
       || updated.context() != error.context()) {
     std::fputs("error identity or progress changed across TUs\n", stderr);
     return 1;
@@ -48,10 +48,10 @@ int main() {
 
   const auto native = faio::make_error(EINVAL);
   const faio::expected<void> empty;
-  if (!empty || native.domain() != faio::error_domain::posix || native.progress() != 0
+  if (!empty || native.domain() != faio::error_domain::POSIX || native.progress() != 0
       || native.context() || native.message() != std::strerror(EINVAL)
-      || faio::Error{3, 0, faio::error_domain::tls}.message() != "TLS error"
-      || faio::Error{3, 0, faio::error_domain::process}.message() != "Process error") {
+      || faio::error{3, 0, faio::error_domain::TLS}.message() != "TLS error"
+      || faio::error{3, 0, faio::error_domain::PROCESS}.message() != "Process error") {
     std::fputs("native or component error lookup changed\n", stderr);
     return 1;
   }

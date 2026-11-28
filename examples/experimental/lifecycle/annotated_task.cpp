@@ -22,13 +22,13 @@ import faio.experimental;
 
 namespace quote_demo {
 /** @brief 表示供应商暂时无法给出报价。 */
-struct QuoteUnavailable : std::runtime_error {
+struct quote_unavailable : std::runtime_error {
   /** @brief 保留供等待者读取的错误说明。 */
-  QuoteUnavailable() : std::runtime_error("供应商暂时无法报价") {}
+  quote_unavailable() : std::runtime_error("供应商暂时无法报价") {}
 };
 
 /** @brief 统计带注解任务的开始次数、成功次数和失败次数。 */
-struct QuoteTrace {
+struct quote_trace {
   inline static std::atomic<int> started{};   /**< 首次执行的任务数。 */
   inline static std::atomic<int> succeeded{}; /**< 正常交付的任务数。 */
   inline static std::atomic<int> failed{};    /**< 以异常退出的任务数。 */
@@ -42,9 +42,9 @@ struct QuoteTrace {
    * @details 钩子保持 noexcept，通过计数记录状态，由调用方领取结果后统一报告。
    */
   void after(const faio::task_exit& exit) noexcept {
-    if (exit.status == faio::task_exit::kind::succeeded)
+    if (exit.status == faio::task_exit::kind::SUCCEEDED)
       ++succeeded;
-    if (exit.status == faio::task_exit::kind::failed)
+    if (exit.status == faio::task_exit::kind::FAILED)
       ++failed;
   }
 };
@@ -55,10 +55,10 @@ struct QuoteTrace {
  * @return 等待任务得到的报价。
  * @throws QuoteUnavailable 供应商无法报价，等待者可按原异常类型捕获。
  */
-[[= faio::experimental::lifecycle<QuoteTrace>{}]] faio::task<int> quote(bool available) {
+[[= faio::experimental::lifecycle<quote_trace>{}]] faio::task<int> quote(bool available) {
   co_await faio::this_coro::yield();
   if (!available)
-    throw QuoteUnavailable{};
+    throw quote_unavailable{};
   co_return 42;
 }
 }  // namespace quote_demo
@@ -68,20 +68,20 @@ struct QuoteTrace {
  * @return 两次任务都恰好执行一对生命周期钩子时返回成功退出码。
  */
 [[= faio::experimental::main(app)]] faio::task<int> app(int, char**) {
-  using quote_demo::QuoteTrace;
+  using quote_demo::quote_trace;
 
   auto available = quote_demo::quote(true);
   auto unavailable = quote_demo::quote(false);
-  if (QuoteTrace::started.load() != 0 || QuoteTrace::succeeded.load() != 0
-      || QuoteTrace::failed.load() != 0) {
+  if (quote_trace::started.load() != 0 || quote_trace::succeeded.load() != 0
+      || quote_trace::failed.load() != 0) {
     faio::log::logger()->error("创建任务时不应调用生命周期钩子");
     co_return EXIT_FAILURE;
   }
   faio::log::logger()->info("已创建两项报价，尚未调用钩子");
 
   const int price = co_await std::move(available);
-  if (price != 42 || QuoteTrace::started.load() != 1 || QuoteTrace::succeeded.load() != 1
-      || QuoteTrace::failed.load() != 0) {
+  if (price != 42 || quote_trace::started.load() != 1 || quote_trace::succeeded.load() != 1
+      || quote_trace::failed.load() != 0) {
     faio::log::logger()->error("成功任务的结果或钩子计数不符");
     co_return EXIT_FAILURE;
   }
@@ -89,9 +89,9 @@ struct QuoteTrace {
 
   try {
     (void)co_await std::move(unavailable);
-  } catch (const quote_demo::QuoteUnavailable& failure) {
-    if (QuoteTrace::started.load() != 2 || QuoteTrace::succeeded.load() != 1
-        || QuoteTrace::failed.load() != 1) {
+  } catch (const quote_demo::quote_unavailable& failure) {
+    if (quote_trace::started.load() != 2 || quote_trace::succeeded.load() != 1
+        || quote_trace::failed.load() != 1) {
       faio::log::logger()->error("失败任务的钩子计数不符");
       co_return EXIT_FAILURE;
     }

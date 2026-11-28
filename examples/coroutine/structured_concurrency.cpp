@@ -21,7 +21,7 @@ faio::task<void> publish_quote(int price, int& result) {
 }
 
 /** @brief 等待方和分离任务共享的通知状态。 */
-struct QuoteNotice {
+struct quote_notice {
   faio::sync::latch ready{1}; /**< 发布报价后打开，等待方随后可以读取。 */
   int price{};                /**< 由分离任务写入的报价。 */
 };
@@ -30,7 +30,7 @@ struct QuoteNotice {
  * @brief 通过信号发布一条缓存报价。
  * @param notice 按值传入的共享所有权，保证分离任务完成发布前通知对象存活。
  */
-faio::task<void> post_cached_quote(std::shared_ptr<QuoteNotice> notice) {
+faio::task<void> post_cached_quote(std::shared_ptr<quote_notice> notice) {
   notice->price = 22;
   notice->ready.count_down();
   co_return;
@@ -39,7 +39,7 @@ faio::task<void> post_cached_quote(std::shared_ptr<QuoteNotice> notice) {
 /** @brief 对照作用域自动等待与分离任务显式通知这两种方式。 */
 faio::task<void> show_scope() {
   int current_quote = 0;
-  auto cached_quote = std::make_shared<QuoteNotice>();
+  auto cached_quote = std::make_shared<quote_notice>();
   co_await faio::scope([&](faio::scope_context& owner) -> faio::task<void> {
     owner.spawn(publish_quote(20, current_quote));
     /** @brief detached 没有结果句柄。需要观察通知时，使用业务信号显式等待。 */
@@ -111,15 +111,16 @@ faio::task<void> show_group_failure() {
         co_await peer_started.wait();
         auto failing = group.spawn_observed(request_unavailable_supplier());
         const auto failure = co_await failing;
-        if (failure.status() != task_outcome_status::error || !group.stop_token().stop_requested())
+        if (failure.status() != task_outcome_status::ERROR_VALUE
+            || !group.stop_token().stop_requested())
           throw std::logic_error("失败应请求同组停止");
-        if ((co_await peer).status() != task_outcome_status::stopped)
+        if ((co_await peer).status() != task_outcome_status::STOPPED)
           throw std::logic_error("同组等待中的请求应观察到停止");
       });
   summary.body.value_or_throw();
   /** @brief 组按接纳顺序汇报终态，等待句柄并不会从摘要中删除该子项。 */
-  if (summary.children.size() != 2 || summary.children[0].status != task_outcome_status::stopped
-      || summary.children[1].status != task_outcome_status::error)
+  if (summary.children.size() != 2 || summary.children[0].status != task_outcome_status::STOPPED
+      || summary.children[1].status != task_outcome_status::ERROR_VALUE)
     throw std::logic_error("任务组摘要缺少预期的子任务终态");
   faio::log::logger()->info("组内失败已记录，兄弟任务已退出");
 }

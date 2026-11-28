@@ -25,8 +25,9 @@ struct file_state {
       std::make_shared<cursor_state>()}; /**< 共享文件位置或目录枚举游标，由对应的平台实现推进。 */
   std::mutex mutex;                      /**< 保护操作接纳、close 和活跃操作登记。 */
   bool closing{}, shutdown_pending{},
-      shutdown_close_started{};     /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
-  std::optional<Error> close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
+      shutdown_close_started{}; /**< 记录停机关闭操作是否已启动，防止重复关闭。 */
+  std::optional<::faio::error>
+      close_error; /**< 保存关闭过程中的错误，使重复关闭的等待者取得相同结果。 */
   ::faio::detail::completion_event
       close_completion; /**< 保留关闭完成状态的事件，所有关闭等待者共享该通知。 */
 

@@ -8,13 +8,13 @@ export module faio.fs;
 export import faio.io;
 
 export namespace faio::fs {
-using ::faio::fs::DirBuilder;
-using ::faio::fs::DirEntry;
-using ::faio::fs::File;
-using ::faio::fs::Metadata;
-using ::faio::fs::OpenOptions;
-using ::faio::fs::Permissions;
-using ::faio::fs::ReadDir;
+using ::faio::fs::dir_builder;
+using ::faio::fs::dir_entry;
+using ::faio::fs::file;
+using ::faio::fs::file_metadata;
+using ::faio::fs::open_options;
+using ::faio::fs::permissions;
+using ::faio::fs::directory_reader;
 using ::faio::fs::canonicalize;
 using ::faio::fs::copy;
 using ::faio::fs::create_dir;

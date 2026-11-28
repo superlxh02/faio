@@ -21,7 +21,7 @@ namespace faio::runtime::detail {
  *          容量固定为启动时的 2 的幂，SCQ 用 FAA 领取候选位置并帮助越过旧周期。
  *          tail 也可能被 dequeue 的 catch-up 修改，必须保留原子 FAA/CAS 协议。
  */
-template <bool SingleConsumer = false>
+template <bool single_consumer = false>
 class scq_index_ring {
   using word = std::uint64_t;
   using signed_word = std::int64_t;

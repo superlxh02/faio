@@ -67,7 +67,7 @@ class io_engine {
    private:
     io::io_engine::binding io_binding_; /**< 安装当前线程 IO 域并在析构时恢复原绑定的守卫。 */
     io_engine* previous_;               /**< 进入当前作用域前绑定的 I/O 引擎，析构时恢复。 */
-    timer::Timer* timer_;               /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
+    timer::timer* timer_;               /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
   };
 
   /** @brief 在给定预算内推进后端、截止时间与完成发布。 */
@@ -113,13 +113,13 @@ class io_engine {
   io::io_capabilities capabilities() const noexcept { return engine_.capabilities(); }
 
   /** @brief 停止接受新业务，按停止策略取消或保留已接受请求并启动排空。 */
-  void begin_shutdown(io::shutdown_policy policy = io::shutdown_policy::cancel_all) noexcept {
+  void begin_shutdown(io::shutdown_policy policy = io::shutdown_policy::CANCEL_ALL) noexcept {
     engine_.begin_shutdown(policy);
   }
 
  private:
   io::io_engine engine_;    /**< 所属线程的 IO 引擎，统一驱动后端事件及超时。 */
-  timer::Timer timer_;      /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
+  timer::timer timer_;      /**< 关联的时间轮管理器，登记和取消须遵循所属线程协议。 */
   io::drive_budget budget_; /**< 本次事件循环的后端事件与完成发布预算。 */
   bool bound_{};            /**< 当前线程是否已经安装本运行时绑定。 */
   io_engine* previous_{};   /**< 进入当前作用域前绑定的 I/O 引擎，析构时恢复。 */

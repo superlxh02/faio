@@ -81,9 +81,9 @@ class stream_reader {
   task<std::optional<T>, S> next() { return pull(state_, scheduler_); }
 
  private:
-  template <class U, class Scheduler, class Factory, class Body>
-  friend auto with_stream(Factory, Body)
-      -> std::invoke_result_t<Body&, stream_reader<U, Scheduler>&>;
+  template <class U, class Scheduler, class Factory, class body_type>
+  friend auto with_stream(Factory, body_type)
+      -> std::invoke_result_t<body_type&, stream_reader<U, Scheduler>&>;
 
   /** @brief 词法清理时请求停止，并等待进行中的 next 结束；外层任务组负责排空生产者协程帧。 */
   task<void, S> close() {
@@ -164,11 +164,12 @@ class stream_reader {
  * @brief 控制无预取的生产者和单消费者的生命周期。
  * @details 生产者支持显式 emit，按值创建惰性工厂，离开主体时协作停止并排空。
  */
-template <class T, class S = default_scheduler, class Factory, class Body>
-auto with_stream(Factory factory, Body body) -> std::invoke_result_t<Body&, stream_reader<T, S>&> {
-  using Work = std::invoke_result_t<Body&, stream_reader<T, S>&>;
-  using R = typename Work::value_type;
-  auto result = co_await task_group<S>([&](basic_task_group_context<S>& group) -> Work {
+template <class T, class S = default_scheduler, class Factory, class body_type>
+auto with_stream(Factory factory, body_type body)
+    -> std::invoke_result_t<body_type&, stream_reader<T, S>&> {
+  using work_type = std::invoke_result_t<body_type&, stream_reader<T, S>&>;
+  using R = typename work_type::value_type;
+  auto result = co_await task_group<S>([&](basic_task_group_context<S>& group) -> work_type {
     auto stream = std::make_shared<stream_detail::state<T, S>>();
     stream_reader<T, S> input{stream, co_await this_coro::scheduler()};
     auto producer = stream_detail::produce<T, S>(stream, std::move(factory));

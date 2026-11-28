@@ -16,13 +16,13 @@
 
 namespace faio::io::detail {
 enum class uring_control_test_point {
-  poll_after_load,
-  poll_after_consume,
-  poll_before_wait,
-  wake_after_exchange,
-  wake_before_write,
-  harvest_before_drain,
-  harvest_after_drain
+  POLL_AFTER_LOAD,
+  POLL_AFTER_CONSUME,
+  POLL_BEFORE_WAIT,
+  WAKE_AFTER_EXCHANGE,
+  WAKE_BEFORE_WRITE,
+  HARVEST_BEFORE_DRAIN,
+  HARVEST_AFTER_DRAIN
 };
 
 /** @brief io_uring 控制唤醒仲裁状态。 */
@@ -51,7 +51,7 @@ struct uring_control_policy {
   int error{EAGAIN};
   io_uring* ring{}; /**< 借用的原生队列，由被测 backend 保证在脚本调用期间有效。 */
   uring_control_gate gate;
-  uring_control_test_point pause_on{uring_control_test_point::poll_after_load};
+  uring_control_test_point pause_on{uring_control_test_point::POLL_AFTER_LOAD};
   bool pause_enabled{}, interrupt_first_write{};
   std::atomic<unsigned> hits{0}, writes{0}, successful_writes{0}, waits{0}, drains{0};
   std::atomic<int> last_write_error{0};
@@ -68,7 +68,7 @@ struct uring_control_policy {
   void step(uring_control_test_point point) noexcept {
     if (!wake_enabled)
       return;
-    if (point == uring_control_test_point::harvest_after_drain)
+    if (point == uring_control_test_point::HARVEST_AFTER_DRAIN)
       drains.fetch_add(1, std::memory_order_relaxed);
     if (pause_enabled && point == pause_on && hits.fetch_add(1, std::memory_order_relaxed) == 0)
       gate.stop();

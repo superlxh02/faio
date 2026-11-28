@@ -24,29 +24,29 @@ namespace faio::net::detail {
  * 与有界 channel 分派。ready 只是观察，不消费数据报，允许假就绪。
  */
 template <class Datagram, class Addr>
-class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
-                     public ImplRecv<BaseDatagram<Datagram, Addr>, Addr>,
-                     public ImplLocalAddr<BaseDatagram<Datagram, Addr>, Addr>,
-                     public ImplPeerAddr<BaseDatagram<Datagram, Addr>, Addr> {
+class base_datagram : public impl_send<base_datagram<Datagram, Addr>, Addr>,
+                      public impl_recv<base_datagram<Datagram, Addr>, Addr>,
+                      public impl_local_addr<base_datagram<Datagram, Addr>, Addr>,
+                      public impl_peer_addr<base_datagram<Datagram, Addr>, Addr> {
  protected:
   /** @brief 接管源对象的状态和资源租约。 */
-  explicit BaseDatagram(Socket&& socket) : socket_{std::move(socket)} {}
+  explicit base_datagram(socket&& socket) : socket_{std::move(socket)} {}
 
  public:
   /** @brief 接管源对象的状态和资源租约。 */
-  BaseDatagram(BaseDatagram&&) noexcept = default;
+  base_datagram(base_datagram&&) noexcept = default;
 
   /** @brief 移动赋值资源及状态。 */
-  auto operator=(BaseDatagram&&) noexcept -> BaseDatagram& = default;
+  auto operator=(base_datagram&&) noexcept -> base_datagram& = default;
 
   /** @brief 禁止复制此对象。 */
-  BaseDatagram(const BaseDatagram&) = delete;
+  base_datagram(const base_datagram&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  auto operator=(const BaseDatagram&) -> BaseDatagram& = delete;
+  auto operator=(const base_datagram&) -> base_datagram& = delete;
 
   /** @brief 释放数据报 socket 的资源租约。 */
-  ~BaseDatagram() = default;
+  ~base_datagram() = default;
 
   /**
    *  @brief 按值保存目标地址；连接数据报只设置默认目标及入包过滤，不执行 TCP
@@ -57,7 +57,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
   }
 
   /** @brief 请求关闭 socket 的指定传输方向。 */
-  auto shutdown(io::ShutdownBehavior direction = io::ShutdownBehavior::Both) const noexcept {
+  auto shutdown(io::shutdown_behavior direction = io::shutdown_behavior::BOTH) const noexcept {
     return io::shutdown(resource(), static_cast<int>(direction));
   }
 
@@ -80,17 +80,17 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
   [[nodiscard]] auto share() const -> Datagram { return Datagram{socket_.share()}; }
 
   /**  @brief 独立观察消息 socket 就绪，不消费数据报；返回方向独立的 Ready 快照。 */
-  auto ready(io::Interest interest) const noexcept { return io::ready(resource(), interest); }
+  auto ready(io::interest interest) const noexcept { return io::ready(resource(), interest); }
 
   /** @brief 等待 socket 或管道可读，不消费数据。 */
-  auto readable() const noexcept { return ready(io::Interest::readable); }
+  auto readable() const noexcept { return ready(io::interest::READABLE); }
 
   /** @brief 等待 socket 或管道可写，不执行实际写入。 */
-  auto writable() const noexcept { return ready(io::Interest::writable); }
+  auto writable() const noexcept { return ready(io::interest::WRITABLE); }
 
   /** @brief 在底层资源方向校验后执行一次即时 IO 回调。 */
   template <class F>
-  auto try_io(io::Interest interest, F&& function) const {
+  auto try_io(io::interest interest, F&& function) const {
     return io::detail::with_resource(resource(), interest, [&] {
       if constexpr (std::invocable<F&, native_socket_type>)
         return std::invoke(function, fd());
@@ -101,7 +101,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
 
   /**  @brief 自定义非阻塞系统调用；would_block 后挂起就绪观察，再重试。 */
   template <class F>
-  auto async_io(io::Interest interest, F function) const
+  auto async_io(io::interest interest, F function) const
       -> task<decltype(try_io(interest, function))> {
     return async_io_impl<decltype(try_io(interest, function))>(
         resource(), interest, std::move(function));
@@ -122,15 +122,15 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     if (socket_getsockopt(native.get(), SOL_SOCKET, SO_TYPE, &type, &length) < 0)
       return std::unexpected{socket_error()};
     if (type != SOCK_DGRAM)
-      return std::unexpected{make_error(Error::InvalidSocketType)};
-    if (auto valid = Socket::validate_family<Addr>(native.get()); !valid)
+      return std::unexpected{make_error(::faio::error::INVALID_SOCKET_TYPE)};
+    if (auto valid = socket::validate_family<Addr>(native.get()); !valid)
       return std::unexpected{valid.error()};
-    if (auto result = Socket::prepare(native.get()); !result)
+    if (auto result = socket::prepare(native.get()); !result)
       return std::unexpected{result.error()};
-    auto socket = Socket::adopt_checked(native.get(), std::move(context));
+    auto socket = socket::adopt_checked(native.get(), std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
-    Socket::release_imported(native);
+    socket::release_imported(native);
     return Datagram{std::move(*socket)};
   }
 
@@ -138,7 +138,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
   [[nodiscard]] static auto bind(const Addr& address,
                                  io::io_context context = io::io_context::current())
       -> expected<Datagram> {
-    auto socket = Socket::create(address.family(), SOCK_DGRAM, 0, std::move(context));
+    auto socket = socket::create(address.family(), SOCK_DGRAM, 0, std::move(context));
     if (!socket)
       return std::unexpected{socket.error()};
     if (auto result = socket->bind(address); !result)
@@ -156,7 +156,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
   [[nodiscard]] static auto bind(std::span<const Addr> addresses,
                                  io::io_context context = io::io_context::current())
       -> expected<Datagram> {
-    Error last{Error::InvalidAddresses};
+    error last{::faio::error::INVALID_ADDRESSES};
     for (const auto& address : addresses) {
       auto result = bind(address, context);
       if (result)
@@ -174,10 +174,10 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
 
  private:
   /**  @brief resource 与 callable 的拥有型快照使 task 可在包装对象移动后启动。 */
-  template <class Result, class F>
+  template <class result_type, class F>
   static auto async_io_impl(std::shared_ptr<io::detail::resource_state> resource,
-                            io::Interest interest,
-                            F function) -> task<Result> {
+                            io::interest interest,
+                            F function) -> task<result_type> {
     while (true) {
       auto result = io::detail::with_resource(resource, interest, [&] {
         if constexpr (std::invocable<F&, native_socket_type>)
@@ -199,7 +199,7 @@ class BaseDatagram : public ImplSend<BaseDatagram<Datagram, Addr>, Addr>,
     co_return co_await io::connect(std::move(resource), address.sockaddr(), address.length());
   }
 
-  Socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
+  socket socket_; /**< 持有或共享底层 socket 包装，在挂起期间保持原生资源身份有效。 */
 };
 }  // namespace faio::net::detail
 #endif

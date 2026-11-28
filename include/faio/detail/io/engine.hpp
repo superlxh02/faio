@@ -80,7 +80,7 @@ class io_engine {
   }
 
   /** @brief 停止接受新业务，按停止策略取消或保留已接受请求并启动排空。 */
-  void begin_shutdown(shutdown_policy policy = shutdown_policy::cancel_all) noexcept {
+  void begin_shutdown(shutdown_policy policy = shutdown_policy::CANCEL_ALL) noexcept {
     if (domain_)
       domain_->begin_shutdown(policy);
   }

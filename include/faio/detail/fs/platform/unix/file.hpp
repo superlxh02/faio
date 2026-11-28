@@ -94,7 +94,7 @@ struct file_block_operation {
 
   /** @brief 返回当前文件请求的操作类型。 */
   static constexpr io::detail::operation_kind kind() noexcept {
-    return Writing ? io::detail::operation_kind::write : io::detail::operation_kind::read;
+    return Writing ? io::detail::operation_kind::WRITE : io::detail::operation_kind::READ;
   }
 
   /** @brief 将紧凑请求展开为完整请求，固定地址、移交资源租约并初始化低频字段。 */
@@ -126,14 +126,14 @@ inline auto transfer_block(std::shared_ptr<file_state> state,
                            std::span<std::conditional_t<Writing, const char, char>> buffer,
                            std::uint64_t offset,
                            bool append = false) {
-  using Result = file_byte_awaiter<file_block_operation<Writing>>;
+  using result_type = file_byte_awaiter<file_block_operation<Writing>>;
   if (!valid_offset(offset))
-    return Result{std::unexpected{make_error(EOVERFLOW)}};
+    return result_type{std::unexpected{make_error(EOVERFLOW)}};
   if (buffer.empty())
-    return Result{std::size_t{0}};
+    return result_type{std::size_t{0}};
   auto context = state->context;
-  return Result{std::move(context),
-                file_block_operation<Writing>{std::move(state), buffer, offset, append}};
+  return result_type{std::move(context),
+                     file_block_operation<Writing>{std::move(state), buffer, offset, append}};
 }
 
 /** @brief 通过文件请求读取一个有界数据块。 */
@@ -225,7 +225,8 @@ inline task<expected<std::conditional_t<Writing, void, std::size_t>>> transfer_e
       if (!result)
         co_return std::unexpected{result.error().with_progress(total + progress)};
       if (!*result)
-        co_return std::unexpected{Error{Writing ? Error::WriteZero : Error::UnexpectedEOF, total}};
+        co_return std::unexpected{::faio::error{
+            Writing ? ::faio::error::WRITE_ZERO : ::faio::error::UNEXPECTED_EOF, total}};
       total += *result;
       co_await this_coro::yield_if_needed();
     }
@@ -234,7 +235,7 @@ inline task<expected<std::conditional_t<Writing, void, std::size_t>>> transfer_e
     else
       co_return total;
   } catch (const operation_cancelled&) {
-    co_return std::unexpected{Error{ECANCELED, total}};
+    co_return std::unexpected{::faio::error{ECANCELED, total}};
   }
 }
 
@@ -286,11 +287,11 @@ inline task<expected<std::uint64_t>> seek_file(std::shared_ptr<file_state> state
   try {
     auto guard = co_await state->cursor->lane.scoped_lock();
     std::uint64_t base = 0;
-    if (from.base == seek_from::origin::current)
+    if (from.base == seek_from::origin::CURRENT)
       base = state->cursor->position;
-    else if (from.base == seek_from::origin::end) {
+    else if (from.base == seek_from::origin::END) {
 #if defined(__linux__)
-      if (io::supports_native(state->context, io::detail::operation_kind::statx)) {
+      if (io::supports_native(state->context, io::detail::operation_kind::STATX)) {
         auto attributes = co_await native_metadata_awaiter{
             state->context, state->descriptor.load(), "", AT_EMPTY_PATH};
         if (!attributes)
@@ -329,14 +330,14 @@ inline task<expected<std::uint64_t>> seek_file(std::shared_ptr<file_state> state
  * @param projection 在 CQE 或 fstat 完成后转换独立持有的属性，例如权限或完整快照。
  */
 template <class F>
-task<expected<std::invoke_result_t<F&, const Metadata&>>> file_stat(
+task<expected<std::invoke_result_t<F&, const file_metadata&>>> file_stat(
     std::shared_ptr<file_state> state, F projection) {
-  using Result = std::invoke_result_t<F&, const Metadata&>;
+  using result_type = std::invoke_result_t<F&, const file_metadata&>;
   auto lease = file_lease::acquire(state);
   if (!lease)
     co_return std::unexpected{lease.error()};
 #if defined(__linux__)
-  if (io::supports_native(state->context, io::detail::operation_kind::statx)) {
+  if (io::supports_native(state->context, io::detail::operation_kind::STATX)) {
     auto attributes = co_await native_metadata_awaiter{
         state->context, state->descriptor.load(), "", AT_EMPTY_PATH};
     if (!attributes)
@@ -345,11 +346,12 @@ task<expected<std::invoke_result_t<F&, const Metadata&>>> file_stat(
   }
 #endif
   co_return co_await blocking::call(
-      state->context, [state, projection = std::move(projection)]() mutable -> expected<Result> {
+      state->context,
+      [state, projection = std::move(projection)]() mutable -> expected<result_type> {
         struct stat attributes{};
         if (::fstat(state->descriptor, &attributes))
           return std::unexpected{make_error(errno)};
-        return std::invoke(projection, Metadata{attributes});
+        return std::invoke(projection, file_metadata{attributes});
       });
 }
 
@@ -361,7 +363,7 @@ inline task<expected<void>> truncate_file(std::shared_ptr<file_state> state, std
   if (!valid_offset(length))
     co_return std::unexpected{make_error(EOVERFLOW)};
   io::detail::io_request request;
-  request.kind = io::detail::operation_kind::ftruncate;
+  request.kind = io::detail::operation_kind::FTRUNCATE;
   request.fd = state->descriptor.load();
   request.offset = length;
   auto result = co_await execute_file_request(
@@ -392,7 +394,7 @@ inline task<expected<void>> sync_file(std::shared_ptr<file_state> state,
   if (flush_only)
     co_return expected<void>{};
   io::detail::io_request request;
-  request.kind = io::detail::operation_kind::fsync;
+  request.kind = io::detail::operation_kind::FSYNC;
   request.fd = state->descriptor.load();
   request.flags = data_only ? 1 : 0;
   auto synced = co_await execute_file_request(
@@ -432,7 +434,7 @@ inline task<expected<void>> close_file(std::shared_ptr<file_state> state) {
   expected<void> result;
   if (fd >= 0) {
     io::detail::io_request request;
-    request.kind = io::detail::operation_kind::close;
+    request.kind = io::detail::operation_kind::CLOSE;
     request.fd = fd;
     auto closed = co_await execute_file_request(
         state->context,
@@ -469,35 +471,35 @@ inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> sta
  * @details 普通 read/write/seek 使用共享的逻辑游标。read_at/write_at 不改变
  * 逻辑游标，可以并行。移动对象不影响已开始的操作。析构异步清理，不隐式 fsync。
  */
-class File {
+class file {
  public:
   /** @brief 构造未打开的空文件对象。 */
-  File() = default;
+  file() = default;
 
   /** @brief 保存文件的共享状态与关闭责任。 */
-  explicit File(std::shared_ptr<detail::file_state> state) noexcept : state_(std::move(state)) {}
+  explicit file(std::shared_ptr<detail::file_state> state) noexcept : state_(std::move(state)) {}
 
   /** @brief 保存文件的共享状态与关闭责任。 */
-  File(File&&) noexcept = default;
+  file(file&&) noexcept = default;
 
   /** @brief 转移文件资源和状态的所有权。 */
-  File& operator=(File&&) noexcept = default;
+  file& operator=(file&&) noexcept = default;
 
   /** @brief 禁止复制此对象。 */
-  File(const File&) = delete;
+  file(const file&) = delete;
 
   /** @brief 禁止复制赋值。 */
-  File& operator=(const File&) = delete;
+  file& operator=(const file&) = delete;
 
   /** @brief 按打开选项异步打开文件，并关联 I/O 上下文。 */
-  static task<expected<File>> open(io::io_context context, path filename, OpenOptions options) {
+  static task<expected<file>> open(io::io_context context, path filename, open_options options) {
     auto flags = options.flags();
     if (!flags)
       co_return std::unexpected{flags.error()};
-    if (!io::supports_native(context, io::detail::operation_kind::open)) {
+    if (!io::supports_native(context, io::detail::operation_kind::OPEN)) {
       co_return co_await blocking::call(
           context,
-          [context, filename = std::move(filename), options, flags = *flags]() -> expected<File> {
+          [context, filename = std::move(filename), options, flags = *flags]() -> expected<file> {
             int fd;
             do {
               fd = ::open(
@@ -510,7 +512,7 @@ class File {
                   std::make_shared<detail::file_state>(context, fd, options.append_enabled());
               fd = -1;
               detail::register_file_shutdown(state);
-              return File{std::move(state)};
+              return file{std::move(state)};
             } catch (...) {
               if (fd >= 0)
                 ::close(fd);
@@ -519,7 +521,7 @@ class File {
           });
     }
     io::detail::io_request request;
-    request.kind = io::detail::operation_kind::open;
+    request.kind = io::detail::operation_kind::OPEN;
     request.fd = AT_FDCWD;
     request.path = filename.native();
     request.flags = *flags;
@@ -533,7 +535,7 @@ class File {
           std::make_shared<detail::file_state>(context, descriptor, options.append_enabled());
       descriptor = -1;
       detail::register_file_shutdown(state);
-      co_return File{std::move(state)};
+      co_return file{std::move(state)};
     } catch (const std::bad_alloc&) {
       if (descriptor >= 0)
         if (!context.domain()->defer_native_close(descriptor))
@@ -549,17 +551,18 @@ class File {
 
   /** @brief 按打开选项异步打开文件，并关联 I/O 上下文。 */
   static auto open(io::io_context context, path filename) {
-    return open(std::move(context), std::move(filename), OpenOptions{}.read());
+    return open(std::move(context), std::move(filename), open_options{}.read());
   }
 
   /** @brief 按打开选项异步打开文件，并关联 I/O 上下文。 */
-  static auto open(path filename, OpenOptions options = OpenOptions{}.read()) {
+  static auto open(path filename, open_options options = open_options{}.read()) {
     return open(io::io_context::current(), std::move(filename), options);
   }
 
   /** @brief 以可写、创建和截断模式打开文件。 */
   static auto create(io::io_context context, path filename) {
-    return open(std::move(context), std::move(filename), OpenOptions{}.write().create().truncate());
+    return open(
+        std::move(context), std::move(filename), open_options{}.write().create().truncate());
   }
 
   /** @brief 以可写、创建和截断模式打开文件。 */
@@ -645,20 +648,20 @@ class File {
 
   /** @brief 取得文件或目录项的元数据快照。 */
   auto metadata() {
-    return detail::file_stat(state_, [](const Metadata& attributes) { return attributes; });
+    return detail::file_stat(state_, [](const file_metadata& attributes) { return attributes; });
   }
 
   /** @brief 异步查询打开文件的权限。 */
   auto permissions() {
-    return detail::file_stat(state_,
-                             [](const Metadata& attributes) { return attributes.permissions(); });
+    return detail::file_stat(
+        state_, [](const file_metadata& attributes) { return attributes.permissions(); });
   }
 
   /** @brief 设置文件字节长度，扩展或截断内容。 */
   auto set_len(std::uint64_t size) { return detail::truncate_file(state_, size); }
 
   /** @brief 设置目标文件的权限。 */
-  auto set_permissions(Permissions permissions) {
+  auto set_permissions(::faio::fs::permissions permissions) {
     return detail::file_request(state_, [permissions](int fd) -> expected<void> {
       if (::fchmod(fd, static_cast<mode_t>(permissions.bits())))
         return std::unexpected{make_error(errno)};
@@ -681,7 +684,7 @@ class File {
   /**  @brief 通过 dup 复制句柄，并共享 faio 逻辑游标；不保证操作系统游标相互独立。 */
   auto try_clone() {
     auto state = state_;
-    return detail::file_request(state, [state](int fd) -> expected<File> {
+    return detail::file_request(state, [state](int fd) -> expected<file> {
       int duplicate = ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
       if (duplicate < 0)
         return std::unexpected{make_error(errno)};
@@ -690,7 +693,7 @@ class File {
         duplicate = -1;
         clone->cursor = state->cursor;
         detail::register_file_shutdown(clone);
-        return File{std::move(clone)};
+        return file{std::move(clone)};
       } catch (...) {
         if (duplicate >= 0)
           ::close(duplicate);

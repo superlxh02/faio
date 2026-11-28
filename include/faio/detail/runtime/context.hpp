@@ -121,7 +121,7 @@ class runtime_context
   runtime_context() : runtime_context(runtime_config{}) {}
 
   explicit runtime_context(runtime_config config) : config_(validate_config(std::move(config))) {
-    if (config_._mode == runtime::mode::current_thread)
+    if (config_._mode == runtime::mode::CURRENT_THREAD)
       current_ = std::make_unique<current_thread_runtime>(config_, this);
     else
       poller_ = std::make_unique<runtime_poller>(config_, this);
@@ -129,7 +129,7 @@ class runtime_context
 
   ~runtime_context() {
     try {
-      stop(io::shutdown_policy::drain);
+      stop(io::shutdown_policy::DRAIN);
     } catch (...) {
       std::terminate();
     }
@@ -216,9 +216,9 @@ class runtime_context
     tracker.wait();
   }
 
-  void stop(io::shutdown_policy policy = io::shutdown_policy::drain) { stop_impl(policy, false); }
+  void stop(io::shutdown_policy policy = io::shutdown_policy::DRAIN) { stop_impl(policy, false); }
 
-  void shutdown(io::shutdown_policy policy = io::shutdown_policy::cancel_all) { stop(policy); }
+  void shutdown(io::shutdown_policy policy = io::shutdown_policy::CANCEL_ALL) { stop(policy); }
 
   template <class S = default_scheduler, class F>
     requires std::same_as<S, default_scheduler>
@@ -338,7 +338,7 @@ class runtime_context
 #if defined(FAIO_EXPERIMENTAL_HAS_EXECUTION) && FAIO_EXPERIMENTAL_HAS_EXECUTION
     external_host().begin_draining();
 #endif
-    if (policy == io::shutdown_policy::cancel_all)
+    if (policy == io::shutdown_policy::CANCEL_ALL)
       request_stop();
     if (current_)
       current_->stop_prebound(policy);

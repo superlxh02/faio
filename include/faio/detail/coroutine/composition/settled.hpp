@@ -53,7 +53,7 @@ task<std::tuple<task_outcome<T>...>, S> join_settled(task<T, S>... children) {
       return detail::collect_settled(context, std::move(input), std::index_sequence_for<T...>{});
     };
     auto group =
-        co_await task_group<S>(group_options{group_error_policy::collect_all}, std::move(body));
+        co_await task_group<S>(group_options{group_error_policy::COLLECT_ALL}, std::move(body));
     co_return group.body.value_or_throw();
   }
 }
@@ -67,7 +67,7 @@ task<std::vector<task_outcome<T>>, S> join_all_settled(std::vector<task<T, S>> c
     return detail::collect_settled(context, std::move(input));
   };
   auto group =
-      co_await task_group<S>(group_options{group_error_policy::collect_all}, std::move(body));
+      co_await task_group<S>(group_options{group_error_policy::COLLECT_ALL}, std::move(body));
   co_return group.body.value_or_throw();
 }
 }  // namespace faio

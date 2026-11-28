@@ -13,7 +13,7 @@ namespace faio::io::detail {
 class direction_lease {
  public:
   /** @brief 构造 I/O 方向独占租约。 */
-  direction_lease(resource_ptr resource, Interest interest, void* owner) noexcept
+  direction_lease(resource_ptr resource, interest interest, void* owner) noexcept
       : resource_(std::move(resource)), interest_(interest), owner_(owner) {}
 
   /** @brief 禁止复制构造 I/O 方向独占租约。 */
@@ -34,7 +34,7 @@ class direction_lease {
 
  private:
   resource_ptr resource_; /**< 共享资源控制块的租约，在挂起期间保持句柄身份及所属 I/O 域不变。 */
-  Interest interest_;     /**< 当前等待或预留关注的读写方向集合。 */
+  interest interest_;     /**< 当前等待或预留关注的读写方向集合。 */
   void* owner_;           /**< 组合操作的稳定身份，用于验证读写方向的排他预留。 */
 };
 
@@ -51,7 +51,7 @@ class direction_lease {
 class borrowed_direction_lease {
  public:
   /** @brief 构造借用的 I/O 方向租约。 */
-  borrowed_direction_lease(resource_state& resource, Interest interest, void* owner) noexcept
+  borrowed_direction_lease(resource_state& resource, interest interest, void* owner) noexcept
       : resource_(resource), interest_(interest), owner_(owner) {}
 
   /** @brief 禁止复制构造借用的 I/O 方向租约。 */
@@ -68,13 +68,13 @@ class borrowed_direction_lease {
 
  private:
   resource_state& resource_; /**< 只借用地址；创建处的协程参数持续持有强引用租约。 */
-  Interest interest_;        /**< 不更改方向排他范围和释放的线性化点。 */
+  interest interest_;        /**< 不更改方向排他范围和释放的线性化点。 */
   void* owner_;              /**< 无论首操作是否取得方向，都只释放匹配的身份。 */
 };
 
 /** @brief 为组合 IO 取得指定方向的 RAII 预留租约。 */
 inline expected<direction_lease> reserve_direction(resource_ptr resource,
-                                                   Interest interest,
+                                                   interest interest,
                                                    void* owner) noexcept {
   if (!resource)
     return std::unexpected{make_error(EBADF)};

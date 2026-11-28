@@ -20,7 +20,8 @@ using namespace faio::tls;
 /** @brief 读取测试证书或私钥。 */
 std::string fixture(const char* name) {
 #ifdef FAIO_BAZEL_RUNFILES
-  std::ifstream file(faio_test::bazel_runfile(std::string("tests/fixtures/") + name), std::ios::binary);
+  std::ifstream file(faio_test::bazel_runfile(std::string("tests/fixtures/") + name),
+                     std::ios::binary);
 #else
   std::ifstream file(std::string(FAIO_TLS_FIXTURE_DIR) + "/" + name, std::ios::binary);
 #endif
@@ -28,7 +29,7 @@ std::string fixture(const char* name) {
 }
 
 /** @brief 将待发送的密文交给另一个内存 TLS 引擎。 */
-void transfer(detail::BioEngine& source, detail::BioEngine& destination) {
+void transfer(detail::bio_engine& source, detail::bio_engine& destination) {
   std::array<char, 16384> bytes{};
   while (source.output_pending()) {
     const auto read = source.take_ciphertext(bytes);
@@ -43,42 +44,42 @@ void transfer(detail::BioEngine& source, detail::BioEngine& destination) {
 
 /** @brief 规范化服务名称，并拒绝无效名称。 */
 TEST(Tls, ServerNames) {
-  const auto name = ServerName::parse("LOCALHOST.");
+  const auto name = server_name::parse("LOCALHOST.");
   ASSERT_TRUE(name);
   EXPECT_EQ(name->value(), "localhost");
   EXPECT_FALSE(name->is_ip());
-  EXPECT_TRUE(ServerName::parse("127.0.0.1")->is_ip());
-  EXPECT_FALSE(ServerName::parse(""));
-  EXPECT_FALSE(ServerName::parse("*.example.com"));
+  EXPECT_TRUE(server_name::parse("127.0.0.1")->is_ip());
+  EXPECT_FALSE(server_name::parse(""));
+  EXPECT_FALSE(server_name::parse("*.example.com"));
 }
 
 /** @brief 证书和配置构建器检查输入，并保持各配置值相互独立。 */
 TEST(Tls, Configuration) {
-  EXPECT_FALSE(TrustStore::from_pem("not PEM"));
-  EXPECT_FALSE(Identity::from_pem("bad", "bad"));
-  const auto roots = TrustStore::from_pem(fixture("ca.pem"));
+  EXPECT_FALSE(trust_store::from_pem("not PEM"));
+  EXPECT_FALSE(identity::from_pem("bad", "bad"));
+  const auto roots = trust_store::from_pem(fixture("ca.pem"));
   ASSERT_TRUE(roots);
-  const auto base = ClientConfig::builder(*roots).build();
+  const auto base = client_config::builder(*roots).build();
   ASSERT_TRUE(base);
   const auto derived = base->to_builder().with_alpn({"http/1.1"}).build();
   ASSERT_TRUE(derived);
   EXPECT_TRUE(base->alpn_protocols().empty());
   EXPECT_EQ(derived->alpn_protocols().front(), "http/1.1");
-  EXPECT_FALSE(ClientConfig::builder(*roots).with_alpn({"x", "x"}).build());
+  EXPECT_FALSE(client_config::builder(*roots).with_alpn({"x", "x"}).build());
 }
 
 /** @brief 客户端与服务端通过内存握手协商协议并传输明文。 */
 TEST(Tls, HandshakeAndData) {
-  const auto roots = TrustStore::from_pem(fixture("ca.pem"));
-  const auto identity = Identity::from_pem(fixture("server.pem"), fixture("server.key"));
+  const auto roots = trust_store::from_pem(fixture("ca.pem"));
+  const auto identity = identity::from_pem(fixture("server.pem"), fixture("server.key"));
   ASSERT_TRUE(roots);
   ASSERT_TRUE(identity);
-  const auto client_config = ClientConfig::builder(*roots).with_alpn({"http/1.1"}).build();
-  const auto server_config = ServerConfig::builder(*identity).with_alpn({"http/1.1"}).build();
+  const auto client_config = client_config::builder(*roots).with_alpn({"http/1.1"}).build();
+  const auto server_config = server_config::builder(*identity).with_alpn({"http/1.1"}).build();
   ASSERT_TRUE(client_config);
   ASSERT_TRUE(server_config);
-  auto client = detail::BioEngine::client(*client_config, *ServerName::parse("localhost"));
-  auto server = detail::BioEngine::server(*server_config);
+  auto client = detail::bio_engine::client(*client_config, *server_name::parse("localhost"));
+  auto server = detail::bio_engine::server(*server_config);
   ASSERT_TRUE(client);
   ASSERT_TRUE(server);
   bool client_ready{}, server_ready{};
@@ -86,13 +87,13 @@ TEST(Tls, HandshakeAndData) {
     if (!client_ready) {
       const auto result = client->handshake_step();
       ASSERT_TRUE(result);
-      client_ready = result->status == detail::StepStatus::complete;
+      client_ready = result->status == detail::step_status::COMPLETE;
     }
     transfer(*client, *server);
     if (!server_ready) {
       const auto result = server->handshake_step();
       ASSERT_TRUE(result);
-      server_ready = result->status == detail::StepStatus::complete;
+      server_ready = result->status == detail::step_status::COMPLETE;
     }
     transfer(*server, *client);
   }

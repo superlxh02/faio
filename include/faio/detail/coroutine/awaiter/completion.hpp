@@ -50,14 +50,14 @@ class awaiter_completion {
       std::terminate();
     const auto scheduler = scheduler_;
     const auto continuation = continuation_;
-    const auto previous = state->gate.exchange(state_type::completed, std::memory_order_acq_rel);
-    if (previous == state_type::suspended) {
+    const auto previous = state->gate.exchange(state_type::COMPLETED, std::memory_order_acq_rel);
+    if (previous == state_type::SUSPENDED) {
       try {
         scheduler.schedule(continuation);
       } catch (...) {
         std::terminate();
       }
-    } else if (previous != state_type::registering) {
+    } else if (previous != state_type::REGISTERING) {
       std::terminate();
     }
   }

@@ -14,18 +14,18 @@
 
 namespace faio::experimental {
 /** @brief 包装 sender 返回的非 exception_ptr 错误值。 */
-template <class Error>
+template <class error_type>
 class execution_error : public std::runtime_error {
  public:
   /** @brief 保存 sender 的原始错误值。 */
-  explicit execution_error(Error error)
+  explicit execution_error(error_type error)
       : std::runtime_error("faio experimental: sender error"), error_(std::move(error)) {}
 
   /** @brief 返回 sender 携带的原始错误值。 */
-  const Error& error() const noexcept { return error_; }
+  const error_type& error() const noexcept { return error_; }
 
  private:
-  Error error_; /**< 保存的操作错误，供完成或重复查询返回。 */
+  error_type error_; /**< 保存的操作错误，供完成或重复查询返回。 */
 };
 
 namespace detail {
@@ -46,9 +46,9 @@ template <class... Tuples>
 using single_value_tuple = typename one_value_tuple<Tuples...>::type;
 template <class... Values>
 using decayed_tuple = std::tuple<std::decay_t<Values>...>;
-template <class Sender>
+template <class sender_type>
 using result_tuple =
-    stdexec::value_types_of_t<Sender, stdexec::env<>, decayed_tuple, single_value_tuple>;
+    stdexec::value_types_of_t<sender_type, stdexec::env<>, decayed_tuple, single_value_tuple>;
 
 /** @brief 保存 sender 的终态，并通知同步等待者。 */
 template <class Tuple>
@@ -98,15 +98,15 @@ struct result_receiver {
   }
 
   /** @brief 向接收器交付失败，交付后不再访问可被回调销毁的操作。 */
-  template <class Error>
-  void set_error(Error&& error) && noexcept {
+  template <class error_type>
+  void set_error(error_type&& error) && noexcept {
     try {
-      if constexpr (std::same_as<std::decay_t<Error>, std::exception_ptr>)
-        result->error = std::forward<Error>(error);
-      else if constexpr (std::same_as<std::decay_t<Error>, std::error_code>)
-        throw std::system_error(std::forward<Error>(error));
+      if constexpr (std::same_as<std::decay_t<error_type>, std::exception_ptr>)
+        result->error = std::forward<error_type>(error);
+      else if constexpr (std::same_as<std::decay_t<error_type>, std::error_code>)
+        throw std::system_error(std::forward<error_type>(error));
       else
-        throw execution_error<std::decay_t<Error>>(std::forward<Error>(error));
+        throw execution_error<std::decay_t<error_type>>(std::forward<error_type>(error));
     } catch (...) {
       result->error = std::current_exception();
     }
@@ -119,11 +119,11 @@ struct result_receiver {
 }  // namespace detail
 
 /** @brief 同步驱动 sender，待所属任务图排空后领取结果。 */
-template <class Sender>
-auto runtime_ref::run(Sender&& sender) const {
+template <class sender_type>
+auto runtime_ref::run(sender_type&& sender) const {
   if (faio::detail::on_runtime_worker())
     throw std::logic_error("faio experimental: run cannot block a runtime worker");
-  auto bound = bind(std::forward<Sender>(sender));
+  auto bound = bind(std::forward<sender_type>(sender));
   using tuple = detail::result_tuple<decltype(bound)>;
   detail::execution_result<tuple> result{context().external_host()};
   auto operation = stdexec::connect(std::move(bound), detail::result_receiver<tuple>{&result});

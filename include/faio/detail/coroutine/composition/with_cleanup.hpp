@@ -66,12 +66,12 @@ struct cleanup_awaiter {
 template <class T>
 task_exit cleanup_body_exit(const task_outcome<T>& outcome) noexcept {
   switch (outcome.status()) {
-    case task_outcome_status::value:
+    case task_outcome_status::VALUE:
       return {};
-    case task_outcome_status::error:
-      return {task_exit::kind::failed, outcome.exception()};
-    case task_outcome_status::stopped:
-      return {task_exit::kind::cancelled, outcome.exception()};
+    case task_outcome_status::ERROR_VALUE:
+      return {task_exit::kind::FAILED, outcome.exception()};
+    case task_outcome_status::STOPPED:
+      return {task_exit::kind::CANCELLED, outcome.exception()};
   }
   std::terminate();
 }
@@ -99,13 +99,14 @@ auto invoke_cleanup_factory(Cleanup& cleanup,
  * @param body 启动时调用的任务体工厂。
  * @param cleanup 接收任务体退出记录并返回同静态调度器 task<void, S> 的清理工厂。
  */
-template <class Body, class Cleanup, class Work = std::invoke_result_t<Body&>>
-  requires std::same_as<Work, task<typename Work::value_type, typename Work::scheduler_type>>
+template <class body_type, class Cleanup, class work_type = std::invoke_result_t<body_type&>>
+  requires std::same_as<work_type,
+                        task<typename work_type::value_type, typename work_type::scheduler_type>>
            && std::same_as<std::invoke_result_t<Cleanup&, const task_exit&>,
-                           task<void, typename Work::scheduler_type>>
-Work with_cleanup(Body body, Cleanup cleanup) {
-  using T = typename Work::value_type;
-  using S = typename Work::scheduler_type;
+                           task<void, typename work_type::scheduler_type>>
+work_type with_cleanup(body_type body, Cleanup cleanup) {
+  using T = typename work_type::value_type;
+  using S = typename work_type::scheduler_type;
   const auto cleanup_stop = std::make_shared<detail::linked_stop_state>(std::stop_token{}, nullptr);
 
   const auto body_stop = co_await this_coro::stop_token();
@@ -117,10 +118,10 @@ Work with_cleanup(Body body, Cleanup cleanup) {
     exit = detail::cleanup_body_exit(*result);
   } catch (const operation_cancelled&) {
     const auto status =
-        body_stop.stop_requested() ? task_exit::kind::cancelled : task_exit::kind::failed;
+        body_stop.stop_requested() ? task_exit::kind::CANCELLED : task_exit::kind::FAILED;
     exit = {status, std::current_exception()};
   } catch (...) {
-    exit = {task_exit::kind::failed, std::current_exception()};
+    exit = {task_exit::kind::FAILED, std::current_exception()};
   }
 
   try {

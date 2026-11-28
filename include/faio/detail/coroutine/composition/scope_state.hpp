@@ -32,7 +32,7 @@ struct basic_scope_state
 {
   basic_scope_state(scheduler_ref_for<S> target, task_tracker* outer, std::stop_token parent_stop)
       : scheduler(target), tracker(outer) {
-    if (cancellation_policy == cancellation_error_policy::normal_if_stop_requested
+    if (cancellation_policy == cancellation_error_policy::NORMAL_IF_STOP_REQUESTED
         || current_task_context().cancellation_owner) {
       cancellation_owner = std::make_shared<cancellation_state>(
           parent_stop, current_task_context().cancellation_owner);

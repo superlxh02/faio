@@ -8,26 +8,26 @@
 
 namespace faio::process::detail {
 /** @brief 预留服务容量并打开三路标准流资源，任一步失败均由 RAII 回滚。 */
-inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch> {
-  auto service = ProcessService::instance();
+inline auto prepare_launch(command_snapshot snapshot) -> expected<prepared_launch> {
+  auto service = process_service::instance();
   if (!service)
     return std::unexpected{service.error()};
   auto record = (*service)->reserve_record();
   if (!record)
     return std::unexpected{record.error()};
-  PreparedLaunch result{std::move(snapshot), std::move(*record)};
+  prepared_launch result{std::move(snapshot), std::move(*record)};
   const auto& command = result.snapshot_.command();
-  const Stdio* slots[] = {&command.get_stdin(), &command.get_stdout(), &command.get_stderr()};
+  const stdio* slots[] = {&command.get_stdin(), &command.get_stdout(), &command.get_stderr()};
   for (int i{}; i < 3; ++i) {
-    if (slots[i]->kind() == StdioKind::piped) {
-      auto pipe = NativePipePair::create(i == 0);
+    if (slots[i]->kind() == stdio_kind::PIPED) {
+      auto pipe = native_pipe_pair::create(i == 0);
       if (!pipe)
         return std::unexpected{pipe.error()};
       result.pipes_[i] = std::move(*pipe);
       result.std_handles_[i] = reinterpret_cast<HANDLE>(result.pipes_[i]->child_native());
       continue;
     }
-    if (slots[i]->kind() == StdioKind::inherit) {
+    if (slots[i]->kind() == stdio_kind::INHERIT) {
       const DWORD constants[] = {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
       const auto original = ::GetStdHandle(constants[i]);
       if (original && original != INVALID_HANDLE_VALUE) {
@@ -51,13 +51,13 @@ inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch>
     auto path = std::filesystem::path{L"NUL"};
     DWORD access = i == 0 ? GENERIC_READ : GENERIC_WRITE;
     DWORD creation = OPEN_EXISTING;
-    if (slots[i]->kind() == StdioKind::file) {
+    if (slots[i]->kind() == stdio_kind::FILE) {
       path = slots[i]->file_path();
       if (path.is_relative())
         path = result.snapshot_.cwd() / path;
       if (i != 0) {
-        creation = *slots[i]->file_mode() == StdioFileMode::append ? OPEN_ALWAYS : CREATE_ALWAYS;
-        if (*slots[i]->file_mode() == StdioFileMode::append)
+        creation = *slots[i]->file_mode() == stdio_file_mode::APPEND ? OPEN_ALWAYS : CREATE_ALWAYS;
+        if (*slots[i]->file_mode() == stdio_file_mode::APPEND)
           access = FILE_APPEND_DATA;
       }
     }
@@ -72,11 +72,11 @@ inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch>
     if (file == INVALID_HANDLE_VALUE)
       return std::unexpected{io::windows::make_windows_error(::GetLastError())};
     result.child_handles_[i].reset(file);
-    if (slots[i]->kind() == StdioKind::file) {
+    if (slots[i]->kind() == stdio_kind::FILE) {
       BY_HANDLE_FILE_INFORMATION info{};
       if (::GetFileType(file) != FILE_TYPE_DISK || !::GetFileInformationByHandle(file, &info)
           || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-        return std::unexpected{process_error(errc::unsupported_stdio)};
+        return std::unexpected{process_error(errc::UNSUPPORTED_STDIO)};
     }
     result.std_handles_[i] = file;
   }
@@ -84,7 +84,7 @@ inline auto prepare_launch(CommandSnapshot snapshot) -> expected<PreparedLaunch>
 }
 
 /** @brief 用固定快照执行原生创建，并将进程标识写入预留记录。 */
-inline auto launch_native(PreparedLaunch& prepared) -> expected<NativeProcess> {
+inline auto launch_native(prepared_launch& prepared) -> expected<native_process> {
   std::vector<wchar_t> environment;
   for (const auto& item : prepared.snapshot_.environment_entries()) {
     environment.insert(environment.end(), item.begin(), item.end());
@@ -142,7 +142,7 @@ inline auto launch_native(PreparedLaunch& prepared) -> expected<NativeProcess> {
       line += quote_argument(arg);
     }
     if (line.size() >= 32767)
-      return std::unexpected{process_error(errc::invalid_configuration)};
+      return std::unexpected{process_error(errc::INVALID_CONFIGURATION)};
     std::vector<wchar_t> mutable_line(line.begin(), line.end());
     mutable_line.push_back(L'\0');
     if (::CreateProcessW(candidate.c_str(),
@@ -156,7 +156,7 @@ inline auto launch_native(PreparedLaunch& prepared) -> expected<NativeProcess> {
                          prepared.snapshot_.cwd().c_str(),
                          &startup.StartupInfo,
                          &process)) {
-      NativeHandle thread{process.hThread};
+      native_handle_type thread{process.hThread};
       {
         std::lock_guard lock(prepared.record_->mutex_);
         prepared.record_->pid_ = process.dwProcessId;
@@ -164,7 +164,7 @@ inline auto launch_native(PreparedLaunch& prepared) -> expected<NativeProcess> {
         prepared.record_->launching_ = false;
       }
       prepared.close_child_ends();
-      return NativeProcess{prepared.record_, process.dwProcessId};
+      return native_process{prepared.record_, process.dwProcessId};
     }
     const auto error = ::GetLastError();
     if (error == ERROR_ACCESS_DENIED)

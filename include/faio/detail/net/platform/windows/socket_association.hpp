@@ -34,7 +34,7 @@ class native_socket_association {
   void forget(native_socket_type descriptor) noexcept {
     if (context_ && descriptor >= 0)
       context_.domain()->forget_native_handle(descriptor,
-                                              io::detail::native_handle_kind::windows_socket);
+                                              io::detail::native_handle_kind::WINDOWS_SOCKET);
     context_ = {};
   }
 

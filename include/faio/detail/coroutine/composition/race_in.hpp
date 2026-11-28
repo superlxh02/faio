@@ -61,7 +61,7 @@ root_task race_root_task_wrapper(task<T, S> work,
     state->stop->source.request_stop();
     state->ready.notify();
   } else {
-    if (outcome->status() == task_outcome_status::error) {
+    if (outcome->status() == task_outcome_status::ERROR_VALUE) {
       auto& slot = state->errors[I];
       slot.error = outcome->exception();
       slot.ready.store(true, std::memory_order_release);

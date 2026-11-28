@@ -11,15 +11,16 @@
 
 namespace faio::io::detail {
 /**  @brief SendMsg 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class SendMsg : public IORegistrantAwaiter<SendMsg> {
-  using Base = IORegistrantAwaiter<SendMsg>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class send_msg_awaiter : public io_registrant_awaiter<send_msg_awaiter> {
+  using base_type =
+      io_registrant_awaiter<send_msg_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造消息发送等待器。 */
-  SendMsg(native_descriptor fd, const msghdr* message, unsigned flags)
-      : Base{[&] {
+  send_msg_awaiter(native_descriptor fd, const msghdr* message, unsigned flags)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::sendmsg;
+          r.kind = operation_kind::SENDMSG;
           r.fd = fd;
           r.flags = static_cast<int>(flags);
           if (!message) {
@@ -41,8 +42,8 @@ class SendMsg : public IORegistrantAwaiter<SendMsg> {
         }()} {}
 
   /** @brief 构造消息发送等待器。 */
-  SendMsg(resource_ptr resource, const msghdr* message, unsigned flags)
-      : SendMsg{resource ? resource->fd() : -1, message, flags} {
+  send_msg_awaiter(resource_ptr resource, const msghdr* message, unsigned flags)
+      : send_msg_awaiter{resource ? resource->fd() : -1, message, flags} {
     this->request_.resource = std::move(resource);
   }
 
@@ -59,15 +60,16 @@ class SendMsg : public IORegistrantAwaiter<SendMsg> {
  *  @brief SendMsgZC 请求；参数保存在地址稳定的 operation_state 中，
  * 挂起前不执行内核操作。
  */
-class SendMsgZC : public IORegistrantAwaiter<SendMsgZC> {
-  using Base = IORegistrantAwaiter<SendMsgZC>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class send_msg_zc_awaiter : public io_registrant_awaiter<send_msg_zc_awaiter> {
+  using base_type =
+      io_registrant_awaiter<send_msg_zc_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造消息零拷贝发送等待器。 */
-  SendMsgZC(native_descriptor fd, const msghdr* message, unsigned flags)
-      : Base{[&] {
+  send_msg_zc_awaiter(native_descriptor fd, const msghdr* message, unsigned flags)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::sendmsg_zc;
+          r.kind = operation_kind::SENDMSG_ZC;
           r.fd = fd;
           r.flags = static_cast<int>(flags);
           if (!message) {
@@ -89,8 +91,8 @@ class SendMsgZC : public IORegistrantAwaiter<SendMsgZC> {
         }()} {}
 
   /** @brief 构造消息零拷贝发送等待器。 */
-  SendMsgZC(resource_ptr resource, const msghdr* message, unsigned flags)
-      : SendMsgZC{resource ? resource->fd() : -1, message, flags} {
+  send_msg_zc_awaiter(resource_ptr resource, const msghdr* message, unsigned flags)
+      : send_msg_zc_awaiter{resource ? resource->fd() : -1, message, flags} {
     request_.resource = std::move(resource);
   }
 
@@ -108,12 +110,12 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto sendmsg(F fd, const msghdr* message, unsigned flags = 0) {
-  return detail::SendMsg{std::move(fd), message, flags};
+  return detail::send_msg_awaiter{std::move(fd), message, flags};
 }
 
 /** @brief 提交向量零拷贝发送请求。 */
 template <class F>
 inline auto sendmsg_zc(F fd, const msghdr* message, unsigned flags = 0) {
-  return detail::SendMsgZC{std::move(fd), message, flags};
+  return detail::send_msg_zc_awaiter{std::move(fd), message, flags};
 }
 }  // namespace faio::io

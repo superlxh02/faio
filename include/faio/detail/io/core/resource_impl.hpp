@@ -67,7 +67,7 @@ inline resource_ptr adopt_resource(const io_context& context,
 /** @brief 为本次请求保存共享资源租约，保持句柄身份及所属 I/O 域不变。 */
 template <class F>
 auto with_resource(const resource_ptr& resource,
-                   Interest interest,
+                   interest interest,
                    F&& function,
                    void* reservation = nullptr) -> std::invoke_result_t<F> {
   using result_type = std::invoke_result_t<F>;

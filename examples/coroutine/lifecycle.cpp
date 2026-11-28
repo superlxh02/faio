@@ -34,7 +34,7 @@ faio::task<void> observe_task() {
   auto observed = read_record(current).with_lifecycle(
       [&current] { current = stage::before; },
       [&current](const faio::task_exit& exit) noexcept {
-        if (current == stage::body && exit.status == faio::task_exit::kind::succeeded)
+        if (current == stage::body && exit.status == faio::task_exit::kind::SUCCEEDED)
           current = stage::after;
       });
   if (current != stage::created)
@@ -68,7 +68,7 @@ faio::task<void> show_lifecycle() {
         /** @brief 清理有独立的停止上下文，因此收到原任务的停止请求后仍能异步等待。 */
         co_await allow_cleanup.wait();
         record = {};
-        if (exit.status != faio::task_exit::kind::cancelled) {
+        if (exit.status != faio::task_exit::kind::CANCELLED) {
           throw std::logic_error("预期任务收到停止请求后退出");
         }
       }));

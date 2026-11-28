@@ -255,7 +255,7 @@ class driver {
         expected_{
             .scope = &scope_,
             .stop_token = owner_->source.get_token(),
-            .cancellation_policy = detail::cancellation_error_policy::normal_if_stop_requested,
+            .cancellation_policy = detail::cancellation_error_policy::NORMAL_IF_STOP_REQUESTED,
             .scheduling = {.no_stealing = true},
             .cancellation_owner = owner_},
         unrelated_{.stop_token = other_source_.get_token(), .cancellation_owner = {}} {}

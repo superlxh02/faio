@@ -150,9 +150,9 @@ struct socket_pair {
 faio::task<void> echo(int fd, std::size_t n) {
   char byte;
   for (std::size_t i = 0; i < n; ++i) {
-    if ((co_await faio::io::detail::Recv{fd, &byte, 1, 0}).value() != 1)
+    if ((co_await faio::io::detail::recv_awaiter{fd, &byte, 1, 0}).value() != 1)
       throw std::runtime_error("echo receive");
-    if ((co_await faio::io::detail::Send{fd, &byte, 1, MSG_NOSIGNAL}).value() != 1)
+    if ((co_await faio::io::detail::send_awaiter{fd, &byte, 1, MSG_NOSIGNAL}).value() != 1)
       throw std::runtime_error("echo send");
   }
 }
@@ -166,9 +166,9 @@ faio::task<result> io_roundtrip(std::size_t n) {
   const auto start = clock_type::now();
   for (auto& sample : r.samples) {
     const auto t = stamp();
-    if ((co_await faio::io::detail::Send{pair.fds[0], &byte, 1, MSG_NOSIGNAL}).value() != 1)
+    if ((co_await faio::io::detail::send_awaiter{pair.fds[0], &byte, 1, MSG_NOSIGNAL}).value() != 1)
       throw std::runtime_error("ping send");
-    if ((co_await faio::io::detail::Recv{pair.fds[0], &byte, 1, 0}).value() != 1)
+    if ((co_await faio::io::detail::recv_awaiter{pair.fds[0], &byte, 1, 0}).value() != 1)
       throw std::runtime_error("ping receive");
     if (sampling)
       sample = ns(t);
@@ -221,7 +221,7 @@ result external_burst(context& ctx, std::size_t n) {
   r.cost = ns(start) / n;
   return r;
 }
-}
+}  // namespace
 
 /** @brief 执行当前线程运行时的协程、阻塞与 I/O 基准。 */
 int main(int argc, char** argv) {
@@ -231,8 +231,8 @@ int main(int argc, char** argv) {
   sampling = argc < 3 || std::string_view(argv[2]) != "batch";
   const bool multi = argc > 3 && std::string_view(argv[3]) == "multi";
   const auto config =
-      faio::ConfigBuilder{}
-          .set_mode(multi ? faio::runtime::mode::multi_thread : faio::runtime::mode::current_thread)
+      faio::config_builder{}
+          .set_mode(multi ? faio::runtime::mode::MULTI_THREAD : faio::runtime::mode::CURRENT_THREAD)
           .set_num_workers(1)
           .set_max_blocking_threads(4)
           .build();

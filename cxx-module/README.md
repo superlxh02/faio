@@ -42,6 +42,7 @@ cmake --build build
 | `import faio.coroutine;` | `task`、`join`、`this_coro` 等协程 API |
 | `import faio.log;` | 日志 |
 | `import faio.io;` | I/O 操作、内存流与双工流 |
+| `import faio.stdio;` | 协程标准流与格式化输出 |
 | `import faio.fs;` | 文件与目录 |
 | `import faio.net;` | 网络 |
 | `import faio.runtime;` | 运行时与 `spawn_blocking` |

@@ -42,7 +42,7 @@ struct file_syscall {
  */
 template <class F>
 class file_request_awaiter {
-  using Service =
+  using service_type =
       blocking::call_awaiter<file_syscall<F>>; /**< 承载该文件系统调用的类型化阻塞服务等待器。 */
 #if !defined(FAIO_TEST_BACKEND_INJECTION)                                           \
     && ((defined(__linux__) && (!defined(FAIO_HAS_IO_URING) || !FAIO_HAS_IO_URING)) \
@@ -52,8 +52,8 @@ class file_request_awaiter {
 #else
   static constexpr bool native_provider = true;
 #endif
-  using Native = std::conditional_t<native_provider, io::native_file_awaiter, std::monostate>;
-  using NativeClose =
+  using native_type = std::conditional_t<native_provider, io::native_file_awaiter, std::monostate>;
+  using native_close =
       std::conditional_t<native_provider, io::native_file_close_awaiter, std::monostate>;
 
  public:
@@ -80,16 +80,16 @@ class file_request_awaiter {
    * @details 工厂只在原生分支调用，可以把路径/向量移入稳定请求；fallback
    *          直接拥有原参数，不为未选择的原生分支复制描述符或字符串。
    */
-  template <class MakeRequest>
+  template <class make_request_type>
   file_request_awaiter(io::io_context context,
                        io::detail::operation_kind kind,
-                       MakeRequest make_request,
+                       make_request_type make_request,
                        F fallback,
                        bool cancellable) {
     if constexpr (native_provider) {
       if (io::supports_native(context, kind)) {
         auto request = std::invoke(make_request, fallback);
-        if (!cancellable && request.kind == io::detail::operation_kind::close)
+        if (!cancellable && request.kind == io::detail::operation_kind::CLOSE)
           operation_.template emplace<2>(std::move(context), std::move(request));
         else
           operation_.template emplace<1>(std::move(context), std::move(request), cancellable);
@@ -142,7 +142,7 @@ class file_request_awaiter {
   }
 
  private:
-  std::variant<std::monostate, Native, NativeClose, Service>
+  std::variant<std::monostate, native_type, native_close, service_type>
       operation_; /**< 只拥有所选分支的状态。 */
 };
 

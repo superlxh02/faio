@@ -12,19 +12,19 @@
 namespace faio::detail {
 /** @brief 在同一把锁下检查代际并登记等待者，避免检查后入队之间丢失唤醒。 */
 template <class S = default_scheduler>
-class BasicGenerationEvent {
+class basic_generation_event {
   /** @brief 由事件与所有等待协程共同持有的广播状态。 */
-  struct State {
+  struct state {
     std::mutex mutex;            /**< 保护代际与等待队列，串行化检查、登记和广播。 */
     std::uint64_t generation{};  /**< 每次广播递增；与调用者的快照不同时无需等待。 */
     basic_wait_queue<S> waiters; /**< 尚未观察到新代际的协程等待节点。 */
   };
 
   /** @brief 将一次代际等待接入协程挂起与取消机制。 */
-  struct Wait {
-    std::shared_ptr<State> state; /**< 延长广播状态的生命周期，直到本次等待结束。 */
-    std::uint64_t observed;       /**< 调用者开始等待前观察到的代际。 */
-    basic_wait_node<S> node;      /**< 保存恢复句柄、停止回调和入队状态。 */
+  struct wait {
+    std::shared_ptr<state> state_; /**< 延长广播状态的生命周期，直到本次等待结束。 */
+    std::uint64_t observed;        /**< 调用者开始等待前观察到的代际。 */
+    basic_wait_node<S> node;       /**< 保存恢复句柄、停止回调和入队状态。 */
 
     /** @brief 统一在持锁的挂起阶段检查代际，避免无锁检查产生竞态。 */
     bool await_ready() const noexcept { return false; }
@@ -38,13 +38,13 @@ class BasicGenerationEvent {
       requires matching_wait_scheduler<S, Promise>
     bool await_suspend(std::coroutine_handle<Promise> handle) {
       {
-        std::lock_guard lock(state->mutex);
-        if (state->generation != observed)
+        std::lock_guard lock(state_->mutex);
+        if (state_->generation != observed)
           return false;
         node.capture(handle);
-        state->waiters.push(&node);
+        state_->waiters.push(&node);
       }
-      node.register_stop(state->mutex, state->waiters);
+      node.register_stop(state_->mutex, state_->waiters);
       return node.try_suspend();
     }
 
@@ -57,12 +57,12 @@ class BasicGenerationEvent {
 
  public:
   /** @brief 创建独立的广播状态；等待任务可在事件对象销毁后继续持有状态。 */
-  BasicGenerationEvent() : state_(std::make_shared<State>()) {}
+  basic_generation_event() : state_(std::make_shared<state>()) {}
 
   /** @brief 禁止复制事件，避免把两个逻辑事件意外绑定到同一状态。 */
-  BasicGenerationEvent(const BasicGenerationEvent&) = delete;
+  basic_generation_event(const basic_generation_event&) = delete;
   /** @brief 禁止以赋值方式替换仍有等待者的事件。 */
-  auto operator=(const BasicGenerationEvent&) -> BasicGenerationEvent& = delete;
+  auto operator=(const basic_generation_event&) -> basic_generation_event& = delete;
 
   /**
    * @brief 取得后续 wait_change 使用的代际快照。
@@ -98,12 +98,12 @@ class BasicGenerationEvent {
    * @param observed 调用者观察到的代际。
    * @return 等待状态发生变化的任务。
    */
-  static auto wait_impl(std::shared_ptr<State> state, std::uint64_t observed) -> task<void, S> {
-    co_await Wait{std::move(state), observed, {}};
+  static auto wait_impl(std::shared_ptr<state> state, std::uint64_t observed) -> task<void, S> {
+    co_await wait{std::move(state), observed, {}};
   }
 
-  std::shared_ptr<State> state_; /**< 事件本身拥有的广播状态，与等待任务共享。 */
+  std::shared_ptr<state> state_; /**< 事件本身拥有的广播状态，与等待任务共享。 */
 };
 
-using GenerationEvent = BasicGenerationEvent<>;
+using generation_event = basic_generation_event<>;
 }  // namespace faio::detail

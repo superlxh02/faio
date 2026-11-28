@@ -86,14 +86,14 @@ class benchmark {
 
  private:
   std::unique_ptr<service> make_pool() const {
-    if (policy_ == pool_policy::elastic)
+    if (policy_ == pool_policy::ELASTIC)
       return std::make_unique<service>(thread_limit_, queue_limit, keep_alive);
     return std::make_unique<service>(thread_limit_, queue_limit);
   }
 
   faio::runtime::config make_runtime_config() const {
     return faio::config_builder{}
-        .set_mode(faio::runtime::mode::current_thread)
+        .set_mode(faio::runtime::mode::CURRENT_THREAD)
         .set_max_blocking_threads(thread_limit_)
         .set_blocking_pool_policy(policy_)
         .set_blocking_keep_alive(keep_alive)
@@ -112,7 +112,7 @@ class benchmark {
               std::size_t threads,
               double jobs_per_second = 0) const {
     std::ranges::sort(latency);
-    std::cout << scenario << ',' << (policy_ == pool_policy::fixed ? "fixed" : "elastic") << ','
+    std::cout << scenario << ',' << (policy_ == pool_policy::FIXED ? "fixed" : "elastic") << ','
               << thread_limit_ << ',' << latency.size() << ',';
     if (!latency.empty())
       std::cout << percentile(latency, 0.50) << ',' << percentile(latency, 0.99);
@@ -157,7 +157,7 @@ class benchmark {
         destructors[i - 1] = microseconds(closed - constructed);
       }
     }
-    report("runtime_construct", constructors, policy_ == pool_policy::fixed ? thread_limit_ : 0);
+    report("runtime_construct", constructors, policy_ == pool_policy::FIXED ? thread_limit_ : 0);
     report("runtime_destroy", destructors, 0);
   }
 
@@ -277,7 +277,7 @@ int main(int argc, char** argv) try {
     if (error != std::errc{} || parsed != end || limit == 0)
       throw std::invalid_argument("thread_limit must be a positive integer");
   }
-  const auto policy = mode == "fixed" ? pool_policy::fixed : pool_policy::elastic;
+  const auto policy = mode == "fixed" ? pool_policy::FIXED : pool_policy::ELASTIC;
   std::cout << std::fixed << std::setprecision(3);
   std::cout << "scenario,policy,thread_limit,samples,p50_us,p99_us,jobs_per_sec,blocking_threads\n";
   benchmark{policy, limit}.run();

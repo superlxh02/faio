@@ -230,10 +230,10 @@ faio::task&lt;<span class="keyword">void</span>&gt; run() {
 <span class="keyword">#include</span> &lt;utility&gt;
 
 <span class="keyword">namespace</span> {
-<span class="keyword">const</span> <span class="keyword">auto</span> address = faio::net::SocketAddr{faio::net::Ipv4Addr{<span class="number">127</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>}, <span class="number">8080</span>};
+<span class="keyword">const</span> <span class="keyword">auto</span> address = faio::net::socket_addr{faio::net::ipv4_addr{<span class="number">127</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>}, <span class="number">8080</span>};
 
-faio::task&lt;<span class="keyword">void</span>&gt; handle_connection(faio::net::TcpStream stream,
-                                   faio::net::SocketAddr peer) {
+faio::task&lt;<span class="keyword">void</span>&gt; handle_connection(faio::net::tcp_stream stream,
+                                   faio::net::socket_addr peer) {
   std::array&lt;char, <span class="number">4096</span>&gt; buffer{};
   for (;;) {
     <span class="keyword">const</span> <span class="keyword">auto</span> count = <span class="keyword">co_await</span> stream.read(buffer);
@@ -256,7 +256,7 @@ faio::task&lt;<span class="keyword">void</span>&gt; handle_connection(faio::net:
 }
 
 faio::task&lt;<span class="keyword">int</span>&gt; serve() {
-  <span class="keyword">auto</span> listener = faio::net::TcpListener::bind(address);
+  <span class="keyword">auto</span> listener = faio::net::tcp_listener::bind(address);
   <span class="keyword">if</span> (!listener) {
     faio::log::logger()-&gt;error(<span class="string">&quot;绑定 {} 失败：{}&quot;</span>, address.to_string(), listener.error().message());
     <span class="keyword">co_return</span> <span class="number">1</span>;
@@ -363,7 +363,7 @@ faio::task&lt;<span class="keyword">int</span>&gt; serve() {
             <article id="stack-process" class="stack-card sc-process" data-reveal>
               <h2><img class="stack-icon" src="assets/stack/process.svg" alt="" />异步进程</h2>
               <p>
-                提供 <code>Command</code> 描述程序、参数与标准 IO，支持 <code>spawn()</code> 启动子进程、<code>output()</code> 捕获输出与超时终止。
+                提供 <code>command</code> 描述程序、参数与标准 IO，支持 <code>spawn()</code> 启动子进程、<code>output()</code> 捕获输出与超时终止。
               </p>
               <p class="learn-more"><a href="book/api/process.html">了解更多 →</a></p>
             </article>

@@ -15,7 +15,7 @@ namespace faio::runtime {
  */
 template <mode Mode>
 class basic_runtime {
-  static_assert(Mode == mode::current_thread || Mode == mode::multi_thread);
+  static_assert(Mode == mode::CURRENT_THREAD || Mode == mode::MULTI_THREAD);
 
  public:
   using scheduler_type = default_scheduler;
@@ -75,12 +75,12 @@ class basic_runtime {
   void request_stop() noexcept { context_.request_stop(); }
 
   /** @brief 关闭指定 I/O 方向。 */
-  void shutdown(io::shutdown_policy policy = io::shutdown_policy::cancel_all) {
+  void shutdown(io::shutdown_policy policy = io::shutdown_policy::CANCEL_ALL) {
     context_.shutdown(policy);
   }
 
   /** @brief 停止接纳并排空运行时工作。 */
-  void stop(io::shutdown_policy policy = io::shutdown_policy::drain) { context_.stop(policy); }
+  void stop(io::shutdown_policy policy = io::shutdown_policy::DRAIN) { context_.stop(policy); }
 
  private:
   /** @brief 读取运行时固定线程模式。 */
@@ -92,7 +92,7 @@ class basic_runtime {
   detail::runtime_context context_;
 };
 
-using current_thread_runtime = basic_runtime<mode::current_thread>;
-using multi_thread_runtime = basic_runtime<mode::multi_thread>;
+using current_thread_runtime = basic_runtime<mode::CURRENT_THREAD>;
+using multi_thread_runtime = basic_runtime<mode::MULTI_THREAD>;
 }  // namespace faio::runtime
 #endif

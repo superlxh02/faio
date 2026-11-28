@@ -21,7 +21,7 @@ class io_engine;
 
 namespace timer {
 /** @brief 运行时定时器。 */
-class Timer;
+class timer;
 }  // namespace timer
 }  // namespace faio::runtime::detail
 
@@ -94,7 +94,7 @@ struct thread_context {
   struct io_bindings {
     ::faio::runtime::detail::io_engine* engine{};
     ::faio::io::detail::io_domain* domain{};
-    ::faio::runtime::detail::timer::Timer* timer{};
+    ::faio::runtime::detail::timer::timer* timer{};
     ::faio::io::detail::io_domain* driver_domain{};
   } io;
 

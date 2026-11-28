@@ -8,6 +8,8 @@
 
 | 模块 | 内容 | 入口 |
 | --- | --- | --- |
+| 模式匹配 | expected、optional、variant 与值的分支处理 | [match](match.md) · [Doxygen](../../api/group__match.html) |
+| 标准输入输出 | 协程标准流与格式化输出 | [stdio](stdio.md) · [Doxygen](../../api/group__stdio.html) |
 | 协程与并发 | task、spawn、join、select、scope 与组合器 | [tasks](tasks.md) · [Doxygen](../../api/group__tasks.html) |
 | 运行时与配置 | 调度模式、并发容量与生命周期 | [runtime](runtime.md) · [Doxygen](../../api/group__runtime.html) |
 | 网络 I/O | TCP、UDP、地址解析与原生句柄 | [network](network.md) · [Doxygen](../../api/group__network.html) |
@@ -15,7 +17,7 @@
 | 时间与超时 | 休眠、周期定时器与 I/O 截止 | [time](time.md) · [Doxygen](../../api/group__time.html) |
 | 协程同步 | 互斥锁、信号量、条件变量与 MPSC | [sync](sync.md) · [Doxygen](../../api/group__sync.html) |
 | 缓冲与流操作 | 缓冲区、完整传输、适配器与内存流 | [io](io.md) · [Doxygen](../../api/group__io.html) |
-| 错误与日志 | expected、Error、取消与 logger | [errors](errors.md) · [Doxygen](../../api/group__errors.html) |
+| 错误与日志 | expected、error、错误域、取消与 logger | [errors](errors.md) · [Doxygen](../../api/group__errors.html) |
 | TLS 加密 | 信任库、握手与加密流 | [tls](tls.md) |
 | 异步进程 | 命令、标准流与回收 | [process](process.md) |
 | 实验性接口 | 异步入口、生命周期注解与 Sender 互操作 | [experimental](experimental.md) |
@@ -24,6 +26,9 @@
 
 | 公共头文件 | 适用场景 |
 | --- | --- |
+| `<faio/common/match.hpp>` | 按成功、失败、存在、空值、类型或条件选择分支 |
+| `<faio/stdio/print.hpp>` | 用格式串异步写入标准输出或标准错误 |
+| `<faio/stdio/stream.hpp>` | 获取标准输入、输出和错误流 |
 | `<faio/coroutine/task.hpp>` | 定义任务、查询当前协程、使用任务属性 |
 | `<faio/coroutine/composition.hpp>` | 汇合、竞速、任务组、共享结果和串行执行域 |
 | `<faio/coroutine/awaiter.hpp>` | 把应用自己的异步操作接入协程 |

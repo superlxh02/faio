@@ -46,7 +46,7 @@ inline task<expected<std::size_t>> vectored_file(std::shared_ptr<file_state> sta
       if (!vector.iov_len)
         continue;
       if (total > static_cast<std::uint64_t>(INT64_MAX) - position)
-        co_return std::unexpected{Error{EOVERFLOW, total}};
+        co_return std::unexpected{::faio::error{EOVERFLOW, total}};
       expected<std::size_t> count;
       if (write)
         count = co_await write_block(state,

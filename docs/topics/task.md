@@ -64,7 +64,7 @@ auto pinned = fetch(2).with_bind_core();
 auto observed = fetch(3).with_lifecycle(
     [] { /* 首次恢复前 */ },
     [](const faio::task_exit& exit) noexcept {
-      if (exit.status == faio::task_exit::kind::failed) {
+      if (exit.status == faio::task_exit::kind::FAILED) {
         // 只观察失败，不改变结果传播
       }
     });
@@ -236,6 +236,8 @@ faio::task<void> recover() {
 
 `task<expected<U>>` 中的 `expected` 是普通返回值。任务失败指协程体抛出了异常；I/O 错误通常已经在 `expected` 里。
 
+等待任务后，可以用 `faio::match(result, faio::ok(fn), faio::err(fn))` 处理这个返回值。`match` 同步选择分支，回调异常沿当前调用链传播；读取和取消错误的示例见[用模式匹配处理结果](errors.md#用模式匹配处理结果)。
+
 `spawn_detached()` 没有等待者，异常逃出任务体时没有接收方。任务必须自己捕获并处理，或转成日志和停止。
 
 ## 清理函数
@@ -247,7 +249,7 @@ auto job = faio::with_cleanup(
     [] { return fetch(1); },
     [](const faio::task_exit& exit) -> faio::task<void> {
       co_await flush_log();
-      if (exit.status == faio::task_exit::kind::failed)
+      if (exit.status == faio::task_exit::kind::FAILED)
         co_await report(exit.exception);
     });
 const int value = co_await std::move(job);

@@ -159,29 +159,29 @@ class basic_local_scheduler {
  private:
   friend class current_thread_owner_scheduler;
 
-  template <bool OwnerOnly>
+  template <bool owner_only>
   bool global_check_due(std::uint32_t tick, bool force_global) const noexcept {
-    if constexpr (OwnerOnly)
+    if constexpr (owner_only)
       return force_global;
     else
       return force_global || tick % global_queue_interval_ == 0;
   }
 
-  template <bool OwnerOnly>
+  template <bool owner_only>
   std::optional<std::coroutine_handle<>> next_task_impl(std::uint32_t tick, bool force_global) {
     last_task_from_fast_ = false;
     if (!private_queue_.empty()) {
       if (prefer_private_) {
         if (auto task = private_queue_.try_pop()) {
           private_global_check_pending_ =
-              private_global_check_pending_ || global_check_due<OwnerOnly>(tick, force_global);
+              private_global_check_pending_ || global_check_due<owner_only>(tick, force_global);
           prefer_private_ = false;
           return task;
         }
       }
       const bool check_global = force_global || private_global_check_pending_;
       private_global_check_pending_ = false;
-      auto task = next_ordinary_task<OwnerOnly>(tick, check_global);
+      auto task = next_ordinary_task<owner_only>(tick, check_global);
       prefer_private_ = true;
       if (task)
         return task;
@@ -189,19 +189,19 @@ class basic_local_scheduler {
     }
     const bool check_global = force_global || private_global_check_pending_;
     private_global_check_pending_ = false;
-    return next_ordinary_task<OwnerOnly>(tick, check_global);
+    return next_ordinary_task<owner_only>(tick, check_global);
   }
 
   /** @brief 领取下一个普通就绪任务。 */
-  template <bool OwnerOnly>
+  template <bool owner_only>
   std::optional<std::coroutine_handle<>> next_ordinary_task(std::uint32_t tick, bool force_global) {
     last_task_from_fast_ = false;
-    if (global_check_due<OwnerOnly>(tick, force_global)) {
+    if (global_check_due<owner_only>(tick, force_global)) {
       if (auto task = domain_.global_queue().try_pop())
         return task;
-      return next_local_task<OwnerOnly>();
+      return next_local_task<owner_only>();
     }
-    if (auto task = next_local_task<OwnerOnly>())
+    if (auto task = next_local_task<owner_only>())
       return task;
     std::array<std::coroutine_handle<>, LOCAL_QUEUE_CAPACITY / 2> batch;
     const auto capacity = std::min(queue_.remaining_capacity(), batch.size());
@@ -218,10 +218,10 @@ class basic_local_scheduler {
    * @brief 协作预算耗尽时先将快速槽任务降级，避免反复让出的 FIFO 任务独占预算。
    * @details 单驱动线程已经在消费就绪队列，降级后无需唤醒其他线程。
    */
-  template <bool OwnerOnly>
+  template <bool owner_only>
   std::optional<std::coroutine_handle<>> next_local_task() {
     if (execution_budget_.exhausted()) {
-      if constexpr (OwnerOnly) {
+      if constexpr (owner_only) {
         queue_.demote_fast(domain_.global_queue());
       } else {
         const bool another_ready = !queue_.empty();
@@ -230,7 +230,7 @@ class basic_local_scheduler {
           domain_.wake_up_one();
       }
     }
-    auto task = queue_.template try_pop_local<OwnerOnly>();
+    auto task = queue_.template try_pop_local<owner_only>();
     last_task_from_fast_ = task && queue_.last_pop_from_fast();
     if (!task)
       interrupt_execution_chain();

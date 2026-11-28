@@ -12,10 +12,10 @@ faio::expected<int> peer_result(bool fail) {
     return 42;
   auto context = std::make_shared<faio::error_context>();
   context->message = "child failed";
-  context->cause = faio::make_error(faio::Error::WriteZero);
+  context->cause = faio::make_error(faio::error::WRITE_ZERO);
   context->captured_stdout = {'x', '\0'};
   context->process_exit_code = 17;
-  return std::unexpected{faio::Error{3, 7, faio::error_domain::process}.with_context(context)};
+  return std::unexpected{faio::error{3, 7, faio::error_domain::PROCESS}.with_context(context)};
 }
 
 void peer_cancel() {

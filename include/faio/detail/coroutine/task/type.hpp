@@ -153,8 +153,8 @@ class [[nodiscard]] task {
     friend struct detail::with_stop_token_awaiter<T, S, false>;
     friend struct detail::with_stop_token_awaiter<T, S, true>;
 
-    template <class StopOwner>
-    static void set_child_stop_owner(detail::task_context& context, const StopOwner& owner) {
+    template <class stop_owner_type>
+    static void set_child_stop_owner(detail::task_context& context, const stop_owner_type& owner) {
       context.stop_token = owner->source.get_token();
       context.cancellation_owner = owner;
     }
@@ -164,10 +164,10 @@ class [[nodiscard]] task {
      * 通常直接返回子句柄；跨绑核 worker 时投递子任务并返回 noop。
      * 显式停止上下文在发布子任务前安装。
      */
-    template <bool SaveParentScheduling = true, class Parent, class... StopOwners>
+    template <bool save_parent_scheduling = true, class Parent, class... stop_owner_types>
     std::coroutine_handle<> await_suspend_impl(std::coroutine_handle<Parent> parent,
-                                               const StopOwners&... stop_owner) {
-      static_assert(sizeof...(StopOwners) <= 1);
+                                               const stop_owner_types&... stop_owner) {
+      static_assert(sizeof...(stop_owner_types) <= 1);
       if constexpr (requires { typename Parent::scheduler_type; }) {
         static_assert(std::same_as<S, typename Parent::scheduler_type>,
                       "父子 task 的静态调度器类型必须一致");
@@ -188,9 +188,9 @@ class [[nodiscard]] task {
       } else {
         child.context = ::faio::detail::capture_task_context();
       }
-      if constexpr (SaveParentScheduling)
+      if constexpr (save_parent_scheduling)
         parent_scheduling = child.context.scheduling;
-      if constexpr (sizeof...(StopOwners) == 1)
+      if constexpr (sizeof...(stop_owner_types) == 1)
         set_child_stop_owner(child.context, stop_owner...);
       child.initialize_scheduling_opt(child.context.scheduling);
       const auto scheduling = child.context.scheduling;
@@ -212,25 +212,25 @@ class [[nodiscard]] task {
 
   /** @brief 本任务及后代禁止窃取；不改变父任务或兄弟任务的策略。 */
   task with_no_stealing() && {
-    scheduling_options().stealing = detail::scheduling_setting::disabled;
+    scheduling_options().stealing = detail::scheduling_setting::DISABLED;
     return std::move(*this);
   }
 
   /** @brief 显式允许窃取；若祖先已禁止，启动时告警并保留继承的限制。 */
   task with_stealing() && {
-    scheduling_options().stealing = detail::scheduling_setting::enabled;
+    scheduling_options().stealing = detail::scheduling_setting::ENABLED;
     return std::move(*this);
   }
 
   /** @brief 首次执行绑定当前 worker 的已验证 CPU，自动禁止本任务及后代被窃取。 */
   task with_bind_core() && {
-    scheduling_options().bind_core = detail::scheduling_setting::enabled;
+    scheduling_options().bind_core = detail::scheduling_setting::ENABLED;
     return std::move(*this);
   }
 
   /** @brief 显式不绑核；不能解除祖先约束，也不会自动开启窃取。 */
   task with_no_bind_core() && {
-    scheduling_options().bind_core = detail::scheduling_setting::disabled;
+    scheduling_options().bind_core = detail::scheduling_setting::DISABLED;
     return std::move(*this);
   }
 

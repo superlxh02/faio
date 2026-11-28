@@ -9,15 +9,15 @@
 
 namespace faio::io {
 /**  @brief 就绪观察方向；观察者不占用实际读写执行权。 */
-enum class Interest : std::uint32_t { none = 0, readable = 1, writable = 2, read_write = 3 };
+enum class interest : std::uint32_t { NONE = 0, READABLE = 1, WRITABLE = 2, READ_WRITE = 3 };
 
 /** @brief 组合标志选项。 */
-inline constexpr Interest operator|(Interest a, Interest b) noexcept {
-  return static_cast<Interest>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
+inline constexpr interest operator|(interest a, interest b) noexcept {
+  return static_cast<interest>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
 }
 
 /**  @brief 就绪快照；允许假就绪，真实 syscall 的 EAGAIN 才清除缓存。 */
-struct Ready {
+struct readiness {
   std::uint32_t flags{};      /**< 本次观察到的就绪标志位。 */
   std::uint64_t generation{}; /**< 本次完成观察到的资源代际，供 readiness guard 按条件清除。 */
 
@@ -37,11 +37,11 @@ struct Ready {
   bool is_write_closed() const noexcept { return flags & 16; }
 };
 
-enum class ShutdownBehavior { Read = SHUT_RD, Write = SHUT_WR, Both = SHUT_RDWR };
+enum class shutdown_behavior { READ = SHUT_RD, WRITE = SHUT_WR, BOTH = SHUT_RDWR };
 
-enum class cancel_reason : std::uint8_t { user, deadline, close, shutdown };
+enum class cancel_reason : std::uint8_t { USER, DEADLINE, CLOSE, SHUTDOWN };
 
-enum class shutdown_policy : std::uint8_t { drain, cancel_all };
+enum class shutdown_policy : std::uint8_t { DRAIN, CANCEL_ALL };
 
 /**  @brief 由槽位和代际组成的操作令牌；后端不持有 awaiter 地址。 */
 struct operation_token {

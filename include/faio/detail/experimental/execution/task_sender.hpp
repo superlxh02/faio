@@ -37,7 +37,7 @@ struct task_bridge_state_base : task_value<T>, faio::detail::task_completion_ser
 };
 
 /** @brief 桥接状态，持有 receiver 和停止回调连接，并负责交付终态。 */
-template <class T, class Receiver>
+template <class T, class receiver_type>
 struct task_bridge_state : task_bridge_state_base<T> {
   using base_type = task_bridge_state_base<T>; /**< 不依赖接收器类型的桥接共享状态基类。 */
   using base_type::root;
@@ -51,7 +51,7 @@ struct task_bridge_state : task_bridge_state_base<T> {
   using base_type::publishers;
   using base_type::terminal_keepalive;
   using receiver_token = stdexec::stop_token_of_t<
-      stdexec::env_of_t<Receiver>>; /**< 从接收器环境推导的停止令牌类型。 */
+      stdexec::env_of_t<receiver_type>>; /**< 从接收器环境推导的停止令牌类型。 */
 
   struct request_stop {
     task_bridge_state* state; /**< 借用桥接共享状态，外部所有者须保证它在使用期间存活。 */
@@ -68,7 +68,7 @@ struct task_bridge_state : task_bridge_state_base<T> {
   faio::runtime::detail::runtime_context*
       context;      /**< 借用运行时上下文，运行时必须在整个操作期间保持存活。 */
   bool independent; /**< 本次操作是否独立持有根任务接纳责任。 */
-  std::optional<Receiver>
+  std::optional<receiver_type>
       receiver; /**< 接收操作结果的接收器，完成时将其移出，允许回调销毁当前操作。 */
   std::optional<stop_callback<receiver_token, request_stop>>
       receiver_link; /**< 停止源声明在回调之前，逆序析构使停止源存活到回调注销之后。 */
@@ -80,7 +80,7 @@ struct task_bridge_state : task_bridge_state_base<T> {
   task_bridge_state(faio::runtime::detail::runtime_context& target,
                     root_handle graph,
                     bool owns,
-                    Receiver consumer)
+                    receiver_type consumer)
       : base_type(std::move(graph)),
         context(&target),
         independent(owns),
@@ -162,7 +162,7 @@ auto make_task_sender_root_task(std::shared_ptr<task_bridge_state_base<T>> state
   faio::detail::task_context context{
       .scope = &state->tracker,
       .stop_token = state->stop.get_token(),
-      .cancellation_policy = faio::detail::cancellation_error_policy::normal_if_stop_requested,
+      .cancellation_policy = faio::detail::cancellation_error_policy::NORMAL_IF_STOP_REQUESTED,
       .external_scope = {&state->root->host(), state->root.get()}};
   auto root = task_sender_root_task_wrapper(std::move(state), std::move(child));
   root.set_context(std::move(context));
@@ -170,9 +170,9 @@ auto make_task_sender_root_task(std::shared_ptr<task_bridge_state_base<T>> state
 }
 
 /** @brief 将惰性协程提交到运行时的 sender 操作。 */
-template <class T, class Receiver>
+template <class T, class receiver_type>
 class task_operation {
-  using state_type = task_bridge_state<T, Receiver>; /**< 本桥接对象使用的稳定共享状态类型。 */
+  using state_type = task_bridge_state<T, receiver_type>; /**< 本桥接对象使用的稳定共享状态类型。 */
 
   struct start_node_type : faio::detail::external_work_node {
     task_operation* owner; /**< 借用所属操作；该操作在回调或等待期间不得移动或销毁。 */
@@ -185,7 +185,7 @@ class task_operation {
   task_operation(faio::runtime::detail::runtime_context& context,
                  root_handle bound,
                  faio::task<T> child,
-                 Receiver receiver)
+                 receiver_type receiver)
       : state_(make_state(context, std::move(bound), std::move(receiver))),
         reservation_(context.external_host().reserve(state_->root, state_->independent)),
         wrapper_(make_task_sender_root_task<T>(state_, std::move(child))) {
@@ -218,7 +218,7 @@ class task_operation {
   /** @brief 选择所属任务图并创建协程桥接共享状态。 */
   static auto make_state(faio::runtime::detail::runtime_context& context,
                          root_handle bound,
-                         Receiver receiver) -> std::shared_ptr<state_type> {
+                         receiver_type receiver) -> std::shared_ptr<state_type> {
     auto& host = context.external_host();
     bool independent = !(bound && bound->valid());
     if constexpr (requires { get_external_root(stdexec::get_env(receiver)); }) {
@@ -289,8 +289,8 @@ class task_sender {
   }
 
   /** @brief 连接 receiver，创建地址固定的异步操作。 */
-  template <stdexec::receiver Receiver>
-  auto connect(Receiver receiver) && -> task_operation<T, Receiver> {
+  template <stdexec::receiver receiver_type>
+  auto connect(receiver_type receiver) && -> task_operation<T, receiver_type> {
     return {*context_, root_, std::move(child_), std::move(receiver)};
   }
 

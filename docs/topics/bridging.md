@@ -60,7 +60,7 @@ faio::task<int> inventory_value() {
 ```cpp
 faio::runtime::configure(faio::config_builder{}
                              .set_blocking_pool_policy(
-                                 faio::runtime::blocking_pool_policy::fixed)
+                                 faio::runtime::blocking_pool_policy::FIXED)
                              .set_max_blocking_threads(8)
                              .build());
 ```

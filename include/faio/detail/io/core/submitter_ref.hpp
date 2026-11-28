@@ -20,7 +20,7 @@ class io_submitter_api {
   /** @brief 按完整操作身份记录取消；原请求安全完成前不归还负载与槽位。 */
   void request_cancel(this const Derived& self,
                       operation_token token,
-                      cancel_reason reason = cancel_reason::user) noexcept {
+                      cancel_reason reason = cancel_reason::USER) noexcept {
     if (auto* domain = self.native_handle())
       domain->request_cancel(token, reason);
   }

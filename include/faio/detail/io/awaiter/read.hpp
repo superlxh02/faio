@@ -8,17 +8,18 @@
 
 namespace faio::io::detail {
 /**  @brief Read 请求；参数保存在地址稳定的 operation_state 中，挂起前不执行内核操作。 */
-class Read : public IORegistrantAwaiter<Read> {
-  using Base = IORegistrantAwaiter<Read>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
+class read_awaiter : public io_registrant_awaiter<read_awaiter> {
+  using base_type =
+      io_registrant_awaiter<read_awaiter>; /**< 共用请求注册等待器的提交、取消和完成握手。 */
 
  public:
   /** @brief 构造读取等待器。 */
-  Read(native_descriptor fd, void* buffer, std::size_t length, std::uint64_t offset)
-      : Base{[&] {
+  read_awaiter(native_descriptor fd, void* buffer, std::size_t length, std::uint64_t offset)
+      : base_type{[&] {
           io_request r;
-          r.kind = operation_kind::read;
+          r.kind = operation_kind::READ;
 #if defined(_WIN32)
-          r.native_kind = native_handle_kind::windows_handle;
+          r.native_kind = native_handle_kind::WINDOWS_HANDLE;
           r.bypass_resource_registration = true;
           r.windows_implicit_cursor = offset == UINT64_MAX;
 #endif
@@ -31,8 +32,8 @@ class Read : public IORegistrantAwaiter<Read> {
   }
 
   /** @brief 构造读取等待器。 */
-  Read(resource_ptr resource, void* buffer, std::size_t length, std::uint64_t offset)
-      : Read{resource ? resource->fd() : -1, buffer, length, offset} {
+  read_awaiter(resource_ptr resource, void* buffer, std::size_t length, std::uint64_t offset)
+      : read_awaiter{resource ? resource->fd() : -1, buffer, length, offset} {
     this->request_.resource = std::move(resource);
   }
 
@@ -50,6 +51,6 @@ namespace faio::io {
 /**  @brief 操作工厂与等待器在同一头文件中定义，按需包含即可，无需引入其他 I/O 操作。 */
 template <class F>
 inline auto read(F fd, void* buffer, std::size_t length, std::uint64_t offset = UINT64_MAX) {
-  return detail::Read{std::move(fd), buffer, length, offset};
+  return detail::read_awaiter{std::move(fd), buffer, length, offset};
 }
 }  // namespace faio::io

@@ -47,7 +47,7 @@ faio::task<void> rejected_race() {
       (void)co_await faio::race_in(owner, value(42));
       ADD_FAILURE() << "closed group accepted the race";
     } catch (const std::system_error& error) {
-      EXPECT_EQ(error.code(), faio::make_error_code(faio::task_group_errc::closed));
+      EXPECT_EQ(error.code(), faio::make_error_code(faio::task_group_errc::CLOSED));
     }
   });
   EXPECT_TRUE(group.children.empty());

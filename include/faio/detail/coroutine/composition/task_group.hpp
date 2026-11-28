@@ -107,7 +107,7 @@ root_task task_group_root_task_wrapper(task<T, S> work,
       slot->outcome.emplace(std::move(*captured));
   }
 
-  if (metadata->status == task_outcome_status::error)
+  if (metadata->status == task_outcome_status::ERROR_VALUE)
     state->observe_error();
   metadata.reset();
   state->finish();
@@ -249,11 +249,11 @@ using task_group_context = basic_task_group_context<>;
  * 若调用者把句柄存到主体之外，主体结束后拒绝领取；仍保存的句柄可延长其结果槽的寿命。
  */
 template <class S = default_scheduler,
-          class Body,
-          class Work = std::invoke_result_t<Body&, basic_task_group_context<S>&>,
-          class T = typename Work::value_type>
-  requires std::same_as<Work, task<T, S>>
-task<group_result<T>, S> task_group(group_options options, Body body) {
+          class body_type,
+          class work_type = std::invoke_result_t<body_type&, basic_task_group_context<S>&>,
+          class T = typename work_type::value_type>
+  requires std::same_as<work_type, task<T, S>>
+task<group_result<T>, S> task_group(group_options options, body_type body) {
   auto scheduler = co_await this_coro::scheduler();
   auto drain_target = detail::capture_current_resume_target<S>();
   detail::basic_task_group_state<S> state{scheduler, detail::capture_task_context(), options};
@@ -267,7 +267,7 @@ task<group_result<T>, S> task_group(group_options options, Body body) {
     result.emplace(task_outcome<T>::from_error(std::current_exception()));
   }
   state.close_body();
-  if (result->status() == task_outcome_status::error)
+  if (result->status() == task_outcome_status::ERROR_VALUE)
     state.observe_error();
   state.finish();
   co_await state.completion.wait(std::move(drain_target));
@@ -275,8 +275,8 @@ task<group_result<T>, S> task_group(group_options options, Body body) {
 }
 
 /** @brief 使用默认 fail-fast 策略运行组。 */
-template <class S = default_scheduler, class Body>
-auto task_group(Body body) {
+template <class S = default_scheduler, class body_type>
+auto task_group(body_type body) {
   return task_group<S>(group_options{}, std::move(body));
 }
 }  // namespace faio

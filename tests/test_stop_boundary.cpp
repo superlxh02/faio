@@ -130,7 +130,7 @@ TEST(CoroutineDeadline, WorkWinnerReturnsMoveOnlyAndVoidValuesOnce) {
   current_thread_runtime runtime;
   latch absent_trigger{1};
   auto result = runtime.block_on(faio::complete_before(move_only_value(), wait_on(absent_trigger)));
-  EXPECT_EQ(result.status(), deadline_status::value);
+  EXPECT_EQ(result.status(), deadline_status::VALUE);
   EXPECT_EQ(result.exception(), nullptr);
   const auto value = result.take_value();
   ASSERT_TRUE(value);
@@ -138,7 +138,7 @@ TEST(CoroutineDeadline, WorkWinnerReturnsMoveOnlyAndVoidValuesOnce) {
   EXPECT_THROW((void)result.take_value(), std::logic_error);
 
   auto void_result = runtime.block_on(faio::complete_before(no_result(), wait_on(absent_trigger)));
-  EXPECT_EQ(void_result.status(), deadline_status::value);
+  EXPECT_EQ(void_result.status(), deadline_status::VALUE);
   EXPECT_NO_THROW(void_result.take_value());
   EXPECT_THROW(void_result.take_value(), std::logic_error);
 }
@@ -155,11 +155,11 @@ TEST(CoroutineDeadline, BothErrorChannelsPreserveExactExceptionIdentity) {
   const auto trigger_error = std::make_exception_ptr(std::runtime_error("trigger failure"));
   const auto work_result =
       runtime.block_on(faio::complete_before(fail_with(work_error), wait_on(no_result_gate)));
-  EXPECT_EQ(work_result.status(), deadline_status::work_error);
+  EXPECT_EQ(work_result.status(), deadline_status::WORK_ERROR);
   EXPECT_EQ(work_result.exception(), work_error);
   const auto trigger_result =
       runtime.block_on(faio::complete_before(wait_on(no_result_gate), fail_with(trigger_error)));
-  EXPECT_EQ(trigger_result.status(), deadline_status::trigger_error);
+  EXPECT_EQ(trigger_result.status(), deadline_status::TRIGGER_ERROR);
   EXPECT_EQ(trigger_result.exception(), trigger_error);
 }
 
@@ -184,7 +184,7 @@ task<void> check_loser_cleanup(winning_branch winner) {
   auto delayed =
       faio::with_cleanup([&] { return wait_on(losing_gate, loser_entered, loser_token); },
                          [&](const faio::task_exit& exit) -> task<void> {
-                           EXPECT_EQ(exit.status, faio::task_exit::kind::cancelled);
+                           EXPECT_EQ(exit.status, faio::task_exit::kind::CANCELLED);
                            EXPECT_NE(exit.exception, nullptr);
                            scoped_borrow borrow{borrows};
                            cleanup_entered.notify();
@@ -206,7 +206,7 @@ task<void> check_loser_cleanup(winning_branch winner) {
 
   const auto result = co_await operation;
   EXPECT_EQ(result.status(),
-            winner == winning_branch::work ? deadline_status::value : deadline_status::deadline);
+            winner == winning_branch::work ? deadline_status::VALUE : deadline_status::DEADLINE);
   EXPECT_EQ(result.exception(), nullptr);
   EXPECT_EQ(borrows, 0U);
 }
@@ -259,7 +259,7 @@ task<void> check_stopped_first(winning_branch first) {
   release_other.notify();
 
   const auto result = co_await operation;
-  EXPECT_EQ(result.status(), deadline_status::stopped);
+  EXPECT_EQ(result.status(), deadline_status::STOPPED);
   EXPECT_NE(result.exception(), nullptr);
 }
 
@@ -286,7 +286,7 @@ TEST(CoroutineDeadline, RestrictedTriggerAdmissionFailureStopsAndDrainsAcceptedW
   };
   const auto cleanup = [&](const faio::task_exit& exit) -> task<void> {
     ++cleanup_starts;
-    EXPECT_EQ(exit.status, faio::task_exit::kind::cancelled);
+    EXPECT_EQ(exit.status, faio::task_exit::kind::CANCELLED);
     EXPECT_NE(exit.exception, nullptr);
     scoped_borrow borrow{borrows};
     co_await faio::this_coro::yield();
@@ -313,8 +313,8 @@ TEST(CoroutineDeadline, RestrictedTriggerAdmissionFailureStopsAndDrainsAcceptedW
     co_return;
   };
   auto subsequent = runtime.block_on(faio::task_group(group).with_no_stealing());
-  EXPECT_EQ(subsequent.body.status(), faio::task_outcome_status::value);
+  EXPECT_EQ(subsequent.body.status(), faio::task_outcome_status::VALUE);
   ASSERT_EQ(subsequent.children.size(), 1U);
-  EXPECT_EQ(subsequent.children.front().status, faio::task_outcome_status::value);
+  EXPECT_EQ(subsequent.children.front().status, faio::task_outcome_status::VALUE);
 }
 }  // namespace

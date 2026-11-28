@@ -73,7 +73,7 @@ task<std::vector<task_outcome<T>>, S> join_limited_body(basic_task_group_context
   if (admission_error)
     results.emplace_back(task_outcome<T>::from_error(std::move(admission_error)));
   while (results.size() < size)
-    results.emplace_back(task_outcome<T>::from_stopped(task_stop_reason::not_started));
+    results.emplace_back(task_outcome<T>::from_stopped(task_stop_reason::NOT_STARTED));
   co_return results;
 }
 

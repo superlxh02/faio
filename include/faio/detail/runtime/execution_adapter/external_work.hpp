@@ -205,7 +205,7 @@ class external_work_host : public runtime_completion_service {
   using root_handle = external_root_handle; /**< 共享拥有外部根任务状态的租约类型。 */
   static constexpr std::size_t automatic_target =
       std::numeric_limits<std::size_t>::max(); /**< 自动选择目标工作线程的哨兵编号。 */
-  enum class phase { accepting, quiescing, draining, stopped };
+  enum class phase { ACCEPTING, QUIESCING, DRAINING, STOPPED };
 
   /** @brief wake 接受已选定 worker 编号；current-thread 只有编号 0。 */
   explicit external_work_host(std::size_t workers = 1)
@@ -239,7 +239,7 @@ class external_work_host : public runtime_completion_service {
     root->parent_stop_.emplace(stop_.get_token(), external_root_state::forward_stop{&root->stop_});
     {
       std::lock_guard lock(mutex_);
-      if (state() != phase::accepting)
+      if (state() != phase::ACCEPTING)
         throw std::logic_error("external host is not accepting roots");
       root->identity_ = ++next_identity_;
       root->next_ = roots_head_;
@@ -318,7 +318,7 @@ class external_work_host : public runtime_completion_service {
   /** @brief 在宿主状态锁内为已接纳的根任务预留外部操作计数。 */
   reservation reserve(const root_handle& root, bool top_level = false) {
     std::lock_guard lock(mutex_);
-    if (!owns(root) || state() == phase::stopped || (top_level && state() != phase::accepting))
+    if (!owns(root) || state() == phase::STOPPED || (top_level && state() != phase::ACCEPTING))
       throw std::logic_error("external operation has no accepted root");
     ++reservations_;
     ++root->pending_;
@@ -422,15 +422,15 @@ class external_work_host : public runtime_completion_service {
 
  private:
   /** @brief 发布携带结果的完成状态。 */
-  template <class SelectWaker>
+  template <class select_waker_type>
   void publish_with(external_work_node& node,
                     std::size_t target,
-                    SelectWaker select_waker) noexcept {
+                    select_waker_type select_waker) noexcept {
     root_handle root;
     decltype(select_waker()) waker;
     {
       std::lock_guard lock(mutex_);
-      if (!node.ready() || state() == phase::stopped)
+      if (!node.ready() || state() == phase::STOPPED)
         std::terminate();
       if (target == automatic_target) {
         const auto* binding = ::faio::detail::current_execution_binding();
@@ -512,18 +512,18 @@ class external_work_host : public runtime_completion_service {
   /** @brief 停止接纳并等待外部工作静默。 */
   void begin_quiescing() {
     std::lock_guard lock(mutex_);
-    if (state() == phase::accepting) {
+    if (state() == phase::ACCEPTING) {
       if (top_reservations_)
         throw std::logic_error("external top-level operation is connected but not started");
-      phase_.store(phase::quiescing, std::memory_order_release);
+      phase_.store(phase::QUIESCING, std::memory_order_release);
     }
   }
 
   /** @brief 开始排空已接受的工作。 */
   void begin_draining() noexcept {
     std::lock_guard lock(mutex_);
-    if (state() != phase::stopped)
-      phase_.store(phase::draining, std::memory_order_release);
+    if (state() != phase::STOPPED)
+      phase_.store(phase::DRAINING, std::memory_order_release);
   }
 
   /** @brief 向当前任务及其受控后代传播协作停止请求。 */
@@ -549,7 +549,7 @@ class external_work_host : public runtime_completion_service {
     std::lock_guard lock(mutex_);
     if (roots_ || reservations_ || queued_ || dispatches_ || publishers_)
       std::terminate();
-    phase_.store(phase::stopped, std::memory_order_release);
+    phase_.store(phase::STOPPED, std::memory_order_release);
     waker_ = {};
     signal_locked();
   }
@@ -588,7 +588,7 @@ class external_work_host : public runtime_completion_service {
     auto* node = std::exchange(root.drained_node_, nullptr);
     if (!node)
       return;
-    if (!node->ready() || state() == phase::stopped)
+    if (!node->ready() || state() == phase::STOPPED)
       std::terminate();
     node->scope = {};
     node->next = nullptr;
@@ -740,7 +740,7 @@ class external_work_host : public runtime_completion_service {
   std::size_t next_identity_{}, next_worker_{}; /**< 自动分配外部工作目标线程时的轮转位置。 */
   std::size_t roots_{}, reservations_{}, top_reservations_{}, queued_{},
       dispatches_{};                           /**< 已领取且分派守卫尚未退出的外部节点数量。 */
-  std::atomic<phase> phase_{phase::accepting}; /**< 宿主接纳、静默、排空与关闭阶段的原子状态。 */
+  std::atomic<phase> phase_{phase::ACCEPTING}; /**< 宿主接纳、静默、排空与关闭阶段的原子状态。 */
   std::stop_source stop_; /**< 本操作或任务图的停止源，向已登记等待者广播协作取消。 */
   ::faio::runtime::detail::runtime_context*
       context_{}; /**< 借用运行时上下文，其生命期必须覆盖本操作。 */
